@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Exam, 
   Question, 
@@ -42,7 +42,13 @@ import {
   Dices,
   Mail,
   BookOpen,
-  UserCheck
+  UserCheck,
+  FileSpreadsheet,
+  CheckSquare,
+  Square,
+  Save,
+  UserPlus,
+  Settings
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -53,6 +59,7 @@ interface TeacherDashboardProps {
   onUpdateProfile: (p: SchoolProfile) => void;
   onRefreshData: () => void;
   onSelectTab: (tab: any) => void;
+  onOpenSettings?: () => void;
 }
 
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
@@ -62,7 +69,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   submissions,
   onUpdateProfile,
   onRefreshData,
-  onSelectTab
+  onSelectTab,
+  onOpenSettings
 }) => {
   // Auth State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => StorageService.getCurrentUser());
@@ -81,13 +89,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // Question Management State
   const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Partial<Question> | null>(null);
+  const [manualTaxonomyMode, setManualTaxonomyMode] = useState<'bloom' | 'solo' | 'both'>('both');
 
   // AI Generator Modal State
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiTopic, setAiTopic] = useState('Sistem Ekskresi & Metabolisme');
-  const [aiCount, setAiCount] = useState(3);
+  const [aiCount, setAiCount] = useState(5);
   const [aiDifficulty, setAiDifficulty] = useState<'Mudah' | 'Sedang' | 'Sukar'>('Sedang');
   const [aiTaxonomy, setAiTaxonomy] = useState<'bloom' | 'solo'>('bloom');
+  const [aiQuestionType, setAiQuestionType] = useState<'multiple_choice' | 'checkbox' | 'true_false' | 'essay' | 'mixed'>('multiple_choice');
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
 
@@ -95,8 +105,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [profileForm, setProfileForm] = useState<SchoolProfile>(profile);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
 
+  useEffect(() => {
+    setProfileForm(profile);
+  }, [profile]);
+
   // Student & User Management State
   const [studentForm, setStudentForm] = useState({ studentNo: '', fullName: '', classGrade: '' });
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [isBulkStudentModalOpen, setIsBulkStudentModalOpen] = useState(false);
+  const [bulkStudentText, setBulkStudentText] = useState('');
+  const [bulkStudentResult, setBulkStudentResult] = useState<string | null>(null);
+  const [isSavingStudentsToSheets, setIsSavingStudentsToSheets] = useState(false);
+  const [studentSyncMsg, setStudentSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [studentDeleteConfirm, setStudentDeleteConfirm] = useState<{ id: string; name: string } | 'bulk' | null>(null);
+
   const [userForm, setUserForm] = useState({ username: '', fullName: '', password: '', role: 'teacher' as 'admin' | 'teacher' });
 
   // Copy notification
@@ -274,51 +297,82 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // AI Question Generation Handler
   const handleGenerateAiQuestions = async () => {
-    if (!selectedExamId) {
-      alert('Pilih ujian terlebih dahulu.');
+    let examId = selectedExamId;
+    if (!examId && exams.length > 0) {
+      examId = exams[0].id;
+      setSelectedExamId(examId);
+    }
+    if (!examId) {
+      setAiMessage('Belum ada ujian. Silakan buat data ujian terlebih dahulu.');
       return;
     }
-    const currentExam = exams.find(e => e.id === selectedExamId);
-    if (!currentExam) return;
+    const currentExam = exams.find(e => e.id === examId) || exams[0];
+    if (!currentExam) {
+      setAiMessage('Target data ujian tidak ditemukan.');
+      return;
+    }
+
+    const topicToUse = aiTopic.trim() || currentExam.title || currentExam.subject || 'Asesmen Pembelajaran Terpadu';
 
     setIsGeneratingAi(true);
     setAiMessage(null);
 
-    const res = await AiGeneratorService.generateQuestions(selectedExamId, {
-      topic: aiTopic,
-      count: aiCount,
-      difficulty: aiDifficulty,
-      taxonomy: aiTaxonomy,
-      subject: currentExam.subject,
-      grade: currentExam.grade
-    });
+    try {
+      const res = await AiGeneratorService.generateQuestions(currentExam.id, {
+        topic: topicToUse,
+        count: aiCount,
+        difficulty: aiDifficulty,
+        taxonomy: aiTaxonomy,
+        questionType: aiQuestionType,
+        subject: currentExam.subject,
+        grade: currentExam.grade
+      });
 
-    setIsGeneratingAi(false);
-    if (res.success && res.questions) {
-      const existing = StorageService.getQuestionsByExamId(selectedExamId);
-      const merged = [...existing, ...res.questions];
-      // Renumber orders
-      merged.forEach((q, idx) => { q.order = idx + 1; });
-      StorageService.saveQuestionsForExam(selectedExamId, merged);
-      await GasClient.pushExam(currentExam, merged);
-      
-      setAiMessage(`Sukses! ${res.questions.length} butir soal AI berhasil ditambahkan ke ujian.`);
-      onRefreshData();
-      setTimeout(() => {
-        setIsAiModalOpen(false);
-        setAiMessage(null);
-      }, 1500);
-    } else {
-      setAiMessage(`Gagal: ${res.message}`);
+      setIsGeneratingAi(false);
+      if (res.success && res.questions) {
+        const existing = StorageService.getQuestionsByExamId(currentExam.id);
+        const merged = [...existing, ...res.questions];
+        // Renumber orders
+        merged.forEach((q, idx) => { q.order = idx + 1; });
+        StorageService.saveQuestionsForExam(currentExam.id, merged);
+        await GasClient.pushExam(currentExam, merged);
+        
+        const typeLabel = 
+          aiQuestionType === 'multiple_choice' ? 'PG Biasa' :
+          aiQuestionType === 'checkbox' ? 'PG Kompleks' :
+          aiQuestionType === 'true_false' ? 'Benar/Salah' :
+          aiQuestionType === 'essay' ? 'Uraian' : 'Campuran';
+
+        setAiMessage(`Sukses! ${res.questions.length} butir soal ${typeLabel} (${aiTaxonomy.toUpperCase()}) berhasil ditambahkan ke ujian "${currentExam.title}".`);
+        onRefreshData();
+        setTimeout(() => {
+          setIsAiModalOpen(false);
+          setAiMessage(null);
+        }, 1800);
+      } else {
+        setAiMessage(`Gagal: ${res.message || 'Layanan AI belum dapat merespons. Periksa kunci API Anda di Pengaturan.'}`);
+      }
+    } catch (err: any) {
+      setIsGeneratingAi(false);
+      setAiMessage(`Terjadi kendala pembuatan soal: ${err?.message || 'Layanan AI tidak dapat dihubungi.'}`);
     }
   };
 
   // School Profile Save
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    // 1. Simpan ke local storage
+    StorageService.saveProfile(profileForm);
+    // 2. Simpan ke Google Sheets
     await GasClient.pushSchoolProfile(profileForm);
+    // 3. Notifikasi parent component agar state seluruh aplikasi terupdate seketika
     onUpdateProfile(profileForm);
-    setProfileSuccessMsg('Profil sekolah & logo berhasil disimpan!');
+    if (currentUser && profileForm.teacherName) {
+      const updatedUser = { ...currentUser, fullName: profileForm.teacherName };
+      setCurrentUser(updatedUser);
+      StorageService.setCurrentUser(updatedUser);
+    }
+    setProfileSuccessMsg('Profil sekolah & data guru pengampu berhasil disimpan!');
     setTimeout(() => setProfileSuccessMsg(null), 3000);
   };
 
@@ -336,18 +390,129 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   };
 
   // Student Add
-  const handleAddStudent = (e: React.FormEvent) => {
+  const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentForm.studentNo || !studentForm.fullName) return;
-    StorageService.upsertStudent({
-      id: `STD-${Date.now()}`,
+    const newStudent: Student = {
+      id: `STD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       studentNo: studentForm.studentNo.trim(),
       fullName: studentForm.fullName.trim(),
       classGrade: studentForm.classGrade.trim() || 'X Umum',
       status: 'active'
-    });
+    };
+    StorageService.upsertStudent(newStudent);
     setStudentForm({ studentNo: '', fullName: '', classGrade: '' });
     onRefreshData();
+
+    // Auto-push to sheets if connected
+    const currentList = StorageService.getStudents();
+    await GasClient.pushStudents(currentList);
+    setStudentSyncMsg({ type: 'success', text: `Siswa "${newStudent.fullName}" berhasil ditambahkan & disimpan!` });
+    setTimeout(() => setStudentSyncMsg(null), 3500);
+  };
+
+  // Student Edit Save
+  const handleUpdateStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+    StorageService.upsertStudent(editingStudent);
+    setEditingStudent(null);
+    onRefreshData();
+
+    const currentList = StorageService.getStudents();
+    await GasClient.pushStudents(currentList);
+    setStudentSyncMsg({ type: 'success', text: `Data siswa "${editingStudent.fullName}" berhasil diperbarui!` });
+    setTimeout(() => setStudentSyncMsg(null), 3500);
+  };
+
+  // Single Student Delete
+  const handleDeleteStudent = async (studentId: string) => {
+    StorageService.deleteStudent(studentId);
+    setSelectedStudentIds(prev => prev.filter(id => id !== studentId));
+    setStudentDeleteConfirm(null);
+    onRefreshData();
+
+    const currentList = StorageService.getStudents();
+    await GasClient.pushStudents(currentList);
+    setStudentSyncMsg({ type: 'success', text: 'Data siswa berhasil dihapus.' });
+    setTimeout(() => setStudentSyncMsg(null), 3500);
+  };
+
+  // Bulk Student Delete
+  const handleBulkDeleteStudents = async () => {
+    if (selectedStudentIds.length === 0) return;
+    selectedStudentIds.forEach(id => StorageService.deleteStudent(id));
+    const count = selectedStudentIds.length;
+    setSelectedStudentIds([]);
+    setStudentDeleteConfirm(null);
+    onRefreshData();
+
+    const currentList = StorageService.getStudents();
+    await GasClient.pushStudents(currentList);
+    setStudentSyncMsg({ type: 'success', text: `${count} siswa terpilih berhasil dihapus!` });
+    setTimeout(() => setStudentSyncMsg(null), 3500);
+  };
+
+  // Bulk Import Students (from CSV / Excel / Tab-separated)
+  const handleBulkImportStudents = async () => {
+    if (!bulkStudentText.trim()) return;
+    const lines = bulkStudentText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const parsedStudents: Student[] = [];
+
+    for (const line of lines) {
+      const parts = line.includes('\t') 
+        ? line.split('\t') 
+        : line.includes(';') 
+        ? line.split(';') 
+        : line.split(',');
+
+      const nis = (parts[0] || '').trim();
+      const name = (parts[1] || '').trim();
+      const grade = (parts[2] || '').trim() || 'X Umum';
+
+      if (nis && name) {
+        parsedStudents.push({
+          id: `STD-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+          studentNo: nis,
+          fullName: name,
+          classGrade: grade,
+          status: 'active'
+        });
+      }
+    }
+
+    if (parsedStudents.length === 0) {
+      setBulkStudentResult('Format data tidak valid. Pastikan setiap baris berisi: NIS, Nama Lengkap, Kelas.');
+      return;
+    }
+
+    for (const s of parsedStudents) {
+      StorageService.upsertStudent(s);
+    }
+
+    onRefreshData();
+    const allStudents = StorageService.getStudents();
+    await GasClient.pushStudents(allStudents);
+
+    setBulkStudentResult(null);
+    setIsBulkStudentModalOpen(false);
+    setBulkStudentText('');
+    setStudentSyncMsg({ type: 'success', text: `Berhasil mengimpor ${parsedStudents.length} siswa baru ke dalam sistem & Google Sheets!` });
+    setTimeout(() => setStudentSyncMsg(null), 4000);
+  };
+
+  // Manual Push All Students to Sheets
+  const handleSaveStudentsToSheets = async () => {
+    setIsSavingStudentsToSheets(true);
+    setStudentSyncMsg(null);
+    const res = await GasClient.pushStudents(students);
+    setIsSavingStudentsToSheets(false);
+    if (res.success) {
+      setStudentSyncMsg({ type: 'success', text: `Berhasil menyimpan & menyinkronkan ${students.length} data siswa ke Google Sheets!` });
+    } else {
+      setStudentSyncMsg({ type: 'error', text: res.message || 'Gagal menyimpan siswa ke Google Sheets.' });
+    }
+    setTimeout(() => setStudentSyncMsg(null), 5000);
   };
 
   // Copy GAS Code
@@ -478,17 +643,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-sm shrink-0">
-            {currentUser.fullName.charAt(0)}
+            {(profile.teacherName || currentUser.fullName).charAt(0)}
           </div>
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <span>{currentUser.fullName}</span>
+              <span>{profile.teacherName || currentUser.fullName}</span>
               <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
-                {currentUser.role === 'admin' ? 'Administrator' : 'Guru Pengampu'}
+                {profile.teacherTitle || (currentUser.role === 'admin' ? 'Administrator' : 'Guru Pengampu')}
               </span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              {profile.name} · Tahun Ajaran {profile.academicYear}
+              {profile.name} · Tahun Ajaran {profile.academicYear} {profile.teacherNip ? `· NIP: ${profile.teacherNip}` : ''}
             </p>
           </div>
         </div>
@@ -870,22 +1035,36 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   </div>
                 )}
 
-                {/* Options preview */}
-                {q.type === 'multiple_choice' && (
+                {/* Options preview for multiple_choice and checkbox */}
+                {(q.type === 'multiple_choice' || q.type === 'checkbox') && q.options && q.options.length > 0 && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300">
-                    {q.options.map(opt => (
-                      <div
-                        key={opt.id}
-                        className={`p-2 rounded-lg border flex items-center gap-2 ${
-                          opt.id === q.correctKey
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 font-semibold'
-                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-                        }`}
-                      >
-                        <span className="w-4 text-center font-bold">{opt.id === q.correctKey ? '✓' : '•'}</span>
-                        <span className="truncate">{opt.text}</span>
-                      </div>
-                    ))}
+                    {q.options.map(opt => {
+                      const isCorrect = Array.isArray(q.correctKey)
+                        ? q.correctKey.includes(opt.id)
+                        : opt.id === q.correctKey;
+
+                      return (
+                        <div
+                          key={opt.id}
+                          className={`p-2 rounded-lg border flex items-center gap-2 ${
+                            isCorrect
+                              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 font-semibold'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                          }`}
+                        >
+                          <span className="w-4 text-center font-bold">{isCorrect ? '✓' : '•'}</span>
+                          <span className="truncate">{opt.text}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Essay Answer Key preview */}
+                {q.type === 'essay' && q.correctKey && (
+                  <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs">
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">Kunci / Panduan Jawaban: </span>
+                    <span className="text-slate-600 dark:text-slate-400">{typeof q.correctKey === 'string' ? q.correctKey : JSON.stringify(q.correctKey)}</span>
                   </div>
                 )}
 
@@ -1274,30 +1453,81 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       )}
 
       {/* ---------------------------------------------------------
-          SUB-TAB 5: STUDENT ROSTER
+          SUB-TAB 5: STUDENT ROSTER (Daftar Siswa Terdaftar)
          --------------------------------------------------------- */}
       {activeTab === 'users' && (
         <div className="space-y-6 animate-fadeIn">
+          {/* Header & Main Actions */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                Daftar Siswa Terdaftar
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>Daftar Siswa Terdaftar</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-mono font-bold">
+                  {students.length} Siswa
+                </span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Siswa yang terdaftar dapat melakukan auto-fill saat memasukkan nomor induk pada halaman ujian.
+                Kelola data siswa, impor dari spreadsheet secara massal, dan simpan langsung ke Google Sheets.
               </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setBulkStudentResult(null);
+                  setBulkStudentText('');
+                  setIsBulkStudentModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-xs rounded-xl transition-colors border border-slate-200 dark:border-slate-700"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Input Massal (Bulk)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveStudentsToSheets}
+                disabled={isSavingStudentsToSheets}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors disabled:opacity-50"
+              >
+                {isSavingStudentsToSheets ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                <span>{isSavingStudentsToSheets ? 'Menyimpan ke Sheets...' : 'Simpan Data Siswa ke Sheets'}</span>
+              </button>
             </div>
           </div>
 
-          {/* Add Student Form */}
+          {/* Sync / Notification Banner */}
+          {studentSyncMsg && (
+            <div
+              className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 border animate-fadeIn ${
+                studentSyncMsg.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                  : 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+              }`}
+            >
+              {studentSyncMsg.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <div className="flex-1">{studentSyncMsg.text}</div>
+            </div>
+          )}
+
+          {/* Add Single Student Form */}
           <form onSubmit={handleAddStudent} className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row gap-3">
             <input
               type="text"
               required
-              placeholder="NIS (misal: 1007)"
+              placeholder="NIS / NISN (contoh: 1007)"
               value={studentForm.studentNo}
               onChange={(e) => setStudentForm({ ...studentForm, studentNo: e.target.value })}
-              className="px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              className="px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
             />
             <input
               type="text"
@@ -1305,57 +1535,146 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               placeholder="Nama Lengkap Siswa"
               value={studentForm.fullName}
               onChange={(e) => setStudentForm({ ...studentForm, fullName: e.target.value })}
-              className="flex-1 px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              className="flex-1 px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
             />
             <input
               type="text"
-              placeholder="Kelas (misal: X MIPA 1)"
+              placeholder="Kelas (contoh: X MIPA 1)"
               value={studentForm.classGrade}
               onChange={(e) => setStudentForm({ ...studentForm, classGrade: e.target.value })}
-              className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+              className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
             />
             <button
               type="submit"
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg transition-colors shrink-0"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg transition-colors shrink-0 flex items-center justify-center gap-1.5"
             >
-              Tambah Siswa
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Tambah Siswa</span>
             </button>
           </form>
 
+          {/* Bulk Selection Actions Bar */}
+          {selectedStudentIds.length > 0 && (
+            <div className="p-3 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl border border-indigo-200 dark:border-indigo-800 flex items-center justify-between text-xs animate-fadeIn">
+              <span className="font-semibold text-indigo-900 dark:text-indigo-200">
+                {selectedStudentIds.length} siswa terpilih dari {students.length} total siswa
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedStudentIds([])}
+                  className="px-3 py-1.5 text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                >
+                  Batal Pilih
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudentDeleteConfirm('bulk')}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Terpilih ({selectedStudentIds.length})</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Student List Table */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                  <th className="p-3">NIS</th>
-                  <th className="p-3">Nama Lengkap</th>
-                  <th className="p-3">Kelas / Rombel</th>
-                  <th className="p-3 text-right">Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {students.map(s => (
-                  <tr key={s.id} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                    <td className="p-3 font-mono font-medium">{s.studentNo}</td>
-                    <td className="p-3 font-semibold text-slate-900 dark:text-white">{s.fullName}</td>
-                    <td className="p-3 text-slate-500">{s.classGrade}</td>
-                    <td className="p-3 text-right">
-                      <button
-                        onClick={() => {
-                          if (confirm(`Hapus siswa ${s.fullName}?`)) {
-                            StorageService.deleteStudent(s.id);
-                            onRefreshData();
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                    <th className="p-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        checked={students.length > 0 && selectedStudentIds.length === students.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedStudentIds(students.map(s => s.id));
+                          } else {
+                            setSelectedStudentIds([]);
                           }
                         }}
-                        className="text-xs text-rose-500 hover:text-rose-600"
-                      >
-                        Hapus
-                      </button>
-                    </td>
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        title="Pilih Semua Siswa"
+                      />
+                    </th>
+                    <th className="p-3">NIS</th>
+                    <th className="p-3">Nama Lengkap</th>
+                    <th className="p-3">Kelas / Rombel</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3 text-right">Aksi</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {students.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400">
+                        Belum ada siswa terdaftar. Tambahkan siswa secara manual atau gunakan tombol "Input Massal (Bulk)".
+                      </td>
+                    </tr>
+                  ) : (
+                    students.map(s => {
+                      const isSelected = selectedStudentIds.includes(s.id);
+                      return (
+                        <tr 
+                          key={s.id} 
+                          className={`border-b border-slate-100 dark:border-slate-800/60 transition-colors ${
+                            isSelected ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/30'
+                          }`}
+                        >
+                          <td className="p-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedStudentIds(prev => [...prev, s.id]);
+                                } else {
+                                  setSelectedStudentIds(prev => prev.filter(id => id !== s.id));
+                                }
+                              }}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            />
+                          </td>
+                          <td className="p-3 font-mono font-medium text-slate-700 dark:text-slate-300">{s.studentNo}</td>
+                          <td className="p-3 font-semibold text-slate-900 dark:text-white">{s.fullName}</td>
+                          <td className="p-3 text-slate-500 dark:text-slate-400">{s.classGrade}</td>
+                          <td className="p-3">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+                              Aktif
+                            </span>
+                          </td>
+                          <td className="p-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditingStudent({ ...s })}
+                                className="px-2 py-1 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors flex items-center gap-1"
+                                title="Edit Siswa"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setStudentDeleteConfirm({ id: s.id, name: s.fullName })}
+                                className="px-2 py-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors flex items-center gap-1"
+                                title="Hapus Siswa"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Hapus</span>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -1434,6 +1753,25 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             )}
 
             <div className="space-y-4">
+              {/* Target Exam Selection */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Target Ujian
+                </label>
+                <select
+                  value={selectedExamId || exams[0]?.id || ''}
+                  onChange={(e) => setSelectedExamId(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-semibold"
+                >
+                  {exams.map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.subject} - {e.title} ({e.grade})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Topic / Materi */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Topik / Materi Soal
@@ -1443,26 +1781,75 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   value={aiTopic}
                   onChange={(e) => setAiTopic(e.target.value)}
                   placeholder="Contoh: Hukum Archimedes & Tekanan Zat Cair"
-                  className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                  className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Jumlah Soal
-                  </label>
-                  <select
-                    value={aiCount}
-                    onChange={(e) => setAiCount(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                  >
-                    <option value={2}>2 Butir Soal (Cepat)</option>
-                    <option value={3}>3 Butir Soal (Rekomendasi)</option>
-                    <option value={5}>5 Butir Soal</option>
-                  </select>
-                </div>
+              {/* Bentuk Soal Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Bentuk Soal
+                </label>
+                <select
+                  value={aiQuestionType}
+                  onChange={(e: any) => setAiQuestionType(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-medium"
+                >
+                  <option value="multiple_choice">Pilihan Ganda Biasa (1 Jawaban Benar)</option>
+                  <option value="checkbox">Pilihan Ganda Kompleks (Multi Jawaban Benar)</option>
+                  <option value="true_false">Benar / Salah (2 Opsi)</option>
+                  <option value="essay">Uraian / Isian Singkat</option>
+                  <option value="mixed">Campuran / Variatif (PG, PG Kompleks & Uraian)</option>
+                </select>
+              </div>
 
+              {/* Jumlah Soal (Up to 50 Butir Soal) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Jumlah Soal (Mendukung hingga 50 Butir)
+                  </label>
+                  <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                    {aiCount} Butir
+                  </span>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={aiCount}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setAiCount(Math.min(50, Math.max(1, isNaN(val) ? 1 : val)));
+                      }}
+                      className="w-24 px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                    />
+                    <span className="text-xs text-slate-400">Pilih cepat:</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[5, 10, 15, 20, 25, 30, 40, 50].map(cnt => (
+                      <button
+                        key={cnt}
+                        type="button"
+                        onClick={() => setAiCount(cnt)}
+                        className={`px-2.5 py-1 text-xs font-mono rounded-lg border transition-colors ${
+                          aiCount === cnt
+                            ? 'bg-indigo-600 text-white border-indigo-600 font-bold shadow-xs'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400'
+                        }`}
+                      >
+                        {cnt} Soal
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tingkat Kesulitan & Kerangka Taksonomi */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Tingkat Kesulitan
@@ -1470,50 +1857,73 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <select
                     value={aiDifficulty}
                     onChange={(e: any) => setAiDifficulty(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                   >
                     <option value="Mudah">Mudah</option>
                     <option value="Sedang">Sedang</option>
                     <option value="Sukar">Sukar (HOTS)</option>
                   </select>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Kerangka Taksonomi Soal
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAiTaxonomy('bloom')}
-                    className={`p-2 text-xs font-semibold rounded-lg border text-center transition-all ${
-                      aiTaxonomy === 'bloom'
-                        ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-600 text-indigo-700 dark:text-indigo-300'
-                        : 'border-slate-200 dark:border-slate-800 text-slate-600'
-                    }`}
-                  >
-                    Bloom-Anderson (C1–C6)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAiTaxonomy('solo')}
-                    className={`p-2 text-xs font-semibold rounded-lg border text-center transition-all ${
-                      aiTaxonomy === 'solo'
-                        ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-600 text-indigo-700 dark:text-indigo-300'
-                        : 'border-slate-200 dark:border-slate-800 text-slate-600'
-                    }`}
-                  >
-                    Taksonomi SOLO
-                  </button>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Kerangka Taksonomi
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setAiTaxonomy('bloom')}
+                      className={`p-2 text-[11px] font-semibold rounded-lg border text-center transition-all ${
+                        aiTaxonomy === 'bloom'
+                          ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-600 text-indigo-700 dark:text-indigo-300'
+                          : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      Bloom-Anderson
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAiTaxonomy('solo')}
+                      className={`p-2 text-[11px] font-semibold rounded-lg border text-center transition-all ${
+                        aiTaxonomy === 'solo'
+                          ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-600 text-indigo-700 dark:text-indigo-300'
+                          : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      Taksonomi SOLO
+                    </button>
+                  </div>
                 </div>
               </div>
+
+              {/* Warning if API key is missing */}
+              {!StorageService.getSettings().geminiApiKey?.trim() && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/60 rounded-xl border border-amber-300 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-semibold">Kunci API Gemini belum diatur.</p>
+                    <p className="text-[11px] mt-0.5 opacity-90">Masukkan kunci API Gemini Anda di menu Pengaturan agar AI dapat memproses pembuatan soal.</p>
+                    {onOpenSettings && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAiModalOpen(false);
+                          onOpenSettings();
+                        }}
+                        className="mt-2 px-3 py-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors"
+                      >
+                        Buka Menu Pengaturan
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="pt-3 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsAiModalOpen(false)}
-                  className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 rounded-lg"
+                  className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
                 >
                   Batal
                 </button>
@@ -1521,10 +1931,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   type="button"
                   disabled={isGeneratingAi}
                   onClick={handleGenerateAiQuestions}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg flex items-center gap-1.5 shadow-sm"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-50 transition-colors"
                 >
                   {isGeneratingAi && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{isGeneratingAi ? 'Menghasilkan Soal...' : 'Mulai Buat Soal'}</span>
+                  <span>{isGeneratingAi ? 'Menghasilkan Soal...' : `Mulai Buat ${aiCount} Soal AI`}</span>
                 </button>
               </div>
             </div>
@@ -1712,6 +2122,67 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </h3>
 
             <form onSubmit={handleSaveQuestion} className="space-y-4">
+              {/* Bentuk Soal Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Bentuk Soal
+                </label>
+                <select
+                  value={editingQuestion.type === 'multiple_choice' && editingQuestion.options?.length === 2 && editingQuestion.options[0]?.text === 'Benar' ? 'true_false' : editingQuestion.type || 'multiple_choice'}
+                  onChange={(e) => {
+                    const newType = e.target.value;
+                    if (newType === 'essay') {
+                      setEditingQuestion({
+                        ...editingQuestion,
+                        type: 'essay',
+                        options: [],
+                        correctKey: typeof editingQuestion.correctKey === 'string' ? editingQuestion.correctKey : ''
+                      });
+                    } else if (newType === 'checkbox') {
+                      setEditingQuestion({
+                        ...editingQuestion,
+                        type: 'checkbox',
+                        options: (editingQuestion.options && editingQuestion.options.length > 0 && editingQuestion.options[0]?.text !== 'Benar') ? editingQuestion.options : [
+                          { id: 'opt_a', text: 'Pilihan A' },
+                          { id: 'opt_b', text: 'Pilihan B' },
+                          { id: 'opt_c', text: 'Pilihan C' },
+                          { id: 'opt_d', text: 'Pilihan D' }
+                        ],
+                        correctKey: Array.isArray(editingQuestion.correctKey) ? editingQuestion.correctKey : ['opt_a']
+                      });
+                    } else if (newType === 'true_false') {
+                      setEditingQuestion({
+                        ...editingQuestion,
+                        type: 'multiple_choice',
+                        options: [
+                          { id: 'opt_a', text: 'Benar' },
+                          { id: 'opt_b', text: 'Salah' }
+                        ],
+                        correctKey: 'opt_a'
+                      });
+                    } else {
+                      setEditingQuestion({
+                        ...editingQuestion,
+                        type: 'multiple_choice',
+                        options: (editingQuestion.options && editingQuestion.options.length > 0 && editingQuestion.options[0]?.text !== 'Benar') ? editingQuestion.options : [
+                          { id: 'opt_a', text: 'Pilihan A' },
+                          { id: 'opt_b', text: 'Pilihan B' },
+                          { id: 'opt_c', text: 'Pilihan C' },
+                          { id: 'opt_d', text: 'Pilihan D' }
+                        ],
+                        correctKey: typeof editingQuestion.correctKey === 'string' ? editingQuestion.correctKey : 'opt_a'
+                      });
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-semibold"
+                >
+                  <option value="multiple_choice">Pilihan Ganda Biasa (1 Jawaban Benar)</option>
+                  <option value="checkbox">Pilihan Ganda Kompleks (Multi Jawaban Benar)</option>
+                  <option value="true_false">Benar / Salah (2 Opsi: Benar atau Salah)</option>
+                  <option value="essay">Uraian / Isian Singkat</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Teks Pertanyaan Soal
@@ -1722,7 +2193,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   placeholder="Ketik pertanyaan lengkap di sini..."
                   value={editingQuestion.prompt || ''}
                   onChange={(e) => setEditingQuestion({ ...editingQuestion, prompt: e.target.value })}
-                  className="w-full p-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 leading-relaxed"
+                  className="w-full p-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white leading-relaxed"
                 />
               </div>
 
@@ -1761,12 +2232,29 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 )}
               </div>
 
-              {/* Options */}
+              {/* Multiple Choice Options (Single Correct) */}
               {editingQuestion.type === 'multiple_choice' && (
                 <div className="space-y-2">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Pilihan Jawaban & Kunci Benar:
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Pilihan Jawaban (Klik radio untuk menandai kunci benar):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentOpts = editingQuestion.options || [];
+                        const nextLetter = String.fromCharCode(65 + currentOpts.length);
+                        const nextId = `opt_${nextLetter.toLowerCase()}`;
+                        setEditingQuestion({
+                          ...editingQuestion,
+                          options: [...currentOpts, { id: nextId, text: '' }]
+                        });
+                      }}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold"
+                    >
+                      + Tambah Opsi
+                    </button>
+                  </div>
                   {(editingQuestion.options || []).map((opt, i) => (
                     <div key={opt.id} className="flex items-center gap-2">
                       <input
@@ -1774,7 +2262,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         name="correctAnswerKey"
                         checked={editingQuestion.correctKey === opt.id}
                         onChange={() => setEditingQuestion({ ...editingQuestion, correctKey: opt.id })}
-                        className="text-indigo-600"
+                        className="text-indigo-600 w-4 h-4"
                         title="Tandai sebagai kunci benar"
                       />
                       <span className="w-5 text-xs font-bold text-slate-400 font-mono">
@@ -1789,47 +2277,229 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           setEditingQuestion({ ...editingQuestion, options: newOpts });
                         }}
                         placeholder={`Teks Opsi ${String.fromCharCode(65 + i)}`}
-                        className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                        className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                       />
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Points & Explanation */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Checkbox Options (Multi Correct) */}
+              {editingQuestion.type === 'checkbox' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Pilihan Jawaban Kompleks (Centang satu atau lebih opsi sebagai kunci benar):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const currentOpts = editingQuestion.options || [];
+                        const nextLetter = String.fromCharCode(65 + currentOpts.length);
+                        const nextId = `opt_${nextLetter.toLowerCase()}`;
+                        setEditingQuestion({
+                          ...editingQuestion,
+                          options: [...currentOpts, { id: nextId, text: '' }]
+                        });
+                      }}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold"
+                    >
+                      + Tambah Opsi
+                    </button>
+                  </div>
+                  {(editingQuestion.options || []).map((opt, i) => {
+                    const currentKeys = Array.isArray(editingQuestion.correctKey) ? editingQuestion.correctKey : [editingQuestion.correctKey || 'opt_a'];
+                    const isChecked = currentKeys.includes(opt.id);
+
+                    return (
+                      <div key={opt.id} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            let nextKeys: string[];
+                            if (e.target.checked) {
+                              nextKeys = [...currentKeys, opt.id];
+                            } else {
+                              nextKeys = currentKeys.filter(k => k !== opt.id);
+                            }
+                            setEditingQuestion({ ...editingQuestion, correctKey: nextKeys });
+                          }}
+                          className="text-indigo-600 w-4 h-4 rounded"
+                          title="Tandai sebagai salah satu kunci benar"
+                        />
+                        <span className="w-5 text-xs font-bold text-slate-400 font-mono">
+                          {String.fromCharCode(65 + i)}.
+                        </span>
+                        <input
+                          type="text"
+                          value={opt.text}
+                          onChange={(e) => {
+                            const newOpts = [...(editingQuestion.options || [])];
+                            newOpts[i] = { ...newOpts[i], text: e.target.value };
+                            setEditingQuestion({ ...editingQuestion, options: newOpts });
+                          }}
+                          placeholder={`Teks Opsi ${String.fromCharCode(65 + i)}`}
+                          className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Essay Sample Key */}
+              {editingQuestion.type === 'essay' && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Bobot Poin
+                    Kunci / Rangkuman Jawaban Benar (Esai / Uraian)
                   </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={editingQuestion.points || 20}
-                    onChange={(e) => setEditingQuestion({ ...editingQuestion, points: Number(e.target.value) })}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                  <textarea
+                    rows={2}
+                    placeholder="Tuliskan kata kunci atau contoh jawaban benar..."
+                    value={typeof editingQuestion.correctKey === 'string' ? editingQuestion.correctKey : ''}
+                    onChange={(e) => setEditingQuestion({ ...editingQuestion, correctKey: e.target.value })}
+                    className="w-full p-2.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                   />
                 </div>
+              )}
 
+              {/* Points */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Bobot Poin Soal
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={editingQuestion.points || 20}
+                  onChange={(e) => setEditingQuestion({ ...editingQuestion, points: Number(e.target.value) })}
+                  className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              {/* Taxonomy Section: Bloom-Anderson & SOLO Taxonomy */}
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700/80 space-y-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Level Bloom-Anderson
-                  </label>
-                  <select
-                    value={editingQuestion.bloomLevel || 'C3 - Menerapkan'}
-                    onChange={(e) => setEditingQuestion({ ...editingQuestion, bloomLevel: e.target.value as BloomLevel })}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
-                  >
-                    <option value="C1 - Mengingat">C1 - Mengingat</option>
-                    <option value="C2 - Memahami">C2 - Memahami</option>
-                    <option value="C3 - Menerapkan">C3 - Menerapkan</option>
-                    <option value="C4 - Menganalisis">C4 - Menganalisis</option>
-                    <option value="C5 - Mengevaluasi">C5 - Mengevaluasi</option>
-                    <option value="C6 - Mencipta">C6 - Mencipta</option>
-                  </select>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-1.5">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">
+                      Kerangka Taksonomi Asesmen (Bloom / SOLO)
+                    </span>
+                    <div className="flex bg-slate-200 dark:bg-slate-800 p-0.5 rounded-lg text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setManualTaxonomyMode('bloom')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                          manualTaxonomyMode === 'bloom'
+                            ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        Bloom-Anderson
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManualTaxonomyMode('solo')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                          manualTaxonomyMode === 'solo'
+                            ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        Taksonomi SOLO
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManualTaxonomyMode('both')}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                          manualTaxonomyMode === 'both'
+                            ? 'bg-white dark:bg-indigo-600 text-indigo-600 dark:text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        Keduanya
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {manualTaxonomyMode === 'solo' 
+                      ? 'Taksonomi SOLO mengukur kedalaman struktur hasil belajar (Prestructural s.d. Extended Abstract).' 
+                      : manualTaxonomyMode === 'bloom' 
+                      ? 'Taksonomi Bloom-Anderson mengukur level proses kognitif C1 (Mengingat) s.d. C6 (Mencipta).' 
+                      : 'Mengintegrasikan level kognitif Bloom-Anderson dan tingkat pemahaman SOLO sekaligus untuk kisi-kisi komprehensif.'}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(manualTaxonomyMode === 'bloom' || manualTaxonomyMode === 'both') && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                        Level Bloom-Anderson
+                      </label>
+                      <select
+                        value={editingQuestion.bloomLevel || 'C3 - Menerapkan'}
+                        onChange={(e) => setEditingQuestion({ ...editingQuestion, bloomLevel: e.target.value as BloomLevel })}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      >
+                        <option value="C1 - Mengingat">C1 - Mengingat</option>
+                        <option value="C2 - Memahami">C2 - Memahami</option>
+                        <option value="C3 - Menerapkan">C3 - Menerapkan</option>
+                        <option value="C4 - Menganalisis">C4 - Menganalisis</option>
+                        <option value="C5 - Mengevaluasi">C5 - Mengevaluasi</option>
+                        <option value="C6 - Mencipta">C6 - Mencipta</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {(manualTaxonomyMode === 'solo' || manualTaxonomyMode === 'both') && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                        Level Taksonomi SOLO
+                      </label>
+                      <select
+                        value={editingQuestion.soloLevel || 'Multistructural'}
+                        onChange={(e) => setEditingQuestion({ ...editingQuestion, soloLevel: e.target.value as SoloLevel })}
+                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      >
+                        <option value="Prestructural">1. Prestructural (Belum paham konsep)</option>
+                        <option value="Unistructural">2. Unistructural (1 aspek tunggal)</option>
+                        <option value="Multistructural">3. Multistructural (Banyak aspek terpisah)</option>
+                        <option value="Relational">4. Relational (Menghubungkan keterkaitan)</option>
+                        <option value="Extended Abstract">5. Extended Abstract (Generalisasi / Hipotesis)</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                      Kompetensi Dasar / Capaian Pembelajaran (KD/CP)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: 3.2 Menjelaskan proses metabolisme..."
+                      value={editingQuestion.basicCompetency || ''}
+                      onChange={(e) => setEditingQuestion({ ...editingQuestion, basicCompetency: e.target.value })}
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                      Indikator Soal
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: Siswa dapat mengidentifikasi struktur organel..."
+                      value={editingQuestion.indicator || ''}
+                      onChange={(e) => setEditingQuestion({ ...editingQuestion, indicator: e.target.value })}
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                    />
+                  </div>
                 </div>
               </div>
 
+              {/* Explanation */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Pembahasan Kunci Jawaban
@@ -1839,7 +2509,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   placeholder="Penjelasan mengapa jawaban tersebut benar..."
                   value={editingQuestion.explanation || ''}
                   onChange={(e) => setEditingQuestion({ ...editingQuestion, explanation: e.target.value })}
-                  className="w-full p-2.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
+                  className="w-full p-2.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
               </div>
 
@@ -1847,18 +2517,207 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsQuestionModalOpen(false)}
-                  className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 rounded-lg"
+                  className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg shadow-sm"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-sm"
                 >
                   Simpan Soal
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          MODAL: EDIT STUDENT
+         --------------------------------------------------------- */}
+      {editingStudent && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">
+              Edit Data Siswa
+            </h3>
+
+            <form onSubmit={handleUpdateStudent} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  NIS / NISN
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editingStudent.studentNo}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, studentNo: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nama Lengkap Siswa
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editingStudent.fullName}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, fullName: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Kelas / Rombel
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editingStudent.classGrade}
+                  onChange={(e) => setEditingStudent({ ...editingStudent, classGrade: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingStudent(null)}
+                  className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs"
+                >
+                  Perbarui Siswa
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          MODAL: BULK IMPORT STUDENTS
+         --------------------------------------------------------- */}
+      {isBulkStudentModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Input Data Siswa Secara Massal (Bulk)
+                </h3>
+              </div>
+              <button onClick={() => setIsBulkStudentModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 text-xs space-y-1">
+                <p className="font-semibold text-slate-800 dark:text-slate-200">
+                  Format per baris (Pisahkan dengan koma, titik-koma, atau tab Excel):
+                </p>
+                <p className="font-mono text-indigo-600 dark:text-indigo-400">
+                  NIS, Nama Lengkap Siswa, Kelas / Rombel
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Anda bisa menyalin (copy) langsung beberapa kolom dari Microsoft Excel atau Google Sheets lalu menempelkannya (paste) di bawah.
+                </p>
+              </div>
+
+              {bulkStudentResult && (
+                <div className="p-3 rounded-lg text-xs font-semibold bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200">
+                  {bulkStudentResult}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Tempelkan (Paste) Data Siswa:
+                </label>
+                <textarea
+                  rows={8}
+                  value={bulkStudentText}
+                  onChange={(e) => setBulkStudentText(e.target.value)}
+                  placeholder={`1001, Ahmad Fauzi Rahman, X MIPA 1\n1002, Bunga Citra Lestari, X MIPA 1\n1003, Cantika Dewi Putri, X MIPA 2`}
+                  className="w-full p-3 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white leading-relaxed"
+                />
+                <div className="text-[11px] text-slate-400 mt-1">
+                  {bulkStudentText.trim() ? bulkStudentText.split('\n').filter(l => l.trim().length > 0).length : 0} baris data terdeteksi.
+                </div>
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBulkStudentModalOpen(false)}
+                  className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkImportStudents}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-xs flex items-center gap-1.5"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Impor & Sinkronkan Siswa</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          MODAL: CONFIRM DELETE STUDENT (Single or Bulk)
+         --------------------------------------------------------- */}
+      {studentDeleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center mx-auto mb-3">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+              Konfirmasi Hapus Data Siswa
+            </h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-5 leading-relaxed">
+              {studentDeleteConfirm === 'bulk'
+                ? `Apakah Anda yakin ingin menghapus ${selectedStudentIds.length} data siswa terpilih? Tindakan ini akan diperbarui ke Google Sheets.`
+                : `Apakah Anda yakin ingin menghapus siswa "${studentDeleteConfirm.name}"?`}
+            </p>
+
+            <div className="flex justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setStudentDeleteConfirm(null)}
+                className="px-4 py-2 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (studentDeleteConfirm === 'bulk') {
+                    handleBulkDeleteStudents();
+                  } else {
+                    handleDeleteStudent(studentDeleteConfirm.id);
+                  }
+                }}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded-lg shadow-xs"
+              >
+                Ya, Hapus Siswa
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -73,7 +73,13 @@ export default function App() {
     // 1. Flush any pending offline submissions
     const { syncedCount } = await GasClient.flushPendingSubmissions();
 
-    // 2. Pull latest data from sheets
+    // 2. Push current local students to Google Sheets first so user data is saved
+    const localStudents = StorageService.getStudents();
+    if (localStudents.length > 0) {
+      await GasClient.pushStudents(localStudents);
+    }
+
+    // 3. Pull latest data from sheets
     const pullResult = await GasClient.fetchAllFromSheets();
 
     setIsSyncing(false);
@@ -81,8 +87,8 @@ export default function App() {
 
     if (pullResult.success) {
       const bannerText = syncedCount > 0
-        ? `Sinkronisasi berhasil! ${syncedCount} jawaban terkirim dan data Google Sheets terupdate.`
-        : 'Sinkronisasi sukses! Data terhubung secara real-time dengan Google Sheets.';
+        ? `Sinkronisasi berhasil! ${syncedCount} jawaban terkirim dan data siswa/ujian terupdate.`
+        : 'Sinkronisasi sukses! Data siswa dan ujian tersimpan di Google Sheets.';
 
       setSyncSuccessBanner(bannerText);
 
@@ -97,7 +103,8 @@ export default function App() {
 
       setTimeout(() => setSyncSuccessBanner(null), 4000);
     } else {
-      alert(`Sinkronisasi terkendala: ${pullResult.message}\nCek tab "Log Koneksi" untuk informasi lengkap.`);
+      setSyncSuccessBanner(`Sinkronisasi terkendala: ${pullResult.message}`);
+      setTimeout(() => setSyncSuccessBanner(null), 5000);
     }
   };
 
@@ -164,11 +171,13 @@ export default function App() {
             students={students}
             submissions={submissions}
             onUpdateProfile={(p) => {
+              StorageService.saveProfile(p);
               setProfile(p);
               refreshAllData();
             }}
             onRefreshData={refreshAllData}
             onSelectTab={setCurrentTab}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
         )}
 

@@ -1,5 +1,5 @@
 import { StorageService } from './storage';
-import { Exam, Question, SchoolProfile, Submission } from '../types';
+import { Exam, Question, SchoolProfile, Submission, Student } from '../types';
 
 export interface PingResult {
   success: boolean;
@@ -165,8 +165,30 @@ export class GasClient {
       if (Array.isArray(questions) && questions.length > 0) {
         StorageService.saveQuestions(questions);
       }
-      if (Array.isArray(students) && students.length > 0) {
-        StorageService.saveStudents(students);
+      if (Array.isArray(students)) {
+        // Cek secara cerdas agar data siswa guru tidak pernah tertimpa dummy
+        const localStudents = StorageService.getStudents();
+        const dummyNisList = ['1001', '1002', '1003', '1004', '1005', '1006'];
+        const isRemotePurelyDummy = students.length > 0 && students.every(s => dummyNisList.includes(String(s.studentNo).trim()));
+        const isLocalCustom = localStudents.some(s => !dummyNisList.includes(String(s.studentNo).trim()));
+
+        if (isRemotePurelyDummy && isLocalCustom) {
+          // Sheets masih berisi data dummy awal, sedangkan aplikasi memiliki data siswa asli dari guru.
+          // Pertahankan data siswa lokal dan otomatis push ke Sheets agar spreadsheet terisi data sebenarnya!
+          StorageService.addLog('SYNC', 'Data siswa aktual lokal diprioritaskan & otomatis disimpan ke Google Sheets.');
+          await this.pushStudents(localStudents);
+        } else if (students.length > 0) {
+          const sanitized = students.map(s => ({
+            ...s,
+            studentNo: String(s.studentNo || '').trim(),
+            fullName: String(s.fullName || '').trim(),
+            classGrade: String(s.classGrade || '').trim() || 'X Umum',
+            status: s.status || 'active'
+          }));
+          StorageService.saveStudents(sanitized);
+        } else if (localStudents.length > 0 && isLocalCustom) {
+          await this.pushStudents(localStudents);
+        }
       }
       if (Array.isArray(submissions) && submissions.length > 0) {
         StorageService.saveSubmissions(submissions);
@@ -192,6 +214,52 @@ export class GasClient {
   }
 
   /**
+   * Helper pengiriman POST ke Google Apps Script dengan proxy backend fallback
+   */
+  static async postToGas(payload: any): Promise<{ success: boolean; data?: any; message: string }> {
+    const url = this.getWebAppUrl();
+    if (!url) {
+      return { success: false, message: 'URL Google Apps Script belum disetel di Pengaturan.' };
+    }
+
+    // 1. Coba lewat backend proxy /api/gas-proxy terlebih dahulu untuk mengatasi pembatasan CORS browser
+    try {
+      const proxyRes = await fetch('/api/gas-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, payload })
+      });
+      if (proxyRes.ok) {
+        const json = await proxyRes.json();
+        if (json && (json.status === 'success' || json.success)) {
+          return { success: true, data: json, message: json.message || 'Sukses dikirim ke Google Sheets' };
+        }
+      }
+    } catch {
+      // Backend proxy route belum aktif / offline, lanjutkan ke direct client fetch
+    }
+
+    // 2. Direct browser fetch ke URL Web App GAS
+    try {
+      const directRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      const { isJson, data, errorMessage } = await this.safeParseGasResponse(directRes);
+      if (isJson && data && data.status === 'success') {
+        return { success: true, data, message: data.message || 'Sukses dikirim ke Google Sheets' };
+      }
+      return { 
+        success: false, 
+        message: data?.message || errorMessage || `Gagal kirim ke Google Sheets (HTTP ${directRes.status})` 
+      };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Gagal menghubungi Google Apps Script' };
+    }
+  }
+
+  /**
    * Mengirim jawaban ujian siswa ke Google Sheets
    */
   static async submitAnswer(submission: Submission): Promise<{ success: boolean; message: string }> {
@@ -209,25 +277,16 @@ export class GasClient {
     }
 
     try {
-      const payload = {
+      const res = await this.postToGas({
         action: 'saveSubmission',
         submission: {
           ...submission,
           syncStatus: 'synced'
         }
-      };
-
-      // POST langsung dengan text/plain untuk bypass preflight CORS
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8'
-        },
-        body: JSON.stringify(payload)
       });
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+      if (!res.success) {
+        throw new Error(res.message);
       }
 
       StorageService.markSubmissionSynced(submission.id);
@@ -264,19 +323,13 @@ export class GasClient {
     }
 
     try {
-      const payload = {
+      const res = await this.postToGas({
         action: 'saveExam',
         exam,
         questions
-      };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.success) throw new Error(res.message);
       StorageService.addLog('SYNC', `Ujian "${exam.title}" berhasil disinkronkan ke Google Sheets!`, undefined, 'success');
       return { success: true, message: 'Ujian dan soal berhasil disinkronkan ke Google Sheets!' };
     } catch (err: any) {
@@ -295,14 +348,10 @@ export class GasClient {
     if (!url) return { success: true, message: 'Ujian dihapus dari penyimpanan lokal.' };
 
     try {
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'deleteExam', examId })
-      });
+      await this.postToGas({ action: 'deleteExam', examId });
       StorageService.addLog('SYNC', `Ujian ${examId} dihapus dari Google Sheets`, undefined, 'info');
       return { success: true, message: 'Ujian berhasil dihapus dari Google Sheets.' };
-    } catch (e) {
+    } catch {
       return { success: true, message: 'Ujian dihapus dari lokal (Google Sheets offline).' };
     }
   }
@@ -316,16 +365,46 @@ export class GasClient {
     if (!url) return { success: true, message: 'Profil disimpan di lokal.' };
 
     try {
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'saveSchoolProfile', profile })
-      });
+      const res = await this.postToGas({ action: 'saveSchoolProfile', profile });
+      if (!res.success) throw new Error(res.message);
       StorageService.addLog('SYNC', `Profil sekolah berhasil diperbarui di Google Sheets!`, undefined, 'success');
       return { success: true, message: 'Profil sekolah tersimpan di Google Sheets!' };
     } catch (err: any) {
       StorageService.addLog('SYNC', `Gagal simpan profil ke Google Sheets: ${err?.message}`, undefined, 'warn');
       return { success: true, message: 'Profil tersimpan di lokal (Sheets belum terhubung).' };
+    }
+  }
+
+  /**
+   * Menyimpan dan menyinkronkan seluruh daftar siswa ke Google Sheets
+   */
+  static async pushStudents(students: Student[]): Promise<{ success: boolean; message: string; count?: number }> {
+    StorageService.saveStudents(students);
+    const url = this.getWebAppUrl();
+    if (!url) {
+      return { 
+        success: true, 
+        message: 'Data siswa tersimpan di lokal (atur URL Google Apps Script di Pengaturan untuk sync otomatis).', 
+        count: students.length 
+      };
+    }
+
+    try {
+      StorageService.addLog('SYNC', `Mengirim ${students.length} data siswa ke Google Sheets...`);
+      const res = await this.postToGas({ action: 'saveStudents', students });
+      if (!res.success) {
+        throw new Error(res.message || 'Gagal menyimpan siswa ke Google Sheets.');
+      }
+      StorageService.addLog('SYNC', `Berhasil menyimpan ${students.length} data siswa ke Google Sheets!`, undefined, 'success');
+      return {
+        success: true,
+        message: res.message || `Berhasil menyimpan ${students.length} siswa ke Google Sheets!`,
+        count: students.length
+      };
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      StorageService.addLog('SYNC', `Gagal mengirim data siswa ke Google Sheets: ${errMsg}`, undefined, 'warn');
+      return { success: false, message: `Gagal simpan ke Google Sheets: ${errMsg}` };
     }
   }
 

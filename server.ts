@@ -137,9 +137,10 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
   try {
     const { 
       topic, 
-      count = 3, 
+      count = 5, 
       difficulty = 'Sedang', 
       taxonomy = 'bloom', 
+      questionType = 'multiple_choice',
       subject = 'Umum', 
       grade = 'SMA/SMK',
       customApiKey 
@@ -160,21 +161,29 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
       }
     });
 
+    const typeInstruction = 
+      questionType === 'multiple_choice' ? 'Semua butir soal berbentuk Pilihan Ganda Tunggal ("type": "multiple_choice") dengan 4 atau 5 pilihan ("options") dan 1 kunci benar ("correctKey": "opt_a").' :
+      questionType === 'checkbox' ? 'Semua butir soal berbentuk Pilihan Ganda Kompleks ("type": "checkbox") dengan 4 atau 5 pilihan di mana terdapat 2 atau lebih jawaban yang benar ("correctKey": ["opt_a", "opt_c"]).' :
+      questionType === 'true_false' ? 'Semua butir soal berbentuk Benar/Salah ("type": "multiple_choice") dengan 2 opsi ("opt_a": "Benar", "opt_b": "Salah") dan "correctKey" berupa "opt_a" atau "opt_b".' :
+      questionType === 'essay' ? 'Semua butir soal berbentuk Uraian / Isian Singkat ("type": "essay") dengan "options": [] dan "correctKey" berupa kata kunci / jawaban esai.' :
+      'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), dan Uraian ("type": "essay").';
+
     const promptText = `
-Anda adalah seorang ahli pembuat soal ujian kurikulum nasional (Kurikulum Merdeka / K13).
-Tugas Anda adalah menghasilkan ${count} butir soal pilihan ganda berkualitas tinggi untuk:
+Anda adalah seorang ahli pembuat asesmen pendidikan kurikulum nasional (Kurikulum Merdeka / K13).
+Tugas Anda adalah menghasilkan persis ${count} butir soal berkualitas tinggi untuk:
 - Mata Pelajaran: ${subject}
 - Topik / Materi: ${topic}
 - Jenjang Kelas: ${grade}
 - Tingkat Kesulitan: ${difficulty}
-- Kerangka Taksonomi: ${taxonomy === 'solo' ? 'SOLO (Structure of Observed Learning Outcomes: Prestructural, Unistructural, Multistructural, Relational, Extended Abstract)' : 'Bloom-Anderson (C1 Mengingat, C2 Memahami, C3 Menerapkan, C4 Menganalisis, C5 Mengevaluasi, C6 Mencipta)'}
+- Kerangka Taksonomi: ${taxonomy === 'solo' ? 'SOLO (Prestructural, Unistructural, Multistructural, Relational, Extended Abstract)' : 'Bloom-Anderson (C1 Mengingat, C2 Memahami, C3 Menerapkan, C4 Menganalisis, C5 Mengevaluasi, C6 Mencipta)'}
+- Bentuk Soal: ${typeInstruction}
 
 Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
 [
   {
     "order": 1,
     "prompt": "Kalimat pertanyaan yang jelas dan kontekstual",
-    "type": "multiple_choice",
+    "type": "${questionType === 'checkbox' ? 'checkbox' : questionType === 'essay' ? 'essay' : 'multiple_choice'}",
     "mediaType": "none",
     "options": [
       { "id": "opt_a", "text": "Pilihan A" },
@@ -182,11 +191,11 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
       { "id": "opt_c", "text": "Pilihan C" },
       { "id": "opt_d", "text": "Pilihan D" }
     ],
-    "correctKey": "opt_a",
+    "correctKey": "${questionType === 'checkbox' ? '["opt_a", "opt_b"]' : 'opt_a'}",
     "points": 20,
     "explanation": "Pembahasan ilmiah dan alasan mengapa opsi tersebut benar",
     "bloomLevel": "C3 - Menerapkan",
-    "soloLevel": "Relational",
+    "soloLevel": "Multistructural",
     "basicCompetency": "Kompetensi Dasar / Capaian Pembelajaran terkait",
     "indicator": "Indikator pencapaian kompetensi soal ini"
   }
@@ -209,6 +218,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
             config: {
               responseMimeType: 'application/json',
               temperature: 0.7,
+              maxOutputTokens: 16384,
               systemInstruction: 'Anda adalah generator soal ujian berbasis taksonomi pendidikan. Anda selalu menghasilkan JSON valid yang memenuhi skema pertanyaan ujian.'
             }
           });

@@ -389,8 +389,16 @@ export class StorageService {
   }
 
   static saveProfile(profile: SchoolProfile): void {
-    this.setItem(STORAGE_KEYS.PROFILE, { ...profile, updatedAt: new Date().toISOString() });
-    this.addLog('SYNC', 'Profil sekolah diperbarui secara lokal');
+    const updated = { ...profile, updatedAt: new Date().toISOString() };
+    this.setItem(STORAGE_KEYS.PROFILE, updated);
+    
+    // Automatically keep current user name in sync if logged in
+    const currentUser = this.getCurrentUser();
+    if (currentUser && profile.teacherName) {
+      const updatedUser = { ...currentUser, fullName: profile.teacherName };
+      this.setCurrentUser(updatedUser);
+    }
+    this.addLog('SYNC', `Profil sekolah & guru (${profile.teacherName}) diperbarui secara lokal`);
   }
 
   // Exams
@@ -457,26 +465,50 @@ export class StorageService {
 
   // Students
   static getStudents(): Student[] {
-    return this.getItem<Student[]>(STORAGE_KEYS.STUDENTS, DEFAULT_STUDENTS);
+    const list = this.getItem<Student[]>(STORAGE_KEYS.STUDENTS, DEFAULT_STUDENTS);
+    return list.map(s => ({
+      ...s,
+      studentNo: String(s.studentNo || '').trim(),
+      fullName: String(s.fullName || '').trim(),
+      classGrade: String(s.classGrade || '').trim() || 'X Umum',
+      status: s.status || 'active'
+    }));
   }
 
   static saveStudents(students: Student[]): void {
-    this.setItem(STORAGE_KEYS.STUDENTS, students);
+    const sanitized = students.map(s => ({
+      ...s,
+      studentNo: String(s.studentNo || '').trim(),
+      fullName: String(s.fullName || '').trim(),
+      classGrade: String(s.classGrade || '').trim() || 'X Umum',
+      status: s.status || 'active'
+    }));
+    this.setItem(STORAGE_KEYS.STUDENTS, sanitized);
   }
 
   static upsertStudent(student: Student): void {
     const list = this.getStudents();
-    const idx = list.findIndex(s => s.studentNo === student.studentNo || s.id === student.id);
+    const cleanNo = String(student.studentNo || '').trim();
+    const sanitized: Student = {
+      ...student,
+      studentNo: cleanNo,
+      fullName: String(student.fullName || '').trim(),
+      classGrade: String(student.classGrade || '').trim() || 'X Umum',
+      status: student.status || 'active'
+    };
+
+    const idx = list.findIndex(s => s.studentNo === cleanNo || (student.id && s.id === student.id));
     if (idx >= 0) {
-      list[idx] = student;
+      list[idx] = sanitized;
     } else {
-      list.push(student);
+      list.push(sanitized);
     }
     this.saveStudents(list);
   }
 
   static deleteStudent(id: string): void {
-    const list = this.getStudents().filter(s => s.id !== id && s.studentNo !== id);
+    const cleanId = String(id).trim();
+    const list = this.getStudents().filter(s => s.id !== cleanId && s.studentNo !== cleanId);
     this.saveStudents(list);
   }
 

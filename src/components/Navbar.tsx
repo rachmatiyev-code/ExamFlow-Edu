@@ -55,8 +55,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="font-extrabold text-slate-900 dark:text-white text-base tracking-tight leading-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
               ExamFlow <span className="text-indigo-600 dark:text-indigo-400">Edu</span>
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[190px] sm:max-w-[260px]">
-              {profile.name}
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[190px] sm:max-w-[320px]">
+              {profile.name} {profile.teacherName ? `· ${profile.teacherName}` : ''}
             </div>
           </button>
         </div>

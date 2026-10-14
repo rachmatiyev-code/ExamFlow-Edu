@@ -87,8 +87,6 @@ function initDatabase() {
   if (!shStudents) {
     shStudents = ss.insertSheet(SHEETS.STUDENTS);
     shStudents.appendRow(['id', 'studentNo', 'fullName', 'classGrade', 'email', 'phone', 'status']);
-    shStudents.appendRow(['STD-001', '1001', 'Ahmad Fauzi', 'X-MIPA-1', 'ahmad@sekolah.sch.id', '081234567890', 'active']);
-    shStudents.appendRow(['STD-002', '1002', 'Bunga Citra', 'X-MIPA-1', 'bunga@sekolah.sch.id', '081234567891', 'active']);
     formatHeaderRow(shStudents);
   }
 
@@ -231,6 +229,38 @@ function doPost(e) {
       return jsonResponse({ status: 'success', message: 'Jawaban tersimpan di Google Sheets', submissionId: sub.id });
     }
 
+    if (action === 'saveStudents') {
+      const students = payload.students || [];
+      let shSt = ss.getSheetByName(SHEETS.STUDENTS);
+      if (!shSt) {
+        initDatabase();
+        shSt = ss.getSheetByName(SHEETS.STUDENTS);
+      }
+      
+      const lastRow = shSt.getLastRow();
+      if (lastRow > 1) {
+        shSt.getRange(2, 1, lastRow - 1, shSt.getLastColumn()).clearContent();
+      }
+      
+      if (students.length > 0) {
+        const rows = students.map(function(s) {
+          return [
+            s.id || ('STD-' + Utilities.getUuid().slice(0, 8)),
+            s.studentNo || '',
+            s.fullName || '',
+            s.classGrade || '',
+            s.email || '',
+            s.phone || '',
+            s.status || 'active'
+          ];
+        });
+        shSt.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+      }
+      
+      logAction('SYNC', 'Data ' + students.length + ' siswa berhasil disimpan ke Google Sheets');
+      return jsonResponse({ status: 'success', message: 'Data ' + students.length + ' siswa berhasil disimpan ke Google Sheets', count: students.length });
+    }
+
     if (action === 'saveExam') {
       const exam = payload.exam;
       const questions = payload.questions || [];
@@ -329,8 +359,34 @@ function doPost(e) {
           payload.profile.principalName,
           payload.profile.principalNip,
           payload.profile.teacherName,
+          payload.profile.teacherNip || '',
+          payload.profile.teacherSubject || '',
+          payload.profile.teacherEmail || '',
+          payload.profile.teacherTitle || '',
           new Date().toISOString()
         ]);
+      }
+      if (Array.isArray(payload.students)) {
+        let shSt = ss.getSheetByName(SHEETS.STUDENTS);
+        if (!shSt) { initDatabase(); shSt = ss.getSheetByName(SHEETS.STUDENTS); }
+        const lastRow = shSt.getLastRow();
+        if (lastRow > 1) {
+          shSt.getRange(2, 1, lastRow - 1, shSt.getLastColumn()).clearContent();
+        }
+        if (payload.students.length > 0) {
+          const rows = payload.students.map(function(s) {
+            return [
+              String(s.id || ('STD-' + Utilities.getUuid().slice(0, 8))),
+              String(s.studentNo || ''),
+              String(s.fullName || ''),
+              String(s.classGrade || ''),
+              String(s.email || ''),
+              String(s.phone || ''),
+              String(s.status || 'active')
+            ];
+          });
+          shSt.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+        }
       }
       return jsonResponse({ status: 'success', message: 'Sinkronisasi menyeluruh berhasil!' });
     }

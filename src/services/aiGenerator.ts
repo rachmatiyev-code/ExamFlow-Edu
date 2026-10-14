@@ -74,7 +74,12 @@ export class AiGeneratorService {
 
     // 2. Direct client-side validation ke Google Generative Language API
     // Solusi teruji untuk Vercel Static Hosting & Client Browser
-    const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+    const settings = StorageService.getSettings();
+    const configuredModel = settings.geminiModel && !settings.geminiModel.includes('1.5') && !settings.geminiModel.includes('2.0')
+      ? settings.geminiModel
+      : 'gemini-3.8-flash';
+
+    const modelsToTry = Array.from(new Set([configuredModel, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest']));
     let lastClientError = 'Tidak dapat terhubung ke Google AI Studio.';
 
     for (const modelName of modelsToTry) {
@@ -100,7 +105,8 @@ export class AiGeneratorService {
           } else if (data.error) {
             lastClientError = data.error.message || 'Kunci API ditolak Google.';
             // Jika error adalah permission/key invalid (bukan model 404), langsung hentikan loop
-            if (data.error.code === 400 || data.error.code === 403) {
+            const msg = (data.error.message || '').toLowerCase();
+            if (msg.includes('api key') || msg.includes('api_key') || msg.includes('credential') || data.error.code === 403) {
               break;
             }
           }
@@ -198,7 +204,11 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
     }
 
     // 2. Direct client-side generation (Vercel / Static fallback)
-    const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+    const configuredModel = settings.geminiModel && !settings.geminiModel.includes('1.5') && !settings.geminiModel.includes('2.0')
+      ? settings.geminiModel
+      : 'gemini-3.8-flash';
+
+    const modelsToTry = Array.from(new Set([configuredModel, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest']));
     let lastErrorMsg = 'Gagal membuat soal.';
 
     for (const modelName of modelsToTry) {

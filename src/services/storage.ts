@@ -560,7 +560,11 @@ export class StorageService {
 
   // Settings
   static getSettings(): AppSettings {
-    return this.getItem<AppSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+    const settings = this.getItem<AppSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+    if (!settings.geminiModel || settings.geminiModel.includes('1.5') || settings.geminiModel.includes('2.0') || settings.geminiModel === 'gemini-pro') {
+      settings.geminiModel = 'gemini-3.8-flash';
+    }
+    return settings;
   }
 
   static saveSettings(settings: AppSettings): void {

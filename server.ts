@@ -60,7 +60,7 @@ apiRouter.post('/gemini/validate-key', async (req, res) => {
       }
     });
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
     let lastError: any = null;
     let validatedModel = 'gemini-3.8-flash';
 
@@ -199,7 +199,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
     let lastError: any = null;
     let questionsData = null;
 
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
     for (const model of modelsToTry) {
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {

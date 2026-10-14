@@ -1,0 +1,132 @@
+export interface SchoolProfile {
+  name: string;
+  npsn: string;
+  address: string;
+  logoUrl: string;
+  academicYear: string;
+  semester: 'Ganjil' | 'Genap';
+  principalName: string;
+  principalNip: string;
+  teacherName: string;
+  teacherNip?: string;
+  teacherSubject?: string;
+  teacherEmail?: string;
+  teacherTitle?: string;
+  updatedAt?: string;
+}
+
+export type TaxonomyType = 'bloom' | 'solo';
+
+export type BloomLevel = 
+  | 'C1 - Mengingat'
+  | 'C2 - Memahami'
+  | 'C3 - Menerapkan'
+  | 'C4 - Menganalisis'
+  | 'C5 - Mengevaluasi'
+  | 'C6 - Mencipta';
+
+export type SoloLevel = 
+  | 'Prestructural'
+  | 'Unistructural'
+  | 'Multistructural'
+  | 'Relational'
+  | 'Extended Abstract';
+
+export interface QuestionOption {
+  id: string;
+  text: string;
+}
+
+export interface Question {
+  id: string;
+  examId: string;
+  order: number;
+  prompt: string;
+  type: 'multiple_choice' | 'checkbox' | 'essay';
+  mediaType: 'none' | 'image' | 'audio' | 'video';
+  mediaUrl?: string;
+  options: QuestionOption[];
+  correctKey: string | string[]; // Option ID or list of IDs or sample answer
+  points: number;
+  explanation?: string;
+  bloomLevel?: BloomLevel;
+  soloLevel?: SoloLevel;
+  basicCompetency?: string;
+  indicator?: string;
+}
+
+export interface Exam {
+  id: string;
+  title: string;
+  subject: string;
+  grade: string;
+  durationMinutes: number;
+  passingScore: number;
+  isStrict: boolean; // Anti-cheat & auto-submit on blur
+  allowReview: boolean;
+  startsAt: string; // ISO date string or YYYY-MM-DD HH:mm
+  endsAt: string;
+  status: 'draft' | 'active' | 'archived';
+  totalQuestions: number;
+  token?: string; // Optional exam access token/PIN
+  instructions?: string;
+  createdAt: string;
+  redeployCount?: number;
+}
+
+export interface Student {
+  id: string;
+  studentNo: string; // NIS / NISN
+  fullName: string;
+  classGrade: string;
+  email?: string;
+  phone?: string;
+  status: 'active' | 'inactive';
+}
+
+export interface Submission {
+  id: string;
+  examId: string;
+  studentNo: string;
+  studentName: string;
+  classGrade: string;
+  answers: Record<string, string | string[]>;
+  score: number;
+  maxScore: number;
+  percentage: number;
+  passed: boolean;
+  submittedAt: string;
+  tabSwitchCount: number;
+  timeSpentSeconds: number;
+  syncStatus: 'synced' | 'pending' | 'failed';
+  feedback?: string;
+}
+
+export interface UserAccount {
+  id: string;
+  username: string;
+  password?: string;
+  fullName: string;
+  role: 'admin' | 'teacher';
+  email: string;
+  active: boolean;
+}
+
+export interface AppLog {
+  id: string;
+  timestamp: string;
+  level: 'info' | 'success' | 'warn' | 'error';
+  category: 'SYNC' | 'NETWORK' | 'AI_GEMINI' | 'EXAM' | 'AUTH';
+  message: string;
+  details?: string;
+}
+
+export interface AppSettings {
+  gasWebAppUrl: string;
+  geminiApiKey: string;
+  geminiModel: string;
+  autoSyncIntervalMinutes: number;
+  offlineMode: boolean;
+  theme: 'light' | 'dark' | 'system';
+  enableAudioChime: boolean;
+}

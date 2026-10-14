@@ -1,0 +1,8 @@
+{
+  "name": "ExamFlow Edu",
+  "description": "Platform ujian online responsif bergaya Google Forms terintegrasi Google Sheets & Google Apps Script (GAS). Mendukung soal audio, video, gambar, generator soal AI Gemini, cetak kisi-kisi taksonomi Bloom-Anderson & SOLO, serta profil dan logo sekolah.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -12,13 +12,36 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
+// CORS headers for cross-domain / Vercel compatibility
+app.use((_req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (_req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Router for API endpoints (mounted on both /api and / for Vercel serverless flexibility)
+const apiRouter = express.Router();
+
+apiRouter.get('/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    app: 'ExamFlow Edu',
+    time: new Date().toISOString(),
+    hasGeminiKey: !!process.env.GEMINI_API_KEY
+  });
+});
 
 /**
  * Validasi API Key Gemini
  */
-app.post('/api/gemini/validate-key', async (req, res) => {
+apiRouter.post('/gemini/validate-key', async (req, res) => {
   try {
     const customKey = req.body.apiKey?.trim();
     const apiKey = customKey || process.env.GEMINI_API_KEY;
@@ -37,30 +60,72 @@ app.post('/api/gemini/validate-key', async (req, res) => {
       }
     });
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: 'Respond with the single word "OK" if this API key is active.',
-    });
+    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    let lastError: any = null;
+    let validatedModel = 'gemini-3.8-flash';
 
-    const text = response.text || '';
-    if (text.toLowerCase().includes('ok')) {
-      return res.json({
-        valid: true,
-        message: 'Gemini API Key valid dan siap digunakan!',
-        model: 'gemini-3.8-flash'
-      });
+    for (const model of candidateModels) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: 'Respond with the single word "OK" if this API key is active.',
+          });
+
+          const text = response.text || '';
+          if (text.toLowerCase().includes('ok') || text.length > 0) {
+            validatedModel = model;
+            return res.json({
+              valid: true,
+              message: 'Gemini API Key valid dan siap digunakan!',
+              model: validatedModel
+            });
+          }
+        } catch (err: any) {
+          lastError = err;
+          const status = err?.status || err?.code;
+          // If 503/504/UNAVAILABLE, wait slightly and retry or try next model
+          if (status === 503 || status === 'UNAVAILABLE' || String(err?.message).includes('503')) {
+            await new Promise(r => setTimeout(r, 800 * attempt));
+            continue;
+          }
+          // If it's 400/403 (invalid key), do not retry next models
+          if (status === 400 || status === 403 || String(err?.message).includes('API key not valid')) {
+            return res.status(400).json({
+              valid: false,
+              message: 'Kunci API Gemini tidak valid atau tidak diizinkan.'
+            });
+          }
+        }
+      }
     }
 
-    return res.json({
-      valid: true,
-      message: 'Koneksi ke Gemini berhasil.',
-      model: 'gemini-3.8-flash'
+    let friendlyErrorMessage = 'Layanan AI sedang sibuk. Silakan coba sesaat lagi.';
+    if (lastError?.message) {
+      try {
+        const parsed = JSON.parse(lastError.message);
+        if (parsed?.error?.message) {
+          friendlyErrorMessage = parsed.error.message;
+        }
+      } catch {
+        friendlyErrorMessage = lastError.message;
+      }
+    }
+
+    return res.status(400).json({
+      valid: false,
+      message: `Validasi gagal: ${friendlyErrorMessage}`
     });
   } catch (err: any) {
     console.error('Error validating Gemini key:', err);
+    let errMsg = err?.message || 'Kunci tidak valid atau kuota habis.';
+    try {
+      const parsed = JSON.parse(errMsg);
+      if (parsed?.error?.message) errMsg = parsed.error.message;
+    } catch {}
     return res.status(400).json({
       valid: false,
-      message: `Validasi gagal: ${err?.message || 'Kunci tidak valid atau kuota habis.'}`
+      message: `Validasi gagal: ${errMsg}`
     });
   }
 });
@@ -68,7 +133,7 @@ app.post('/api/gemini/validate-key', async (req, res) => {
 /**
  * Endpoint Generate Soal dengan Retry Backoff untuk menghindari error 503/504
  */
-app.post('/api/gemini/generate-questions', async (req, res) => {
+apiRouter.post('/gemini/generate-questions', async (req, res) => {
   try {
     const { 
       topic, 
@@ -110,8 +175,7 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
     "order": 1,
     "prompt": "Kalimat pertanyaan yang jelas dan kontekstual",
     "type": "multiple_choice",
-    "mediaType": "none", // atau "image" jika soal memerlukan deskripsi gambar
-    "suggestedMediaPrompt": "deskripsi visual singkat jika butuh gambar",
+    "mediaType": "none",
     "options": [
       { "id": "opt_a", "text": "Pilihan A" },
       { "id": "opt_b", "text": "Pilihan B" },
@@ -135,31 +199,35 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
     let lastError: any = null;
     let questionsData = null;
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: promptText,
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.7,
-            systemInstruction: 'Anda adalah generator soal ujian berbasis taksonomi pendidikan. Anda selalu menghasilkan JSON valid yang memenuhi skema pertanyaan ujian.'
-          }
-        });
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    for (const model of modelsToTry) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: promptText,
+            config: {
+              responseMimeType: 'application/json',
+              temperature: 0.7,
+              systemInstruction: 'Anda adalah generator soal ujian berbasis taksonomi pendidikan. Anda selalu menghasilkan JSON valid yang memenuhi skema pertanyaan ujian.'
+            }
+          });
 
-        const rawText = response.text?.trim() || '';
-        // Bersihkan formatting markdown jika ada
-        const cleanJson = rawText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-        questionsData = JSON.parse(cleanJson);
-        break; // Berhasil, keluar dari loop
-      } catch (retryErr: any) {
-        lastError = retryErr;
-        console.warn(`Gemini API attempt ${attempt} failed:`, retryErr?.message);
-        if (attempt < 3) {
-          // Tunggu backoff 1.2 detik sebelum coba ulang
-          await new Promise(r => setTimeout(r, 1200 * attempt));
+          const rawText = response.text?.trim() || '';
+          const cleanJson = rawText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+          questionsData = JSON.parse(cleanJson);
+          if (Array.isArray(questionsData) && questionsData.length > 0) {
+            break;
+          }
+        } catch (retryErr: any) {
+          lastError = retryErr;
+          console.warn(`Gemini (${model}) attempt ${attempt} failed:`, retryErr?.message);
+          if (attempt < 2) {
+            await new Promise(r => setTimeout(r, 1000 * attempt));
+          }
         }
       }
+      if (questionsData) break;
     }
 
     if (!questionsData) {
@@ -183,7 +251,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
 /**
  * Proxy route ke Google Apps Script untuk mengatasi pembatasan CORS browser
  */
-app.post('/api/gas-proxy', async (req, res) => {
+apiRouter.post('/gas-proxy', async (req, res) => {
   try {
     const { url, payload, action } = req.body;
     if (!url) {
@@ -203,27 +271,36 @@ app.post('/api/gas-proxy', async (req, res) => {
   }
 });
 
+// Mount router on both /api and root /
+app.use('/api', apiRouter);
+app.use('/', apiRouter);
+
 /**
  * Inisialisasi Vite middleware di mode development
  */
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (!process.env.VERCEL) {
     app.use(express.static(path.join(__dirname, 'dist')));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   }
 
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`ExamFlow Edu server running at http://0.0.0.0:${port}`);
-  });
+  // Hanya listen port jika tidak berjalan di lingkungan serverless Vercel
+  if (!process.env.VERCEL) {
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`ExamFlow Edu server running at http://0.0.0.0:${port}`);
+    });
+  }
 }
 
 startServer();
+
+export default app;

@@ -15,6 +15,54 @@ export class GasClient {
   }
 
   /**
+   * Helper internal untuk mem-parse respons dari Google Apps Script secara aman.
+   * Mengantisipasi kasus Google Login redirect, Sheets link biasa, 404 Vercel, dsb.
+   */
+  private static async safeParseGasResponse(res: Response): Promise<{ isJson: boolean; data: any; errorMessage?: string }> {
+    try {
+      const rawText = await res.text();
+      try {
+        const data = JSON.parse(rawText);
+        return { isJson: true, data };
+      } catch {
+        // Analisis konten non-JSON untuk memberikan diagnosis yang ramah pengguna
+        if (rawText.includes('accounts.google.com') || rawText.includes('Sign in') || rawText.includes('ServiceLogin')) {
+          return {
+            isJson: false,
+            data: null,
+            errorMessage: 'Google Apps Script meminta otentikasi login. Pastikan saat Deploy memilih "Who has access: Anyone" (Siapa saja, termasuk anonim).'
+          };
+        }
+        if (rawText.includes('docs.google.com/spreadsheets') || rawText.includes('Spreadsheet')) {
+          return {
+            isJson: false,
+            data: null,
+            errorMessage: 'URL yang dimasukkan adalah link Spreadsheet Google biasa, bukan URL Web App. Deploy script melalui Ekstensi > Apps Script > Deploy > New Deployment > Web App, lalu salin URL /exec.'
+          };
+        }
+        if (res.status === 404 || rawText.includes('The page could not be found') || rawText.includes('Not Found')) {
+          return {
+            isJson: false,
+            data: null,
+            errorMessage: 'URL Web App tidak ditemukan (HTTP 404). Pastikan URL berakhiran /exec dan tidak ada karakter yang terpotong.'
+          };
+        }
+        return {
+          isJson: false,
+          data: null,
+          errorMessage: `Respons dari server bukan JSON yang valid (HTTP ${res.status}). Pastikan script telah dideploy sebagai Web App.`
+        };
+      }
+    } catch (e: any) {
+      return {
+        isJson: false,
+        data: null,
+        errorMessage: `Koneksi gagal: ${e?.message || 'Tidak dapat menghubungi server'}`
+      };
+    }
+  }
+
+  /**
    * Menguji konektivitas ke Google Apps Script Web App
    */
   static async ping(customUrl?: string): Promise<PingResult> {
@@ -40,12 +88,12 @@ export class GasClient {
       });
 
       const latencyMs = Math.round(performance.now() - startTime);
+      const { isJson, data, errorMessage } = await this.safeParseGasResponse(response);
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      if (!isJson || !data) {
+        throw new Error(errorMessage || `Respons server tidak valid (HTTP ${response.status})`);
       }
 
-      const data = await response.json();
       if (data.status === 'success') {
         StorageService.addLog(
           'SYNC',
@@ -68,7 +116,7 @@ export class GasClient {
       StorageService.addLog(
         'NETWORK',
         `Koneksi ke Google Apps Script gagal (${latencyMs}ms): ${errMsg}`,
-        'Tips: Pastikan Web App dideploy dengan opsi "Who has access: Anyone" (Siapa saja), bukan "Only myself".',
+        'Tips: Pastikan Web App dideploy dengan opsi "Who has access: Anyone" (Siapa saja, termasuk anonim).',
         'error'
       );
       return {
@@ -94,14 +142,17 @@ export class GasClient {
       const fetchUrl = `${url}${url.includes('?') ? '&' : '?'}action=getAllData&_t=${Date.now()}`;
       
       const res = await fetch(fetchUrl);
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      
-      const result = await res.json();
-      if (result.status !== 'success' || !result.data) {
-        throw new Error(result.message || 'Data tidak ditemukan dalam respons Google Sheets');
+      const { isJson, data, errorMessage } = await this.safeParseGasResponse(res);
+
+      if (!isJson || !data) {
+        throw new Error(errorMessage || `Respons dari Google Sheets tidak valid (HTTP ${res.status})`);
       }
 
-      const { profile, exams, questions, students, submissions, users } = result.data;
+      if (data.status !== 'success' || !data.data) {
+        throw new Error(data.message || 'Data tidak ditemukan dalam respons Google Sheets');
+      }
+
+      const { profile, exams, questions, students, submissions, users } = data.data;
       let count = 0;
 
       if (profile && profile.name) {
@@ -166,7 +217,7 @@ export class GasClient {
         }
       };
 
-      // Gunakan mode no-cors jika diperlukan atau POST langsung dengan text/plain untuk bypass preflight
+      // POST langsung dengan text/plain untuk bypass preflight CORS
       const res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -179,7 +230,6 @@ export class GasClient {
         throw new Error(`HTTP ${res.status}`);
       }
 
-      const resData = await res.json().catch(() => ({ status: 'success' }));
       StorageService.markSubmissionSynced(submission.id);
       StorageService.addLog('SYNC', `Jawaban siswa ${submission.studentName} berhasil dikirim ke Google Sheets!`, undefined, 'success');
 

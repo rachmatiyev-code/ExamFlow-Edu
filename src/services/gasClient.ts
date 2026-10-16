@@ -163,7 +163,47 @@ export class GasClient {
         count += exams.length;
       }
       if (Array.isArray(questions) && questions.length > 0) {
-        StorageService.saveQuestions(questions);
+        const normalizedQuestions: Question[] = questions.map((q: any, idx: number) => {
+          let opts: any = q.options;
+          if ((!opts || !Array.isArray(opts) || opts.length === 0) && q.optionsJson) {
+            try {
+              opts = typeof q.optionsJson === 'string' ? JSON.parse(q.optionsJson) : q.optionsJson;
+            } catch {
+              opts = [];
+            }
+          }
+          let corrKey: any = q.correctKey;
+          if (!corrKey && q.correctKeyJson) {
+            try {
+              corrKey = typeof q.correctKeyJson === 'string' ? JSON.parse(q.correctKeyJson) : q.correctKeyJson;
+            } catch {
+              corrKey = q.correctKeyJson;
+            }
+          }
+          return {
+            id: String(q.id || `Q-${Date.now()}-${idx + 1}`),
+            examId: String(q.examId || ''),
+            order: Number(q.order || idx + 1),
+            prompt: String(q.prompt || ''),
+            type: q.type || 'multiple_choice',
+            mediaType: q.mediaType || 'none',
+            mediaUrl: q.mediaUrl || '',
+            options: Array.isArray(opts) ? opts : [],
+            correctKey: corrKey || 'opt_a',
+            points: Number(q.points || 10),
+            explanation: q.explanation || '',
+            bloomLevel: q.bloomLevel,
+            soloLevel: q.soloLevel,
+            basicCompetency: q.basicCompetency || '',
+            indicator: q.indicator || ''
+          };
+        });
+        // Gabungkan soal dari server dengan soal lokal secara cerdas
+        const existingQs = StorageService.getQuestions();
+        const qMap = new Map<string, Question>();
+        existingQs.forEach(q => qMap.set(q.id, q));
+        normalizedQuestions.forEach(q => qMap.set(q.id, q));
+        StorageService.saveQuestions(Array.from(qMap.values()));
       }
       if (Array.isArray(students)) {
         // Cek secara cerdas agar data siswa guru tidak pernah tertimpa dummy

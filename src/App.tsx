@@ -94,16 +94,16 @@ export default function App() {
           StorageService.saveSettings(updated);
           setSettings(updated);
           StorageService.addLog('SYNC', 'URL Google Apps Script berhasil dikonfigurasi otomatis dari Tautan Ujian Siswa.', undefined, 'info');
-
-          // Immediately sync exam questions and student roster in background
-          GasClient.fetchAllFromSheets().then((res) => {
-            if (res.success) {
-              refreshAllData();
-              setSyncSuccessBanner('Terhubung ke database ujian! Soal & jadwal ujian berhasil disinkronkan.');
-              setTimeout(() => setSyncSuccessBanner(null), 4000);
-            }
-          });
         }
+
+        // Always sync exam questions and student roster in background when student opens link
+        GasClient.fetchAllFromSheets().then((res) => {
+          if (res.success) {
+            refreshAllData();
+            setSyncSuccessBanner('Terhubung ke database ujian! Soal & jadwal ujian berhasil disinkronkan.');
+            setTimeout(() => setSyncSuccessBanner(null), 4000);
+          }
+        });
       }
     } catch (err) {
       console.warn('Gagal membaca parameter URL:', err);
@@ -123,13 +123,22 @@ export default function App() {
     // 1. Flush any pending offline submissions
     const { syncedCount } = await GasClient.flushPendingSubmissions();
 
-    // 2. Push current local students to Google Sheets first so user data is saved
+    // 2. Push all exams & their questions to Google Sheets so spreadsheet is always in sync!
+    const allExams = StorageService.getExams();
+    for (const ex of allExams) {
+      const exQs = StorageService.getQuestionsByExamId(ex.id);
+      if (exQs.length > 0) {
+        await GasClient.pushExam(ex, exQs);
+      }
+    }
+
+    // 3. Push current local students to Google Sheets first so user data is saved
     const localStudents = StorageService.getStudents();
     if (localStudents.length > 0) {
       await GasClient.pushStudents(localStudents);
     }
 
-    // 3. Pull latest data from sheets
+    // 4. Pull latest data from sheets
     const pullResult = await GasClient.fetchAllFromSheets();
 
     setIsSyncing(false);

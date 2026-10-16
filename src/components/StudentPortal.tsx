@@ -23,7 +23,9 @@ import {
   GraduationCap,
   Sparkles,
   HelpCircle,
-  RotateCcw
+  RotateCcw,
+  RefreshCw,
+  Download
 } from 'lucide-react';
 
 interface StudentPortalProps {
@@ -55,6 +57,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [studentClass, setStudentClass] = useState('');
   const [examToken, setExamToken] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [isDownloadingQuestions, setIsDownloadingQuestions] = useState(false);
 
   // Exam Active State
   const [isExamActive, setIsExamActive] = useState(false);
@@ -82,9 +85,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // Auto-select exam if directed via shared student link
   useEffect(() => {
     if (initialExamId && exams.length > 0 && !isExamActive) {
-      const target = exams.find(e => e.id === initialExamId);
+      const cleanTarget = String(initialExamId).trim().toLowerCase();
+      const target = exams.find(e => String(e.id).trim().toLowerCase() === cleanTarget);
       if (target) {
         setSelectedExam(target);
+        // Penting: Segera muat soal untuk ujian ini dari penyimpanan lokal
+        const qs = StorageService.getQuestionsByExamId(target.id);
+        setExamQuestions(qs);
         if (initialToken) {
           setExamToken(initialToken);
         } else if (target.token) {
@@ -170,6 +177,21 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     setIsLoginModalOpen(true);
   };
 
+  const startExamSession = (qs: Question[]) => {
+    setExamQuestions(qs);
+    setIsLoginModalOpen(false);
+    setUserAnswers({});
+    setFlaggedQuestions({});
+    setTabSwitchCount(0);
+    setTabSwitchWarning(false);
+    setCurrentQuestionIndex(0);
+    setTimeRemainingSeconds(selectedExam ? selectedExam.durationMinutes * 60 : 3600);
+    setIsExamActive(true);
+    setCompletedSubmission(null);
+
+    StorageService.addLog('EXAM', `Siswa ${studentName} (${studentNo}) memulai ujian "${selectedExam?.title}" (${qs.length} butir soal)`);
+  };
+
   const handleConfirmLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentNo.trim()) {
@@ -187,18 +209,36 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       }
     }
 
-    // Login verified, initialize exam
-    setIsLoginModalOpen(false);
-    setUserAnswers({});
-    setFlaggedQuestions({});
-    setTabSwitchCount(0);
-    setTabSwitchWarning(false);
-    setCurrentQuestionIndex(0);
-    setTimeRemainingSeconds(selectedExam ? selectedExam.durationMinutes * 60 : 3600);
-    setIsExamActive(true);
-    setCompletedSubmission(null);
+    if (!selectedExam) return;
 
-    StorageService.addLog('EXAM', `Siswa ${studentName} (${studentNo}) memulai ujian "${selectedExam?.title}"`);
+    // Pastikan butir soal ujian telah termuat sebelum memulai
+    let qs = StorageService.getQuestionsByExamId(selectedExam.id);
+    if (qs.length === 0) {
+      const allQs = StorageService.getQuestions();
+      qs = allQs.filter(q => String(q.examId).trim().toLowerCase() === String(selectedExam.id).trim().toLowerCase());
+    }
+
+    if (qs.length === 0) {
+      setLoginError('Sedang mengunduh butir soal dari database server...');
+      setIsDownloadingQuestions(true);
+      GasClient.fetchAllFromSheets().then(() => {
+        setIsDownloadingQuestions(false);
+        const downloaded = StorageService.getQuestionsByExamId(selectedExam.id);
+        if (downloaded.length > 0) {
+          setExamQuestions(downloaded);
+          setLoginError(null);
+          startExamSession(downloaded);
+        } else {
+          setLoginError('Soal belum ditemukan untuk ujian ini di server Google Sheets. Pastikan guru telah menekan tombol "Sinkronkan Sekarang" pada menu guru.');
+        }
+      }).catch(() => {
+        setIsDownloadingQuestions(false);
+        setLoginError('Gagal mengunduh soal dari Google Sheets. Periksa koneksi internet Anda.');
+      });
+      return;
+    }
+
+    startExamSession(qs);
   };
 
   const handleSelectOption = (questionId: string, optionId: string, isCheckbox = false) => {
@@ -792,8 +832,57 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="p-8 text-center text-slate-400">
-                Soal tidak ditemukan untuk ujian ini.
+              <div className="p-8 sm:p-12 text-center space-y-4">
+                <div className="w-14 h-14 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto border border-amber-200 dark:border-amber-800">
+                  <AlertTriangle className="w-7 h-7" />
+                </div>
+                <div>
+                  <h4 className="text-base font-bold text-slate-800 dark:text-slate-100">
+                    Paket Soal Belum Terbaca di Perangkat
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1">
+                    Ujian <strong className="text-slate-700 dark:text-slate-300">"{selectedExam?.title}"</strong> memerlukan sinkronisasi soal dari database ujian Google Sheets.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    disabled={isDownloadingQuestions}
+                    onClick={async () => {
+                      setIsDownloadingQuestions(true);
+                      try {
+                        await GasClient.fetchAllFromSheets();
+                        if (selectedExam) {
+                          const qs = StorageService.getQuestionsByExamId(selectedExam.id);
+                          if (qs.length > 0) {
+                            setExamQuestions(qs);
+                            setCurrentQuestionIndex(0);
+                          } else {
+                            alert('Soal belum ditemukan di Google Sheets. Hubungi pengawas ujian untuk memastikan ujian sudah disinkronkan.');
+                          }
+                        }
+                      } finally {
+                        setIsDownloadingQuestions(false);
+                      }
+                    }}
+                    className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl flex items-center gap-2 transition-colors shadow-sm disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isDownloadingQuestions ? 'animate-spin' : ''}`} />
+                    <span>{isDownloadingQuestions ? 'Mengunduh Soal...' : 'Unduh Ulang Soal dari Google Sheets'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsExamActive(false);
+                      setSelectedExam(null);
+                    }}
+                    className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl transition-colors"
+                  >
+                    Kembali ke Jadwal Ujian
+                  </button>
+                </div>
               </div>
             )}
           </div>

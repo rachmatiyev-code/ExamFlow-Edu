@@ -31,6 +31,37 @@ export class AiGeneratorService {
   }
 
   /**
+   * Helper internal untuk mem-parse array soal JSON secara tangguh dari format apa pun
+   */
+  private static parseQuestionsJson(rawText: string): any[] {
+    if (!rawText) return [];
+    const clean = rawText
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+
+    try {
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && Array.isArray(parsed.questions)) return parsed.questions;
+      if (parsed && Array.isArray(parsed.soal)) return parsed.soal;
+      if (parsed && Array.isArray(parsed.data)) return parsed.data;
+    } catch {
+      const start = clean.indexOf('[');
+      const end = clean.lastIndexOf(']');
+      if (start !== -1 && end !== -1 && end > start) {
+        try {
+          const sliced = clean.slice(start, end + 1);
+          const parsed = JSON.parse(sliced);
+          if (Array.isArray(parsed)) return parsed;
+        } catch {}
+      }
+    }
+    return [];
+  }
+
+  /**
    * Menguji validitas Gemini API Key
    * Mendukung backend proxy serverless (Vercel/Express) maupun fallback langsung ke Google Generative Language API
    */
@@ -57,20 +88,25 @@ export class AiGeneratorService {
       const { isJson, data } = await this.safeParseResponse(res);
 
       if (isJson && data) {
-        if (res.ok && data.valid) {
-          StorageService.addLog('AI_GEMINI', 'Validasi Gemini API Key sukses (melalui server backend)!', undefined, 'success');
+        if (data.valid) {
+          StorageService.addLog('AI_GEMINI', 'Validasi Gemini API Key sukses!', undefined, 'success');
           return { valid: true, message: data.message || 'Kunci Gemini valid dan aktif.' };
-        } else if (!res.ok) {
+        } else {
           const srvMsg = String(data.message || '');
           // Jika pesan server adalah tentang high demand/spikes in demand, jangan tolak kunci!
-          if (srvMsg.includes('high demand') || srvMsg.includes('Spikes in demand') || srvMsg.includes('503') || srvMsg.includes('UNAVAILABLE')) {
+          if (
+            srvMsg.includes('high demand') ||
+            srvMsg.includes('Spikes in demand') ||
+            srvMsg.includes('503') ||
+            srvMsg.includes('UNAVAILABLE') ||
+            srvMsg.includes('RESOURCE_EXHAUSTED')
+          ) {
             StorageService.addLog('AI_GEMINI', 'Server Google mengalami lonjakan beban sementara, namun kunci valid.', undefined, 'info');
             return {
               valid: true,
-              message: 'Gemini API Key valid dan terverifikasi! (Catatan: Server Google saat ini sedang mengalami lonjakan beban/high demand sementara, namun kunci Anda aktif dan siap digunakan).'
+              message: 'Gemini API Key valid dan terverifikasi! (Catatan: Server Google saat ini sedang mengalami lonjakan beban sementara pada model tertentu, namun kunci Anda aktif dan siap digunakan).'
             };
           }
-          // Jika memang kunci invalid, log dan laporkan
           if (srvMsg.toLowerCase().includes('tidak valid') || srvMsg.toLowerCase().includes('invalid')) {
             StorageService.addLog('AI_GEMINI', `Validasi ditolak server: ${srvMsg}`, undefined, 'warn');
             return { valid: false, message: srvMsg };
@@ -82,35 +118,15 @@ export class AiGeneratorService {
     }
 
     // 2. Direct client-side validation ke Google Generative Language API
-    // Langkah A: Cek metadata endpoint (tidak menggunakan kuota/inferensi AI, kebal dari error high demand)
-    let isKeyConfirmed = false;
-    try {
-      const metaRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=${encodeURIComponent(keyToTest)}`);
-      if (metaRes.ok) {
-        isKeyConfirmed = true;
-      } else {
-        const errJson: any = await metaRes.json().catch(() => ({}));
-        const rawMsg = errJson?.error?.message || '';
-        if (metaRes.status === 400 || metaRes.status === 403 || rawMsg.toLowerCase().includes('api key') || rawMsg.toLowerCase().includes('not valid')) {
-          return {
-            valid: false,
-            message: 'Kunci API Gemini tidak valid atau ditolak Google. Periksa kembali API Key dari Google AI Studio.'
-          };
-        }
-      }
-    } catch {
-      // Abaikan jika network check gagal
-    }
-
-    // Langkah B: Uji model responsif
+    // Prioritaskan model ultra-ringan gemini-3.1-flash-lite yang kebal dari antrean high demand
     const settings = StorageService.getSettings();
     const configuredModel = settings.geminiModel && !settings.geminiModel.includes('1.5') && !settings.geminiModel.includes('2.0')
       ? settings.geminiModel
-      : 'gemini-3.8-flash';
+      : 'gemini-3.1-flash-lite';
 
-    const modelsToTry = Array.from(new Set([configuredModel, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-4-argon']));
+    const modelsToTry = Array.from(new Set(['gemini-3.1-flash-lite', 'gemini-flash-latest', configuredModel, 'gemini-3.8-flash', 'gemini-4-argon']));
     let lastClientError = 'Tidak dapat terhubung ke Google AI Studio.';
-    let hadSpike = false;
+    let isKeyConfirmed = false;
 
     for (const modelName of modelsToTry) {
       try {
@@ -130,18 +146,17 @@ export class AiGeneratorService {
             StorageService.addLog('AI_GEMINI', `Validasi Gemini API Key sukses langsung ke Google AI Studio (${modelName})!`, undefined, 'success');
             return {
               valid: true,
-              message: `Gemini API Key valid dan siap digunakan! (Model: ${modelName})`
+              message: `Gemini API Key valid dan siap digunakan! (Model aktif: ${modelName})`
             };
           } else if (data.error) {
             lastClientError = data.error.message || 'Kunci API ditolak Google.';
             const msg = (data.error.message || '').toLowerCase();
             
-            // Deteksi lonjakan beban pada model ini
+            // Deteksi lonjakan beban pada model ini: membuktikan autentikasi kunci diterima!
             if (msg.includes('high demand') || msg.includes('spikes in demand') || msg.includes('503') || msg.includes('unavailable') || msg.includes('resource_exhausted')) {
               isKeyConfirmed = true;
-              hadSpike = true;
               console.warn(`Model ${modelName} sedang high demand, mencoba model cadangan...`);
-              continue; // Coba model berikutnya
+              continue;
             }
 
             // Jika error adalah permission/key invalid
@@ -159,11 +174,18 @@ export class AiGeneratorService {
     }
 
     // Jika autentikasi terbukti valid tapi model sedang mengalami lonjakan trafik
-    if (isKeyConfirmed || hadSpike) {
+    if (
+      isKeyConfirmed ||
+      lastClientError.includes('high demand') ||
+      lastClientError.includes('Spikes in demand') ||
+      lastClientError.includes('503') ||
+      lastClientError.includes('UNAVAILABLE') ||
+      lastClientError.includes('RESOURCE_EXHAUSTED')
+    ) {
       StorageService.addLog('AI_GEMINI', 'Gemini API Key valid dan terverifikasi (beban Google sedang tinggi).', undefined, 'success');
       return {
         valid: true,
-        message: 'Gemini API Key valid dan terverifikasi! (Catatan: Server Google saat ini sedang mengalami lonjakan beban/high demand sementara, namun kunci Anda aktif dan sistem otomatis menggunakan model responsif saat pembuatan soal).'
+        message: 'Gemini API Key valid dan terverifikasi! (Catatan: Server Google saat ini sedang mengalami lonjakan beban sementara pada model tertentu, namun kunci Anda aktif dan sistem otomatis menggunakan model cadangan saat pembuatan soal).'
       };
     }
 
@@ -176,20 +198,24 @@ export class AiGeneratorService {
 
   /**
    * Menghasilkan soal ujian secara otomatis melalui AI Gemini
-   * Dilengkapi fallback otomatis ke Google API langsung jika backend Vercel/Serverless tidak aktif
+   * Mendukung hingga 50 butir soal dengan batching 25 butir per tahap, retry otomatis, dan multi-model fallback
    */
-  static async generateQuestions(examId: string, params: GenerateParams): Promise<{ success: boolean; questions?: Question[]; message: string }> {
+  static async generateQuestions(
+    examId: string, 
+    params: GenerateParams,
+    onProgress?: (completed: number, total: number, message: string) => void
+  ): Promise<{ success: boolean; questions?: Question[]; message: string }> {
     const settings = StorageService.getSettings();
     const customApiKey = (settings.geminiApiKey || '').trim();
 
     const totalCount = Math.min(50, Math.max(1, params.count || 5));
     StorageService.addLog('AI_GEMINI', `Memulai pembuatan ${totalCount} butir soal: "${params.topic}" (${params.subject} - ${params.grade})`);
 
-    // Pecah ke batch jika butir soal > 15 (agar tidak terkena limit output token JSON)
+    // Pecah ke batch optimal 25 butir soal agar tidak terkena limit output token JSON dan cepat
     const batchSizes: number[] = [];
     let remaining = totalCount;
     while (remaining > 0) {
-      const take = Math.min(15, remaining);
+      const take = Math.min(25, remaining);
       batchSizes.push(take);
       remaining -= take;
     }
@@ -243,6 +269,15 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
 Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
 `;
 
+      if (onProgress) {
+        onProgress(allAccumulatedQuestions.length, totalCount, `Menghasilkan butir soal tahap ${bIdx + 1} dari ${batchSizes.length} (${batchCount} butir)...`);
+      }
+
+      // Delay jeda antar batch agar tidak memicu rate limiting
+      if (bIdx > 0) {
+        await new Promise(r => setTimeout(r, 1200));
+      }
+
       let batchSuccess = false;
 
       // 1. Coba lewat backend server terlebih dahulu
@@ -272,7 +307,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
           }
         }
       } catch {
-        // Backend proxy route tidak dapat diakses, fallback ke client
+        // Backend proxy route tidak dapat diakses, fallback ke direct client
       }
 
       // 2. Direct client-side generation jika backend gagal / tidak ada
@@ -286,9 +321,9 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
 
         const configuredModel = settings.geminiModel && !settings.geminiModel.includes('1.5') && !settings.geminiModel.includes('2.0')
           ? settings.geminiModel
-          : 'gemini-3.8-flash';
+          : 'gemini-3.1-flash-lite';
 
-        const modelsToTry = Array.from(new Set([configuredModel, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-4-argon']));
+        const modelsToTry = Array.from(new Set(['gemini-3.1-flash-lite', 'gemini-flash-latest', configuredModel, 'gemini-3.8-flash', 'gemini-4-argon']));
 
         for (const modelName of modelsToTry) {
           try {
@@ -313,9 +348,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
                 const { isJson, data } = await this.safeParseResponse(directRes);
                 if (!directRes.ok || !isJson) {
                   const errMsg = data?.error?.message || `HTTP ${directRes.status}`;
-                  // Jika model terkena lonjakan beban (high demand / 503 / 429), langsung beralih ke model berikutnya
                   if (errMsg.includes('high demand') || errMsg.includes('Spikes in demand') || errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('RESOURCE_EXHAUSTED')) {
-                    console.warn(`Model ${modelName} high demand, mencoba model berikutnya...`);
                     throw new Error(`HIGH_DEMAND: ${errMsg}`);
                   }
                   throw new Error(errMsg);
@@ -329,7 +362,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
               } catch (retryErr: any) {
                 const msg = String(retryErr?.message || '');
                 if (msg.startsWith('HIGH_DEMAND')) {
-                  break; // Langsung coba model berikutnya tanpa tunggu retry
+                  break; // Langsung coba model berikutnya
                 }
                 if (attempt === 2) throw retryErr;
                 await new Promise(r => setTimeout(r, 1000 * attempt));
@@ -337,9 +370,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
             }
 
             if (rawJsonText) {
-              const cleanJson = rawJsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-              const parsedList = JSON.parse(cleanJson);
-
+              const parsedList = this.parseQuestionsJson(rawJsonText);
               if (Array.isArray(parsedList) && parsedList.length > 0) {
                 allAccumulatedQuestions.push(...parsedList);
                 batchSuccess = true;

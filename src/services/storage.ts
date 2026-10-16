@@ -445,8 +445,9 @@ export class StorageService {
   }
 
   static getQuestionsByExamId(examId: string): Question[] {
+    const cleanId = String(examId || '').trim().toLowerCase();
     return this.getQuestions()
-      .filter(q => q.examId === examId)
+      .filter(q => String(q.examId || '').trim().toLowerCase() === cleanId)
       .sort((a, b) => a.order - b.order);
   }
 

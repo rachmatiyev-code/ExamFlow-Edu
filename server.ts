@@ -82,9 +82,9 @@ apiRouter.post('/gemini/validate-key', async (req, res) => {
     }
 
     // 2. Uji ketersediaan model aktif
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-4-argon'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash', 'gemini-4-argon'];
     let lastError: any = null;
-    let validatedModel = 'gemini-3.8-flash';
+    let validatedModel = 'gemini-3.1-flash-lite';
     let hadHighDemandSpike = false;
 
     for (const model of candidateModels) {
@@ -119,18 +119,17 @@ apiRouter.post('/gemini/validate-key', async (req, res) => {
             status === 503 ||
             status === 429
           ) {
-            // Karena error ini berasal dari Google AI inference, ini membuktikan kunci API valid!
+            // Error ini membuktikan autentikasi kunci API diterima Google!
             isKeyAuthenticated = true;
             hadHighDemandSpike = true;
-            console.warn(`Model ${model} sedang high demand, mencoba model alternatif...`);
-            break; // Langsung coba model berikutnya
+            break;
           }
 
           // Jika benar-benar 400/403 kunci tidak valid
           if (status === 400 || status === 403 || errString.includes('API key not valid')) {
             return res.status(400).json({
               valid: false,
-              message: 'Kunci API Gemini tidak valid atau tidak diizinkan.'
+              message: 'Kunci API Gemini tidak valid atau tidak diizinkan. Periksa kembali API Key dari Google AI Studio.'
             });
           }
         }
@@ -141,8 +140,8 @@ apiRouter.post('/gemini/validate-key', async (req, res) => {
     if (isKeyAuthenticated || hadHighDemandSpike) {
       return res.json({
         valid: true,
-        message: 'Gemini API Key valid dan aktif! (Catatan: Server Google saat ini sedang mengalami lonjakan beban/high demand sementara, namun kunci Anda terverifikasi dan sistem otomatis memilih model terbaik saat pembuatan soal).',
-        model: 'gemini-flash-latest',
+        message: 'Gemini API Key valid dan aktif! (Catatan: Server Google saat ini sedang mengalami lonjakan beban sementara pada model tertentu, namun kunci Anda terverifikasi dan sistem otomatis memilih model tercepat).',
+        model: 'gemini-3.1-flash-lite',
         highDemand: true
       });
     }
@@ -159,6 +158,20 @@ apiRouter.post('/gemini/validate-key', async (req, res) => {
       }
     }
 
+    if (
+      friendlyErrorMessage.includes('high demand') ||
+      friendlyErrorMessage.includes('Spikes in demand') ||
+      friendlyErrorMessage.includes('503') ||
+      friendlyErrorMessage.includes('UNAVAILABLE')
+    ) {
+      return res.json({
+        valid: true,
+        message: 'Gemini API Key valid dan aktif! (Server Google merespons lonjakan beban sementara, kunci Anda siap digunakan).',
+        model: 'gemini-3.1-flash-lite',
+        highDemand: true
+      });
+    }
+
     return res.status(400).json({
       valid: false,
       message: `Validasi gagal: ${friendlyErrorMessage}`
@@ -170,6 +183,21 @@ apiRouter.post('/gemini/validate-key', async (req, res) => {
       const parsed = JSON.parse(errMsg);
       if (parsed?.error?.message) errMsg = parsed.error.message;
     } catch {}
+
+    if (
+      errMsg.includes('high demand') ||
+      errMsg.includes('Spikes in demand') ||
+      errMsg.includes('503') ||
+      errMsg.includes('UNAVAILABLE')
+    ) {
+      return res.json({
+        valid: true,
+        message: 'Gemini API Key valid dan aktif! (Terverifikasi dari Google AI Studio).',
+        model: 'gemini-3.1-flash-lite',
+        highDemand: true
+      });
+    }
+
     return res.status(400).json({
       valid: false,
       message: `Validasi gagal: ${errMsg}`
@@ -177,8 +205,38 @@ apiRouter.post('/gemini/validate-key', async (req, res) => {
   }
 });
 
+// Helper untuk mengekstrak array soal JSON secara tangguh dari respons model
+function parseQuestionsJson(rawText: string): any[] {
+  if (!rawText) return [];
+  const clean = rawText
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  try {
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && Array.isArray(parsed.questions)) return parsed.questions;
+    if (parsed && Array.isArray(parsed.soal)) return parsed.soal;
+    if (parsed && Array.isArray(parsed.data)) return parsed.data;
+  } catch {
+    // Regex fallback jika ada teks pengantar di luar array [ ... ]
+    const start = clean.indexOf('[');
+    const end = clean.lastIndexOf(']');
+    if (start !== -1 && end !== -1 && end > start) {
+      try {
+        const sliced = clean.slice(start, end + 1);
+        const parsed = JSON.parse(sliced);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
+  }
+  return [];
+}
+
 /**
- * Endpoint Generate Soal dengan Retry Backoff untuk menghindari error 503/504
+ * Endpoint Generate Soal dengan Retry Backoff & Multimodel Fallback
  */
 apiRouter.post('/gemini/generate-questions', async (req, res) => {
   try {
@@ -216,7 +274,7 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
       'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), dan Uraian ("type": "essay").';
 
     const promptText = `
-Anda adalah seorang ahli pembuat asesmen pendidikan kurikulum nasional (Kurikulum Merdeka / K13).
+Anda adalah seorang pakar kurikulum dan asesmen pendidikan nasional (Kurikulum Merdeka / K13).
 Tugas Anda adalah menghasilkan persis ${count} butir soal berkualitas tinggi untuk:
 - Mata Pelajaran: ${subject}
 - Topik / Materi: ${topic}
@@ -251,11 +309,11 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
 Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
 `;
 
-    // Retry loop untuk antisipasi 503 / 504 / 429
+    // Retry loop untuk antisipasi 503 / 504 / 429 across models
     let lastError: any = null;
-    let questionsData = null;
+    let questionsData: any[] = [];
 
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-4-argon'];
+    const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.8-flash', 'gemini-4-argon'];
     for (const model of modelsToTry) {
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
@@ -266,13 +324,12 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
               responseMimeType: 'application/json',
               temperature: 0.7,
               maxOutputTokens: 16384,
-              systemInstruction: 'Anda adalah generator soal ujian berbasis taksonomi pendidikan. Anda selalu menghasilkan JSON valid yang memenuhi skema pertanyaan ujian.'
+              systemInstruction: 'Anda adalah generator soal ujian berbasis kurikulum nasional. Anda selalu menghasilkan JSON murni berisi daftar array butir soal tanpa teks pembuka atau penutup.'
             }
           });
 
           const rawText = response.text?.trim() || '';
-          const cleanJson = rawText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-          questionsData = JSON.parse(cleanJson);
+          questionsData = parseQuestionsJson(rawText);
           if (Array.isArray(questionsData) && questionsData.length > 0) {
             break;
           }
@@ -281,20 +338,19 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
           const msg = String(retryErr?.message || '');
           console.warn(`Gemini (${model}) attempt ${attempt} failed:`, msg);
           
-          // Jika model sedang lonjakan beban (high demand / 503 / 429), langsung beralih ke model berikutnya
           if (msg.includes('high demand') || msg.includes('Spikes in demand') || msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('RESOURCE_EXHAUSTED')) {
             break;
           }
           if (attempt < 2) {
-            await new Promise(r => setTimeout(r, 1000 * attempt));
+            await new Promise(r => setTimeout(r, 800 * attempt));
           }
         }
       }
-      if (questionsData) break;
+      if (Array.isArray(questionsData) && questionsData.length > 0) break;
     }
 
-    if (!questionsData) {
-      throw lastError || new Error('Gagal menghasilkan soal setelah 3 kali percobaan.');
+    if (!questionsData || questionsData.length === 0) {
+      throw lastError || new Error('Gagal menghasilkan soal setelah mencoba model alternatif.');
     }
 
     return res.json({

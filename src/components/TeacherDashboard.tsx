@@ -326,15 +326,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     setAiMessage(null);
 
     try {
-      const res = await AiGeneratorService.generateQuestions(currentExam.id, {
-        topic: topicToUse,
-        count: aiCount,
-        difficulty: aiDifficulty,
-        taxonomy: aiTaxonomy,
-        questionType: aiQuestionType,
-        subject: currentExam.subject,
-        grade: currentExam.grade
-      });
+      const res = await AiGeneratorService.generateQuestions(
+        currentExam.id, 
+        {
+          topic: topicToUse,
+          count: aiCount,
+          difficulty: aiDifficulty,
+          taxonomy: aiTaxonomy,
+          questionType: aiQuestionType,
+          subject: currentExam.subject,
+          grade: currentExam.grade
+        },
+        (_completed, _total, message) => {
+          setAiMessage(message);
+        }
+      );
 
       setIsGeneratingAi(false);
       if (res.success && res.questions) {
@@ -876,6 +882,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         setSharingExam(exam);
                         setHasCopiedShareLink(false);
                         setHasCopiedShareMsg(false);
+                        // Otomatis pastikan paket ujian dan butir soal tersinkronisasi ke Google Sheets
+                        const qs = StorageService.getQuestionsByExamId(exam.id);
+                        if (qs.length > 0) {
+                          GasClient.pushExam(exam, qs);
+                        }
                       }}
                       className="col-span-2 px-3 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-xs"
                       title="Dapatkan Link Langsung Siswa & QR Code ujian ini"
@@ -2875,20 +2886,33 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               const gasUrl = StorageService.getSettings().gasWebAppUrl;
               const directLink = `${window.location.origin}/?mode=student&exam=${sharingExam.id}${gasUrl ? `&gas=${encodeURIComponent(gasUrl)}` : ''}${sharingExam.token ? `&token=${encodeURIComponent(sharingExam.token)}` : ''}`;
               const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(directLink)}`;
-              const waBroadcastText = `📢 *UJIAN ONLINE: ${sharingExam.subject.toUpperCase()}*\n🏫 *${profile.name}*\n📚 Mata Pelajaran: ${sharingExam.subject}\n👥 Kelas / Tingkat: Kelas ${sharingExam.grade}\n📝 Ujian: ${sharingExam.title}\n⏱️ Durasi: ${sharingExam.durationMinutes} Menit\n🔑 Token Ujian: ${sharingExam.token || 'Tanpa Token'}\n\n🔗 *Klik Link Ujian untuk Mulai Mengerjakan:*\n${directLink}\n\n⚠️ *Petunjuk Siswa:*\n1. Buka tautan di atas melalui browser Chrome/Safari di HP atau laptop Anda.\n2. Masukkan NIS / Nomor Induk Siswa Anda.\n3. Perangkat siswa tidak perlu memasang URL GAS & langsung terhubung ke ujian!`;
+              const examQs = StorageService.getQuestionsByExamId(sharingExam.id);
+              const waBroadcastText = `📢 *UJIAN ONLINE: ${sharingExam.subject.toUpperCase()}*\n🏫 *${profile.name}*\n📚 Mata Pelajaran: ${sharingExam.subject}\n👥 Kelas / Tingkat: Kelas ${sharingExam.grade}\n📝 Ujian: ${sharingExam.title}\n📊 Jumlah Soal: ${examQs.length} Butir Soal\n⏱️ Durasi: ${sharingExam.durationMinutes} Menit\n🔑 Token Ujian: ${sharingExam.token || 'Tanpa Token'}\n\n🔗 *Klik Link Ujian untuk Mulai Mengerjakan:*\n${directLink}\n\n⚠️ *Petunjuk Siswa:*\n1. Buka tautan di atas melalui browser Chrome/Safari di HP atau laptop Anda.\n2. Masukkan NIS / Nomor Induk Siswa Anda.\n3. Perangkat siswa tidak perlu memasang URL GAS & langsung terhubung ke ujian!`;
 
               return (
                 <div className="mt-5 space-y-5">
-                  {/* Reassuring Banner for User Questions */}
-                  <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 flex items-start gap-2.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-bold">Perangkat Siswa Otomatis Terhubung Langsung</p>
-                      <p className="text-[11px] opacity-90 mt-0.5">
-                        Siswa <strong>TIDAK PERLU</strong> memasang URL Google Apps Script dan <strong>TIDAK AKAN</strong> melihat status offline. Tautan ini otomatis menyematkan izin dan koneksi ke ujian secara mandiri.
-                      </p>
+                  {/* Readiness & Sync Verification */}
+                  {examQs.length > 0 ? (
+                    <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 flex items-start gap-2.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold">Paket Soal Terverifikasi: {examQs.length} Butir Soal Siap</p>
+                        <p className="text-[11px] opacity-90 mt-0.5">
+                          Ujian & seluruh butir soal telah tersimpan di sistem dan disinkronkan ke Google Sheets. Siswa yang membuka link langsung dapat mengerjakan tanpa kendala "soal tidak ditemukan".
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="p-3.5 bg-rose-50 dark:bg-rose-950/40 rounded-xl border border-rose-200 dark:border-rose-800 text-xs text-rose-900 dark:text-rose-200 flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-bold">Perhatian: Belum Ada Soal pada Ujian Ini</p>
+                        <p className="text-[11px] opacity-90 mt-0.5">
+                          Ujian ini saat ini memiliki 0 butir soal. Harap tambahkan butir soal terlebih dahulu melalui <strong>Bank Soal</strong> atau <strong>AI Generator Soal</strong> sebelum membagikan link ke siswa.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* QR Code & Direct Scan */}
                   <div className="flex flex-col items-center justify-center p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 text-center">

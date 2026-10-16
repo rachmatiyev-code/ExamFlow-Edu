@@ -36,6 +36,10 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncSuccessBanner, setSyncSuccessBanner] = useState<string | null>(null);
 
+  // Direct student link parameters (?mode=student&exam=...&token=...&gas=...)
+  const [directExamId, setDirectExamId] = useState<string | null>(null);
+  const [directToken, setDirectToken] = useState<string | null>(null);
+
   // Sync theme with DOM class
   useEffect(() => {
     const isDark = settings.theme === 'dark';
@@ -59,6 +63,52 @@ export default function App() {
     setSubmissions(StorageService.getSubmissions());
     setLogs(StorageService.getLogs());
   }, []);
+
+  // Check URL query parameters on load for direct student link & auto-GAS connection
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const modeParam = params.get('mode');
+      const gasParam = params.get('gas');
+      const examParam = params.get('exam');
+      const tokenParam = params.get('token');
+
+      if (modeParam === 'student' || examParam) {
+        setCurrentTab('student');
+      } else if (modeParam === 'teacher') {
+        setCurrentTab('teacher');
+      }
+
+      if (examParam) {
+        setDirectExamId(examParam);
+      }
+      if (tokenParam) {
+        setDirectToken(tokenParam);
+      }
+
+      // Automatically configure GAS Web App URL from shared link without manual student setup
+      if (gasParam) {
+        const current = StorageService.getSettings();
+        if (current.gasWebAppUrl !== gasParam) {
+          const updated = { ...current, gasWebAppUrl: gasParam };
+          StorageService.saveSettings(updated);
+          setSettings(updated);
+          StorageService.addLog('SYNC', 'URL Google Apps Script berhasil dikonfigurasi otomatis dari Tautan Ujian Siswa.', undefined, 'info');
+
+          // Immediately sync exam questions and student roster in background
+          GasClient.fetchAllFromSheets().then((res) => {
+            if (res.success) {
+              refreshAllData();
+              setSyncSuccessBanner('Terhubung ke database ujian! Soal & jadwal ujian berhasil disinkronkan.');
+              setTimeout(() => setSyncSuccessBanner(null), 4000);
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Gagal membaca parameter URL:', err);
+    }
+  }, [refreshAllData]);
 
   // Perform Server Sync (Bidirectional Push & Pull with Google Sheets)
   const handleManualSync = async () => {
@@ -158,6 +208,8 @@ export default function App() {
             profile={profile}
             exams={exams}
             students={students}
+            initialExamId={directExamId}
+            initialToken={directToken}
             onSubmissionComplete={(newSub) => {
               refreshAllData();
             }}

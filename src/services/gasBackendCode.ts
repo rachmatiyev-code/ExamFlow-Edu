@@ -229,7 +229,7 @@ function doPost(e) {
       return jsonResponse({ status: 'success', message: 'Jawaban tersimpan di Google Sheets', submissionId: sub.id });
     }
 
-    if (action === 'saveStudents') {
+    if (action === 'saveStudents' || action === 'saveStudentList' || action === 'syncStudents') {
       const students = payload.students || [];
       let shSt = ss.getSheetByName(SHEETS.STUDENTS);
       if (!shSt) {
@@ -238,20 +238,21 @@ function doPost(e) {
       }
       
       const lastRow = shSt.getLastRow();
+      const lastCol = Math.max(7, shSt.getLastColumn());
       if (lastRow > 1) {
-        shSt.getRange(2, 1, lastRow - 1, shSt.getLastColumn()).clearContent();
+        shSt.getRange(2, 1, lastRow - 1, lastCol).clearContent();
       }
       
       if (students.length > 0) {
         const rows = students.map(function(s) {
           return [
-            s.id || ('STD-' + Utilities.getUuid().slice(0, 8)),
-            s.studentNo || '',
-            s.fullName || '',
-            s.classGrade || '',
-            s.email || '',
-            s.phone || '',
-            s.status || 'active'
+            String(s.id || ('STD-' + Utilities.getUuid().slice(0, 8))),
+            String(s.studentNo || ''),
+            String(s.fullName || ''),
+            String(s.classGrade || ''),
+            String(s.email || ''),
+            String(s.phone || ''),
+            String(s.status || 'active')
           ];
         });
         shSt.getRange(2, 1, rows.length, rows[0].length).setValues(rows);

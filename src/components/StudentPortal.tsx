@@ -31,13 +31,17 @@ interface StudentPortalProps {
   exams: Exam[];
   students: Student[];
   onSubmissionComplete: (sub: Submission) => void;
+  initialExamId?: string | null;
+  initialToken?: string | null;
 }
 
 export const StudentPortal: React.FC<StudentPortalProps> = ({
   profile,
   exams,
   students,
-  onSubmissionComplete
+  onSubmissionComplete,
+  initialExamId,
+  initialToken
 }) => {
   // State
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
@@ -74,6 +78,22 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // Filter exams available today
   const todayStr = new Date().toISOString().split('T')[0];
   const activeExams = exams.filter(e => e.status !== 'archived');
+
+  // Auto-select exam if directed via shared student link
+  useEffect(() => {
+    if (initialExamId && exams.length > 0 && !isExamActive) {
+      const target = exams.find(e => e.id === initialExamId);
+      if (target) {
+        setSelectedExam(target);
+        if (initialToken) {
+          setExamToken(initialToken);
+        } else if (target.token) {
+          setExamToken(target.token);
+        }
+        setIsLoginModalOpen(true);
+      }
+    }
+  }, [initialExamId, initialToken, exams, isExamActive]);
 
   // Handle student roster auto-fill
   useEffect(() => {

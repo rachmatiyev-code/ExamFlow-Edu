@@ -48,7 +48,10 @@ import {
   Square,
   Save,
   UserPlus,
-  Settings
+  Settings,
+  Share2,
+  ExternalLink,
+  QrCode
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -127,6 +130,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // Submission detail modal
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
+
+  // Share Exam Modal State
+  const [sharingExam, setSharingExam] = useState<Exam | null>(null);
+  const [hasCopiedShareLink, setHasCopiedShareLink] = useState(false);
+  const [hasCopiedShareMsg, setHasCopiedShareMsg] = useState(false);
 
   // Handle Login
   const handleLogin = (e: React.FormEvent) => {
@@ -863,6 +871,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   {/* Action buttons */}
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-2">
                     <button
+                      type="button"
+                      onClick={() => {
+                        setSharingExam(exam);
+                        setHasCopiedShareLink(false);
+                        setHasCopiedShareMsg(false);
+                      }}
+                      className="col-span-2 px-3 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-xs"
+                      title="Dapatkan Link Langsung Siswa & QR Code ujian ini"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Bagikan ke Siswa (Link Langsung & QR Code)</span>
+                    </button>
+
+                    <button
                       onClick={() => {
                         setSelectedExamId(exam.id);
                         setActiveTab('questions');
@@ -915,26 +937,36 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         <div className="space-y-6 animate-fadeIn">
           {/* Exam Selector & Actions Bar */}
           <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                Ujian yang Diedit:
+                Mata Pelajaran & Kelas:
               </label>
               <select
-                value={selectedExamId}
+                value={selectedExamId || exams[0]?.id || ''}
                 onChange={(e) => setSelectedExamId(e.target.value)}
                 className="text-xs font-bold px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none"
               >
                 {exams.map(e => (
                   <option key={e.id} value={e.id}>
-                    {e.subject} - {e.title}
+                    {e.subject} — Kelas {e.grade} ({e.title})
                   </option>
                 ))}
               </select>
+              {currentExam && (
+                <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  {currentExam.subject} · Kelas {currentExam.grade}
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setIsAiModalOpen(true)}
+                onClick={() => {
+                  if (!selectedExamId && exams.length > 0) {
+                    setSelectedExamId(exams[0].id);
+                  }
+                  setIsAiModalOpen(true);
+                }}
                 className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-all"
               >
                 <Sparkles className="w-3.5 h-3.5" />
@@ -1753,10 +1785,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             )}
 
             <div className="space-y-4">
-              {/* Target Exam Selection */}
+              {/* Mata Pelajaran & Kelas Tujuan (Menggantikan label Target Ujian) */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Target Ujian
+                  Mata Pelajaran & Kelas Tujuan
                 </label>
                 <select
                   value={selectedExamId || exams[0]?.id || ''}
@@ -1765,10 +1797,31 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 >
                   {exams.map(e => (
                     <option key={e.id} value={e.id}>
-                      {e.subject} - {e.title} ({e.grade})
+                      {e.subject} — Kelas {e.grade} (Ujian: {e.title})
                     </option>
                   ))}
                 </select>
+
+                {/* Info Card Mata Pelajaran & Kelas */}
+                {(() => {
+                  const targetExamObj = exams.find(e => e.id === (selectedExamId || exams[0]?.id)) || exams[0];
+                  if (!targetExamObj) return null;
+                  const currentCount = StorageService.getQuestionsByExamId(targetExamObj.id).length;
+                  return (
+                    <div className="mt-2 p-2.5 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[11px] text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-indigo-600 dark:text-indigo-400">{targetExamObj.subject}</span>
+                        <span>·</span>
+                        <span className="font-semibold">Kelas {targetExamObj.grade}</span>
+                        <span>·</span>
+                        <span className="text-slate-500 truncate max-w-[150px]">{targetExamObj.title}</span>
+                      </div>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                        {currentCount} Soal Ada
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Topic / Materi */}
@@ -2783,6 +2836,145 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg"
               >
                 Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          MODAL: BAGIKAN LINK & QR CODE UJIAN SISWA
+         --------------------------------------------------------- */}
+      {sharingExam && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                  <Share2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Bagikan Ujian ke Siswa
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {sharingExam.subject} · Kelas {sharingExam.grade} · {sharingExam.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSharingExam(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {(() => {
+              const gasUrl = StorageService.getSettings().gasWebAppUrl;
+              const directLink = `${window.location.origin}/?mode=student&exam=${sharingExam.id}${gasUrl ? `&gas=${encodeURIComponent(gasUrl)}` : ''}${sharingExam.token ? `&token=${encodeURIComponent(sharingExam.token)}` : ''}`;
+              const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(directLink)}`;
+              const waBroadcastText = `📢 *UJIAN ONLINE: ${sharingExam.subject.toUpperCase()}*\n🏫 *${profile.name}*\n📚 Mata Pelajaran: ${sharingExam.subject}\n👥 Kelas / Tingkat: Kelas ${sharingExam.grade}\n📝 Ujian: ${sharingExam.title}\n⏱️ Durasi: ${sharingExam.durationMinutes} Menit\n🔑 Token Ujian: ${sharingExam.token || 'Tanpa Token'}\n\n🔗 *Klik Link Ujian untuk Mulai Mengerjakan:*\n${directLink}\n\n⚠️ *Petunjuk Siswa:*\n1. Buka tautan di atas melalui browser Chrome/Safari di HP atau laptop Anda.\n2. Masukkan NIS / Nomor Induk Siswa Anda.\n3. Perangkat siswa tidak perlu memasang URL GAS & langsung terhubung ke ujian!`;
+
+              return (
+                <div className="mt-5 space-y-5">
+                  {/* Reassuring Banner for User Questions */}
+                  <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">Perangkat Siswa Otomatis Terhubung Langsung</p>
+                      <p className="text-[11px] opacity-90 mt-0.5">
+                        Siswa <strong>TIDAK PERLU</strong> memasang URL Google Apps Script dan <strong>TIDAK AKAN</strong> melihat status offline. Tautan ini otomatis menyematkan izin dan koneksi ke ujian secara mandiri.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* QR Code & Direct Scan */}
+                  <div className="flex flex-col items-center justify-center p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 text-center">
+                    <div className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 mb-2">
+                      <img
+                        src={qrImageUrl}
+                        alt="QR Code Ujian Siswa"
+                        className="w-44 h-44 object-contain"
+                        loading="lazy"
+                        onError={(e) => {
+                          // Fallback if qrserver is blocked
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    </div>
+                    <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1 mt-1">
+                      <QrCode className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                      <span>Siswa dapat scan langsung dengan kamera HP</span>
+                    </span>
+                  </div>
+
+                  {/* Direct Link Box */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Tautan Langsung Ujian Siswa:
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={directLink}
+                        className="w-full px-3 py-2 text-xs font-mono bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300 focus:outline-none select-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(directLink);
+                          setHasCopiedShareLink(true);
+                          setTimeout(() => setHasCopiedShareLink(false), 2500);
+                        }}
+                        className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all shrink-0 flex items-center gap-1.5 ${
+                          hasCopiedShareLink
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                        }`}
+                      >
+                        {hasCopiedShareLink ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{hasCopiedShareLink ? 'Tersalin!' : 'Salin Link'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* WhatsApp Broadcast Format */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                      Format Siaran Pesan WhatsApp / Grup Kelas:
+                    </label>
+                    <div className="relative">
+                      <pre className="p-3 bg-slate-100 dark:bg-slate-800/60 rounded-xl text-[11px] text-slate-700 dark:text-slate-300 font-sans whitespace-pre-wrap border border-slate-200 dark:border-slate-700 max-h-36 overflow-y-auto leading-relaxed">
+                        {waBroadcastText}
+                      </pre>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(waBroadcastText);
+                          setHasCopiedShareMsg(true);
+                          setTimeout(() => setHasCopiedShareMsg(false), 2500);
+                        }}
+                        className="mt-2 w-full py-2 px-3 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        {hasCopiedShareMsg ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{hasCopiedShareMsg ? 'Format Pesan Berhasil Disalin!' : 'Salin Teks untuk Grup WhatsApp'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="pt-4 mt-6 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSharingExam(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors"
+              >
+                Selesai
               </button>
             </div>
           </div>

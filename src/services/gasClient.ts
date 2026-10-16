@@ -391,10 +391,26 @@ export class GasClient {
 
     try {
       StorageService.addLog('SYNC', `Mengirim ${students.length} data siswa ke Google Sheets...`);
-      const res = await this.postToGas({ action: 'saveStudents', students });
+      
+      // 1. Coba action standar 'saveStudents'
+      let res = await this.postToGas({ action: 'saveStudents', students });
+      
+      // 2. Jika Google Apps Script di spreadsheet masih deployment versi lama yang belum mengenal 'saveStudents',
+      // fallback coba panggil action 'syncAll'
+      if (!res.success && res.message && (res.message.includes('tidak dikenal') || res.message.includes('saveStudents'))) {
+        StorageService.addLog('SYNC', 'Mencoba fallback action syncAll untuk data siswa...');
+        res = await this.postToGas({ action: 'syncAll', students });
+      }
+
       if (!res.success) {
+        if (res.message && res.message.includes('tidak dikenal')) {
+          const detail = 'Kode Google Apps Script di Spreadsheet Anda perlu diperbarui ke versi terbaru. Buka menu Pengaturan > "Salin Kode Backend Apps Script", lalu di script.google.com klik Deploy > Manage Deployments > Edit (ikon pensil) > Version: New version > Deploy.';
+          StorageService.addLog('SYNC', detail, undefined, 'error');
+          throw new Error(detail);
+        }
         throw new Error(res.message || 'Gagal menyimpan siswa ke Google Sheets.');
       }
+
       StorageService.addLog('SYNC', `Berhasil menyimpan ${students.length} data siswa ke Google Sheets!`, undefined, 'success');
       return {
         success: true,
@@ -404,7 +420,7 @@ export class GasClient {
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       StorageService.addLog('SYNC', `Gagal mengirim data siswa ke Google Sheets: ${errMsg}`, undefined, 'warn');
-      return { success: false, message: `Gagal simpan ke Google Sheets: ${errMsg}` };
+      return { success: false, message: errMsg };
     }
   }
 

@@ -25,7 +25,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   isSyncing,
   syncSuccessBanner
 }) => {
-  const isOnline = navigator.onLine;
+  const [isOnline, setIsOnline] = React.useState(navigator.onLine);
+
+  React.useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   return (
     <header className="sticky top-0 z-40 w-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors no-print">
@@ -110,26 +121,41 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Zone 3: Actions & Controls */}
         <div className="flex items-center gap-3 shrink-0">
-          {/* Manual Google Sheets Sync Button */}
-          <button
-            onClick={onManualSync}
-            disabled={isSyncing}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
-              isSyncing
-                ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 animate-pulse'
-                : settings.gasWebAppUrl
-                ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
-            }`}
-            title={settings.gasWebAppUrl ? 'Sinkronkan dengan Google Sheets' : 'Atur URL Google Apps Script di Pengaturan'}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">
-              {isSyncing ? 'Sinkronisasi...' : settings.gasWebAppUrl ? 'Sync Sheets' : 'Offline Mode'}
-            </span>
-          </button>
+          {/* In Student Mode: Show clean live network badge */}
+          {currentTab === 'student' ? (
+            <div 
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border ${
+                isOnline 
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800' 
+                  : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+              }`}
+              title={isOnline ? 'Perangkat terhubung ke internet' : 'Perangkat offline. Jawaban akan tetap tersimpan di memori perangkat.'}
+            >
+              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+              <span className="hidden sm:inline">{isOnline ? 'Online · Siap Ujian' : 'Offline (Tersimpan Lokal)'}</span>
+            </div>
+          ) : (
+            /* In Teacher Mode: Manual Google Sheets Sync Button */
+            <button
+              onClick={onManualSync}
+              disabled={isSyncing}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+                isSyncing
+                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 animate-pulse'
+                  : settings.gasWebAppUrl
+                  ? 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                  : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+              }`}
+              title={settings.gasWebAppUrl ? 'Sinkronkan data dengan Google Sheets' : 'Buka Pengaturan untuk memasukkan URL Web App Google Apps Script'}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">
+                {isSyncing ? 'Sinkronisasi...' : settings.gasWebAppUrl ? 'Sync Sheets' : 'Hubungkan Sheets'}
+              </span>
+            </button>
+          )}
 
-          {/* Settings Trigger */}
+          {/* Settings Trigger (visible to teachers / can open settings modal) */}
           <button
             onClick={onOpenSettings}
             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-colors border border-slate-200 dark:border-slate-700"

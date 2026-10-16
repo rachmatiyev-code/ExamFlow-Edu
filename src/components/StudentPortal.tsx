@@ -25,7 +25,10 @@ import {
   HelpCircle,
   RotateCcw,
   RefreshCw,
-  Download
+  Download,
+  BarChart3,
+  Search,
+  X
 } from 'lucide-react';
 
 interface StudentPortalProps {
@@ -77,6 +80,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // Audio Playback State
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Student Score Lookup State
+  const [isScoreLookupOpen, setIsScoreLookupOpen] = useState(false);
+  const [scoreLookupNis, setScoreLookupNis] = useState('');
+  const [studentLookupResults, setStudentLookupResults] = useState<Submission[] | null>(null);
 
   // Filter exams available today
   const todayStr = new Date().toISOString().split('T')[0];
@@ -946,8 +954,23 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           </p>
         </div>
 
-        <div className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 self-start sm:self-auto font-mono">
-          Tanggal: {new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => {
+              setIsScoreLookupOpen(true);
+              setStudentLookupResults(null);
+              setScoreLookupNis('');
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Cek Nilai Saya</span>
+          </button>
+
+          <div className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 font-mono">
+            Tanggal: {new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </div>
         </div>
       </div>
 
@@ -1152,6 +1175,141 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          MODAL: STUDENT SELF SCORE LOOKUP (Cek Nilai Siswa)
+         --------------------------------------------------------- */}
+      {isScoreLookupOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-sm">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Cek Hasil Nilai Ujian Siswa
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Masukkan Nomor Induk Siswa (NIS) untuk melihat riwayat nilai
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsScoreLookupOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const query = scoreLookupNis.trim().toLowerCase();
+                if (!query) return;
+                const allSubs = StorageService.getSubmissions();
+                const matched = allSubs.filter(s => {
+                  return String(s.studentNo || '').trim().toLowerCase() === query ||
+                         String(s.studentName || '').toLowerCase().includes(query);
+                });
+                setStudentLookupResults(matched);
+              }}
+              className="space-y-4 mb-5"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nomor Induk Siswa (NIS) / Nama
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    required
+                    value={scoreLookupNis}
+                    onChange={(e) => setScoreLookupNis(e.target.value)}
+                    placeholder="Contoh: 1001 atau Ahmad"
+                    className="flex-1 px-3.5 py-2.5 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 shrink-0"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Cari Nilai</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            {studentLookupResults !== null && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs text-slate-500 font-semibold border-b border-slate-100 dark:border-slate-800 pb-2">
+                  <span>Hasil Pencarian ({studentLookupResults.length} Ujian Ditemukan)</span>
+                </div>
+
+                {studentLookupResults.length > 0 ? (
+                  <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                    {studentLookupResults.map(sub => {
+                      const examObj = exams.find(e => String(e.id).trim().toLowerCase() === String(sub.examId || '').trim().toLowerCase());
+                      return (
+                        <div key={sub.id} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 text-xs space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="font-bold text-slate-900 dark:text-white text-sm block">
+                                {examObj?.title || examObj?.subject || sub.examId}
+                              </span>
+                              <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                                {sub.studentName} ({sub.studentNo}) · {sub.classGrade}
+                              </span>
+                            </div>
+                            <span className={`px-2.5 py-1 rounded-md text-xs font-bold font-mono ${
+                              sub.passed
+                                ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                            }`}>
+                              {sub.percentage}% ({sub.passed ? 'Lulus' : 'Remedial'})
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 font-mono pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                            <span>Durasi: {Math.floor((Number(sub.timeSpentSeconds) || 0) / 60)}m {(Number(sub.timeSpentSeconds) || 0) % 60}s</span>
+                            <span>·</span>
+                            <span>Pindah Tab: {sub.tabSwitchCount || 0}x</span>
+                            <span>·</span>
+                            <span>Kirim: {sub.submittedAt ? new Date(sub.submittedAt).toLocaleDateString('id-ID') : '-'}</span>
+                          </div>
+
+                          {sub.feedback && (
+                            <div className="p-2 rounded bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-[11px] mt-1">
+                              <strong>Catatan Guru:</strong> {sub.feedback}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
+                    Tidak ditemukan rekaman ujian untuk NIS/Nama "{scoreLookupNis}". Pastikan NIS yang Anda masukkan sudah benar atau ujian sudah berhasil dikirim.
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsScoreLookupOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
           </div>
         </div>
       )}

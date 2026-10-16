@@ -51,7 +51,11 @@ import {
   Settings,
   Share2,
   ExternalLink,
-  QrCode
+  QrCode,
+  Search,
+  Filter,
+  Printer,
+  X
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -130,6 +134,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // Submission detail modal
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
+
+  // Analytics Filters & Search State
+  const [analyticsExamFilter, setAnalyticsExamFilter] = useState<string>('all');
+  const [analyticsSearchQuery, setAnalyticsSearchQuery] = useState<string>('');
+  const [analyticsStatusFilter, setAnalyticsStatusFilter] = useState<'all' | 'passed' | 'remedial' | 'tab-switch'>('all');
+  const [analyticsClassFilter, setAnalyticsClassFilter] = useState<string>('all');
 
   // Share Exam Modal State
   const [sharingExam, setSharingExam] = useState<Exam | null>(null);
@@ -538,27 +548,46 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // Export Submissions to CSV
   const handleExportCsv = () => {
-    const headers = ['ID Submission', 'NIS', 'Nama Siswa', 'Kelas', 'Nilai (%)', 'Status', 'Pindah Tab', 'Waktu Pengerjaan (Detik)', 'Tanggal Kirim'];
-    const rows = submissions.map(s => [
-      s.id,
-      s.studentNo,
-      `"${s.studentName}"`,
-      s.classGrade,
-      s.percentage,
-      s.passed ? 'Lulus' : 'Remedial',
-      s.tabSwitchCount,
-      s.timeSpentSeconds,
-      s.submittedAt
-    ]);
+    const safeList = (submissions || []).filter((s): s is Submission => Boolean(s && s.id));
+    const targetData = analyticsExamFilter === 'all'
+      ? safeList
+      : safeList.filter(s => String(s.examId || '').trim().toLowerCase() === String(analyticsExamFilter).trim().toLowerCase());
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const headers = ['ID Submission', 'NIS', 'Nama Siswa', 'Kelas', 'ID Ujian', 'Mata Pelajaran', 'Nilai (%)', 'Status', 'Pindah Tab', 'Waktu Pengerjaan (Detik)', 'Tanggal Kirim'];
+    const rows = targetData.map(s => {
+      const examObj = exams.find(e => String(e.id).trim().toLowerCase() === String(s.examId || '').trim().toLowerCase());
+      return [
+        s.id,
+        s.studentNo,
+        `"${(s.studentName || '').replace(/"/g, '""')}"`,
+        s.classGrade || '',
+        s.examId || '',
+        `"${(examObj?.title || examObj?.subject || s.examId || '').replace(/"/g, '""')}"`,
+        Number(s.percentage) || 0,
+        s.passed ? 'Lulus' : 'Remedial',
+        Number(s.tabSwitchCount) || 0,
+        Number(s.timeSpentSeconds) || 0,
+        s.submittedAt || ''
+      ];
+    });
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `nilai_ujian_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `rekap_nilai_${analyticsExamFilter !== 'all' ? analyticsExamFilter : 'semua'}_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Delete individual submission (e.g. test dummy data)
+  const handleDeleteSubmission = (subId: string) => {
+    if (!window.confirm('Hapus rekaman nilai submission ini?')) return;
+    const currentSubs = StorageService.getSubmissions();
+    const updated = currentSubs.filter(s => s && s.id !== subId);
+    StorageService.saveSubmissions(updated);
+    onRefreshData();
   };
 
   // -------------------------------------------------------------
@@ -643,10 +672,67 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const currentExam = exams.find(e => e.id === selectedExamId) || exams[0];
   const currentQuestions = currentExam ? StorageService.getQuestionsByExamId(currentExam.id) : [];
 
-  // Filter submissions for current exam
-  const examSubmissions = submissions.filter(s => s.examId === currentExam?.id);
+  // Safe sanitized submissions
+  const safeSubmissions: Submission[] = (submissions || []).filter((s): s is Submission => Boolean(s && s.id));
+
+  // Available classes across all submissions for filter dropdown
+  const submissionClasses = Array.from(new Set(safeSubmissions.map(s => s.classGrade).filter(Boolean))).sort();
+
+  // Filtered submissions for Analytics Tab
+  const filteredAnalyticsSubmissions = safeSubmissions.filter(sub => {
+    // 1. Exam filter
+    if (analyticsExamFilter !== 'all') {
+      const cleanFilter = String(analyticsExamFilter).trim().toLowerCase();
+      const cleanExamId = String(sub.examId || '').trim().toLowerCase();
+      if (cleanExamId !== cleanFilter) return false;
+    }
+
+    // 2. Status filter
+    if (analyticsStatusFilter === 'passed' && !sub.passed) return false;
+    if (analyticsStatusFilter === 'remedial' && sub.passed) return false;
+    if (analyticsStatusFilter === 'tab-switch' && (Number(sub.tabSwitchCount) || 0) <= 0) return false;
+
+    // 3. Class filter
+    if (analyticsClassFilter !== 'all') {
+      const cleanClassFilter = String(analyticsClassFilter).trim().toLowerCase();
+      const cleanClass = String(sub.classGrade || '').trim().toLowerCase();
+      if (cleanClass !== cleanClassFilter) return false;
+    }
+
+    // 4. Search query
+    if (analyticsSearchQuery.trim()) {
+      const q = analyticsSearchQuery.trim().toLowerCase();
+      const matchName = String(sub.studentName || '').toLowerCase().includes(q);
+      const matchNo = String(sub.studentNo || '').toLowerCase().includes(q);
+      const matchClass = String(sub.classGrade || '').toLowerCase().includes(q);
+      if (!matchName && !matchNo && !matchClass) return false;
+    }
+
+    return true;
+  });
+
+  const analyticsTotalCount = filteredAnalyticsSubmissions.length;
+  const analyticsAvgScore = analyticsTotalCount > 0
+    ? Math.round(filteredAnalyticsSubmissions.reduce((acc, s) => acc + (Number(s.percentage) || 0), 0) / analyticsTotalCount)
+    : 0;
+  const analyticsPassCount = filteredAnalyticsSubmissions.filter(s => s.passed).length;
+  const analyticsPassRate = analyticsTotalCount > 0
+    ? Math.round((analyticsPassCount / analyticsTotalCount) * 100)
+    : 0;
+  const analyticsTotalTabSwitch = filteredAnalyticsSubmissions.reduce((acc, s) => acc + (Number(s.tabSwitchCount) || 0), 0);
+  const analyticsHighestScore = analyticsTotalCount > 0
+    ? Math.max(...filteredAnalyticsSubmissions.map(s => Number(s.percentage) || 0))
+    : 0;
+  const analyticsLowestScore = analyticsTotalCount > 0
+    ? Math.min(...filteredAnalyticsSubmissions.map(s => Number(s.percentage) || 0))
+    : 0;
+
+  // Filter submissions for current exam (for quick stats on exams tab)
+  const examSubmissions = safeSubmissions.filter(s => {
+    return String(s.examId || '').trim().toLowerCase() === String(currentExam?.id || '').trim().toLowerCase();
+  });
   const avgScore = examSubmissions.length > 0
-    ? Math.round(examSubmissions.reduce((acc, s) => acc + s.percentage, 0) / examSubmissions.length)
+    ? Math.round(examSubmissions.reduce((acc, s) => acc + (Number(s.percentage) || 0), 0) / examSubmissions.length)
     : 0;
   const passCount = examSubmissions.filter(s => s.passed).length;
   const passRate = examSubmissions.length > 0 ? Math.round((passCount / examSubmissions.length) * 100) : 0;
@@ -1140,56 +1226,241 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
          --------------------------------------------------------- */}
       {activeTab === 'analytics' && (
         <div className="space-y-6 animate-fadeIn">
+          {/* Header & Main Actions */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Dasbor & Rekapitulasi Nilai Siswa</span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Menampilkan {analyticsTotalCount} dari {safeSubmissions.length} rekaman hasil ujian siswa · Tersinkronisasi dengan Google Sheets
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors no-print"
+                title="Cetak lembar rekap nilai siswa"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Cetak Rekap</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold rounded-lg transition-colors no-print"
+                title="Unduh seluruh rekaman nilai dalam format CSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Unduh CSV</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Interactive Filter & Search Controls */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 no-print">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Exam Selector Filter */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                  Pilih Paket Ujian:
+                </label>
+                <select
+                  value={analyticsExamFilter}
+                  onChange={(e) => setAnalyticsExamFilter(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-medium"
+                >
+                  <option value="all">Semua Paket Ujian ({safeSubmissions.length} Nilai)</option>
+                  {exams.map(e => {
+                    const count = safeSubmissions.filter(s => String(s.examId || '').trim().toLowerCase() === String(e.id || '').trim().toLowerCase()).length;
+                    return (
+                      <option key={e.id} value={e.id}>
+                        {e.subject} - {e.title} ({count} Nilai)
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Class Filter */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                  Filter Kelas:
+                </label>
+                <select
+                  value={analyticsClassFilter}
+                  onChange={(e) => setAnalyticsClassFilter(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-medium"
+                >
+                  <option value="all">Semua Kelas</option>
+                  {submissionClasses.map(cls => (
+                    <option key={cls} value={cls}>{cls}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Filter */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                  Status Kelulusan:
+                </label>
+                <select
+                  value={analyticsStatusFilter}
+                  onChange={(e) => setAnalyticsStatusFilter(e.target.value as any)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 font-medium"
+                >
+                  <option value="all">Semua Status</option>
+                  <option value="passed">Lulus (Tuntas KKM)</option>
+                  <option value="remedial">Remedial</option>
+                  <option value="tab-switch">Pernah Pindah Tab (Curang)</option>
+                </select>
+              </div>
+
+              {/* Search Box */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                  Cari Siswa:
+                </label>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={analyticsSearchQuery}
+                    onChange={(e) => setAnalyticsSearchQuery(e.target.value)}
+                    placeholder="Nama siswa, NIS, kelas..."
+                    className="w-full pl-8 pr-7 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {analyticsSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setAnalyticsSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Filter tags & quick reset */}
+            {(analyticsExamFilter !== 'all' || analyticsClassFilter !== 'all' || analyticsStatusFilter !== 'all' || analyticsSearchQuery.trim()) && (
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                <span className="text-slate-400 font-medium">Filter aktif:</span>
+                {analyticsExamFilter !== 'all' && (
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono text-[11px] flex items-center gap-1">
+                    Ujian: {exams.find(e => e.id === analyticsExamFilter)?.subject || analyticsExamFilter}
+                    <button onClick={() => setAnalyticsExamFilter('all')} className="hover:text-indigo-900">×</button>
+                  </span>
+                )}
+                {analyticsClassFilter !== 'all' && (
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono text-[11px] flex items-center gap-1">
+                    Kelas: {analyticsClassFilter}
+                    <button onClick={() => setAnalyticsClassFilter('all')} className="hover:text-indigo-900">×</button>
+                  </span>
+                )}
+                {analyticsStatusFilter !== 'all' && (
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono text-[11px] flex items-center gap-1">
+                    Status: {analyticsStatusFilter}
+                    <button onClick={() => setAnalyticsStatusFilter('all')} className="hover:text-indigo-900">×</button>
+                  </span>
+                )}
+                {analyticsSearchQuery && (
+                  <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono text-[11px] flex items-center gap-1">
+                    Pencarian: "{analyticsSearchQuery}"
+                    <button onClick={() => setAnalyticsSearchQuery('')} className="hover:text-indigo-900">×</button>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAnalyticsExamFilter('all');
+                    setAnalyticsClassFilter('all');
+                    setAnalyticsStatusFilter('all');
+                    setAnalyticsSearchQuery('');
+                  }}
+                  className="text-xs text-rose-600 hover:underline font-semibold ml-auto"
+                >
+                  Reset Semua Filter
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* KPI Statistics Row */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
               <span className="text-xs text-slate-400 block mb-1">Peserta Masuk</span>
               <span className="text-2xl font-extrabold text-slate-900 dark:text-white font-mono">
-                {examSubmissions.length}
+                {analyticsTotalCount}
+              </span>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                dari total {safeSubmissions.length} nilai
               </span>
             </div>
 
             <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
               <span className="text-xs text-slate-400 block mb-1">Rata-Rata Nilai</span>
               <span className="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 font-mono">
-                {avgScore}%
+                {analyticsAvgScore}%
+              </span>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                {analyticsAvgScore >= 75 ? 'Memenuhi Standar' : 'Perlu Pengayaan'}
               </span>
             </div>
 
             <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
-              <span className="text-xs text-slate-400 block mb-1">Tuntas KKM ({currentExam?.passingScore || 75})</span>
+              <span className="text-xs text-slate-400 block mb-1">Tuntas KKM</span>
               <span className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
-                {passRate}%
+                {analyticsPassRate}%
+              </span>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                {analyticsPassCount} dari {analyticsTotalCount} siswa
               </span>
             </div>
 
             <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-xs text-slate-400 block mb-1">Tertinggi / Terendah</span>
+              <div className="text-xl font-extrabold font-mono text-slate-900 dark:text-white">
+                <span className="text-emerald-600">{analyticsHighestScore}%</span>
+                <span className="text-slate-300 dark:text-slate-700 mx-1">/</span>
+                <span className="text-rose-500">{analyticsLowestScore}%</span>
+              </div>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                Rentang nilai siswa
+              </span>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs col-span-2 sm:col-span-1">
               <span className="text-xs text-slate-400 block mb-1">Pelanggaran Tab</span>
               <span className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 font-mono">
-                {examSubmissions.reduce((a, b) => a + (b.tabSwitchCount || 0), 0)}
+                {analyticsTotalTabSwitch}x
+              </span>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                Total kejadian curang
               </span>
             </div>
           </div>
 
-          {/* Submissions Table with Export */}
+          {/* Submissions Table */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
             <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-4">
               <div>
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Rekapitulasi Hasil Jawaban Siswa
+                  Daftar Perolehan Nilai & Hasil Ujian
                 </h4>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Tersinkronisasi dengan spreadsheet Google Sheets.
+                  Klik "Rincian" untuk memeriksa jawaban siswa per nomor soal atau ekspor hasil ke CSV.
                 </p>
               </div>
 
-              <button
-                onClick={handleExportCsv}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Unduh CSV</span>
-              </button>
+              <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                Total Data: <strong className="text-slate-900 dark:text-white">{filteredAnalyticsSubmissions.length}</strong>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -1199,56 +1470,139 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     <th className="p-3">NIS</th>
                     <th className="p-3">Nama Siswa</th>
                     <th className="p-3">Kelas</th>
+                    <th className="p-3">Paket Ujian</th>
                     <th className="p-3 text-center">Nilai (%)</th>
                     <th className="p-3 text-center">Status</th>
                     <th className="p-3 text-center font-mono">Pindah Tab</th>
                     <th className="p-3 text-center font-mono">Durasi</th>
+                    <th className="p-3 font-mono text-slate-400">Waktu Kirim</th>
                     <th className="p-3 text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {examSubmissions.map(sub => (
-                    <tr key={sub.id} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                      <td className="p-3 font-mono font-medium">{sub.studentNo}</td>
-                      <td className="p-3 font-semibold text-slate-900 dark:text-white">{sub.studentName}</td>
-                      <td className="p-3 text-slate-500">{sub.classGrade}</td>
-                      <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm">
-                        {sub.percentage}%
-                      </td>
-                      <td className="p-3 text-center">
-                        <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
-                          sub.passed
-                            ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-                            : 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
-                        }`}>
-                          {sub.passed ? 'LULUS' : 'REMEDIAL'}
-                        </span>
-                      </td>
-                      <td className="p-3 text-center font-mono">
-                        {sub.tabSwitchCount > 0 ? (
-                          <span className="text-amber-600 font-bold">{sub.tabSwitchCount}x</span>
-                        ) : (
-                          <span className="text-slate-400">0</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center font-mono text-slate-500">
-                        {Math.floor(sub.timeSpentSeconds / 60)}m {sub.timeSpentSeconds % 60}s
-                      </td>
-                      <td className="p-3 text-right">
-                        <button
-                          onClick={() => setViewingSubmission(sub)}
-                          className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
-                        >
-                          Rincian
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredAnalyticsSubmissions.map(sub => {
+                    const examObj = exams.find(e => String(e.id || '').trim().toLowerCase() === String(sub.examId || '').trim().toLowerCase());
+                    const durationM = Math.floor((Number(sub.timeSpentSeconds) || 0) / 60);
+                    const durationS = (Number(sub.timeSpentSeconds) || 0) % 60;
+                    const dateFormatted = sub.submittedAt
+                      ? new Date(sub.submittedAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+                      : '-';
 
-                  {examSubmissions.length === 0 && (
+                    return (
+                      <tr key={sub.id} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                        <td className="p-3 font-mono font-medium">{sub.studentNo}</td>
+                        <td className="p-3 font-semibold text-slate-900 dark:text-white">{sub.studentName}</td>
+                        <td className="p-3 text-slate-500">{sub.classGrade}</td>
+                        <td className="p-3 text-slate-600 dark:text-slate-300 max-w-[200px] truncate" title={examObj?.title || sub.examId}>
+                          <span className="font-semibold text-indigo-600 dark:text-indigo-400 mr-1">
+                            {examObj?.subject || 'Ujian'}:
+                          </span>
+                          {examObj?.title || sub.examId}
+                        </td>
+                        <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm">
+                          {Number(sub.percentage) || 0}%
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
+                            sub.passed
+                              ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                          }`}>
+                            {sub.passed ? 'LULUS' : 'REMEDIAL'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center font-mono">
+                          {(Number(sub.tabSwitchCount) || 0) > 0 ? (
+                            <span className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 font-bold">
+                              {sub.tabSwitchCount}x
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">0</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center font-mono text-slate-500">
+                          {durationM}m {durationS}s
+                        </td>
+                        <td className="p-3 font-mono text-slate-400 text-[11px]">
+                          {dateFormatted}
+                        </td>
+                        <td className="p-3 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setViewingSubmission(sub)}
+                              className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
+                            >
+                              Rincian
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSubmission(sub.id)}
+                              className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition-colors"
+                              title="Hapus submission ini"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {filteredAnalyticsSubmissions.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-slate-400">
-                        Belum ada siswa yang mengumpulkan ujian ini.
+                      <td colSpan={10} className="p-10 text-center">
+                        {safeSubmissions.length > 0 ? (
+                          <div className="space-y-3">
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                              Tidak ada nilai siswa yang cocok dengan filter atau kata kunci saat ini.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAnalyticsExamFilter('all');
+                                setAnalyticsClassFilter('all');
+                                setAnalyticsStatusFilter('all');
+                                setAnalyticsSearchQuery('');
+                              }}
+                              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 text-xs font-semibold rounded-lg transition-colors"
+                            >
+                              Reset Filter & Tampilkan Semua Nilai
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-4 max-w-md mx-auto">
+                            <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center">
+                              <BarChart3 className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <h5 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                                Belum Ada Nilai Siswa yang Masuk
+                              </h5>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                                Nilai akan otomatis muncul di sini setelah siswa menyelesaikan ujian. Anda juga dapat menekan tombol <strong>Sync Sheets</strong> untuk mengambil data terbaru yang tersimpan di Google Sheets.
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                              <button
+                                type="button"
+                                onClick={() => setActiveTab('exams')}
+                                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+                              >
+                                <Share2 className="w-3.5 h-3.5" />
+                                <span>Bagikan Link Ujian ke Siswa</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={onRefreshData}
+                                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                <span>Perbarui Data</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
@@ -2831,14 +3185,37 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               <h5 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
                 Jawaban Butir Soal:
               </h5>
-              {Object.entries(viewingSubmission.answers).map(([qId, ans], i) => (
-                <div key={qId} className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
-                  <div className="text-slate-500 font-semibold mb-1">Soal #{i + 1}</div>
-                  <div className="text-slate-900 dark:text-white font-mono bg-slate-50 dark:bg-slate-950 p-2 rounded">
-                    {Array.isArray(ans) ? ans.join(', ') : String(ans)}
+              {Object.entries(viewingSubmission.answers || {}).map(([qId, ans], i) => {
+                const questionObj = StorageService.getQuestions().find(q => q.id === qId);
+                return (
+                  <div key={qId} className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-xs space-y-2">
+                    <div className="flex items-center justify-between text-slate-500 font-semibold">
+                      <span>Soal #{i + 1} {questionObj ? `(${questionObj.points} Poin)` : ''}</span>
+                      <span className="font-mono text-[11px] text-slate-400">ID: {qId}</span>
+                    </div>
+                    {questionObj?.prompt && (
+                      <p className="text-slate-800 dark:text-slate-200 font-medium text-xs leading-relaxed">
+                        {questionObj.prompt}
+                      </p>
+                    )}
+                    <div className="p-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono text-slate-900 dark:text-white">
+                      <span className="text-[11px] text-slate-400 block mb-0.5">Jawaban Siswa:</span>
+                      {Array.isArray(ans) ? ans.join(', ') : String(ans || '-')}
+                    </div>
+                    {questionObj?.correctKey && (
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">Kunci Jawaban:</span>
+                        <span className="font-mono">{Array.isArray(questionObj.correctKey) ? questionObj.correctKey.join(', ') : String(questionObj.correctKey)}</span>
+                      </div>
+                    )}
                   </div>
+                );
+              })}
+              {Object.keys(viewingSubmission.answers || {}).length === 0 && (
+                <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
+                  Tidak ada rincian jawaban tersimpan untuk submission ini.
                 </div>
-              ))}
+              )}
             </div>
 
             <div className="pt-4 mt-6 border-t border-slate-100 dark:border-slate-800 flex justify-end">

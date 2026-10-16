@@ -231,7 +231,41 @@ export class GasClient {
         }
       }
       if (Array.isArray(submissions) && submissions.length > 0) {
-        StorageService.saveSubmissions(submissions);
+        const normalizedSubmissions: Submission[] = submissions.map((s: any) => {
+          let ans: any = s.answers;
+          if (!ans && s.answersJson) {
+            try {
+              ans = typeof s.answersJson === 'string' ? JSON.parse(s.answersJson) : s.answersJson;
+            } catch {
+              ans = {};
+            }
+          }
+          if (typeof ans === 'string') {
+            try { ans = JSON.parse(ans); } catch { ans = {}; }
+          }
+          return {
+            id: String(s.id || `SUB-${Date.now()}`),
+            examId: String(s.examId || ''),
+            studentNo: String(s.studentNo || ''),
+            studentName: String(s.studentName || ''),
+            classGrade: String(s.classGrade || ''),
+            answers: typeof ans === 'object' && ans !== null ? ans : {},
+            score: Number(s.score) || 0,
+            maxScore: Number(s.maxScore) || 100,
+            percentage: Number(s.percentage) || 0,
+            passed: s.passed === true || s.passed === 'true' || s.passed === 'TRUE' || (Number(s.percentage) >= 75),
+            submittedAt: String(s.submittedAt || new Date().toISOString()),
+            tabSwitchCount: Number(s.tabSwitchCount) || 0,
+            timeSpentSeconds: Number(s.timeSpentSeconds) || 0,
+            syncStatus: 'synced',
+            feedback: String(s.feedback || '')
+          };
+        });
+        const existingSubs = StorageService.getSubmissions();
+        const subMap = new Map<string, Submission>();
+        existingSubs.forEach(sub => subMap.set(sub.id, sub));
+        normalizedSubmissions.forEach(sub => subMap.set(sub.id, sub));
+        StorageService.saveSubmissions(Array.from(subMap.values()));
       }
       if (Array.isArray(users) && users.length > 0) {
         StorageService.saveUsers(users);

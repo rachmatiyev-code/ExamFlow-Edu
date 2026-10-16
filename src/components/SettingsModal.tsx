@@ -188,6 +188,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
 
+            {/* Model Selector */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Pilihan Model Gemini AI:
+              </label>
+              <select
+                value={formData.geminiModel || 'gemini-3.8-flash'}
+                onChange={(e) => setFormData({ ...formData, geminiModel: e.target.value })}
+                className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+              >
+                <option value="gemini-3.8-flash">gemini-3.8-flash (Rekomendasi Utama - Cepat & Seimbang)</option>
+                <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Ultra Ringan - Tahan Antrean)</option>
+                <option value="gemini-flash-latest">gemini-flash-latest (Versi Flash Terbaru)</option>
+                <option value="gemini-4-argon">gemini-4-argon (Penalaran Kompleks & Analitis)</option>
+              </select>
+              <span className="text-[11px] text-slate-400 mt-1 block">
+                Jika server Google sedang mengalami lonjakan beban (high demand) pada satu model, sistem otomatis beralih ke model cadangan.
+              </span>
+            </div>
+
             {geminiResult && (
               <div
                 className={`p-3 rounded-lg text-xs flex items-start gap-2 border ${

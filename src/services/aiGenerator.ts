@@ -61,27 +61,56 @@ export class AiGeneratorService {
           StorageService.addLog('AI_GEMINI', 'Validasi Gemini API Key sukses (melalui server backend)!', undefined, 'success');
           return { valid: true, message: data.message || 'Kunci Gemini valid dan aktif.' };
         } else if (!res.ok) {
-          StorageService.addLog('AI_GEMINI', `Validasi ditolak server: ${data.message}`, undefined, 'warn');
-          return { valid: false, message: data.message || 'Kunci API tidak valid atau kuota habis.' };
+          const srvMsg = String(data.message || '');
+          // Jika pesan server adalah tentang high demand/spikes in demand, jangan tolak kunci!
+          if (srvMsg.includes('high demand') || srvMsg.includes('Spikes in demand') || srvMsg.includes('503') || srvMsg.includes('UNAVAILABLE')) {
+            StorageService.addLog('AI_GEMINI', 'Server Google mengalami lonjakan beban sementara, namun kunci valid.', undefined, 'info');
+            return {
+              valid: true,
+              message: 'Gemini API Key valid dan terverifikasi! (Catatan: Server Google saat ini sedang mengalami lonjakan beban/high demand sementara, namun kunci Anda aktif dan siap digunakan).'
+            };
+          }
+          // Jika memang kunci invalid, log dan laporkan
+          if (srvMsg.toLowerCase().includes('tidak valid') || srvMsg.toLowerCase().includes('invalid')) {
+            StorageService.addLog('AI_GEMINI', `Validasi ditolak server: ${srvMsg}`, undefined, 'warn');
+            return { valid: false, message: srvMsg };
+          }
         }
-      } else {
-        // Server merespons non-JSON (misal 404 "The page could not be found" di static Vercel), jangan panik atau lempar error!
-        console.warn('Backend route returned non-JSON, falling back to direct client-side validation.');
-        StorageService.addLog('AI_GEMINI', 'Rute server tidak merespons JSON, beralih ke validasi browser langsung...');
       }
-    } catch (serverErr) {
-      console.warn('Backend route unreachable, falling back to direct client validation.');
+    } catch {
+      // Backend route unreachable, fallback ke direct client validation
     }
 
     // 2. Direct client-side validation ke Google Generative Language API
-    // Solusi teruji untuk Vercel Static Hosting & Client Browser
+    // Langkah A: Cek metadata endpoint (tidak menggunakan kuota/inferensi AI, kebal dari error high demand)
+    let isKeyConfirmed = false;
+    try {
+      const metaRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=${encodeURIComponent(keyToTest)}`);
+      if (metaRes.ok) {
+        isKeyConfirmed = true;
+      } else {
+        const errJson: any = await metaRes.json().catch(() => ({}));
+        const rawMsg = errJson?.error?.message || '';
+        if (metaRes.status === 400 || metaRes.status === 403 || rawMsg.toLowerCase().includes('api key') || rawMsg.toLowerCase().includes('not valid')) {
+          return {
+            valid: false,
+            message: 'Kunci API Gemini tidak valid atau ditolak Google. Periksa kembali API Key dari Google AI Studio.'
+          };
+        }
+      }
+    } catch {
+      // Abaikan jika network check gagal
+    }
+
+    // Langkah B: Uji model responsif
     const settings = StorageService.getSettings();
     const configuredModel = settings.geminiModel && !settings.geminiModel.includes('1.5') && !settings.geminiModel.includes('2.0')
       ? settings.geminiModel
       : 'gemini-3.8-flash';
 
-    const modelsToTry = Array.from(new Set([configuredModel, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest']));
+    const modelsToTry = Array.from(new Set([configuredModel, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-4-argon']));
     let lastClientError = 'Tidak dapat terhubung ke Google AI Studio.';
+    let hadSpike = false;
 
     for (const modelName of modelsToTry) {
       try {
@@ -90,7 +119,7 @@ export class AiGeneratorService {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: 'Balas dengan satu kata: OK' }] }]
+            contents: [{ parts: [{ text: 'Balas satu kata: OK' }] }]
           })
         });
 
@@ -105,16 +134,37 @@ export class AiGeneratorService {
             };
           } else if (data.error) {
             lastClientError = data.error.message || 'Kunci API ditolak Google.';
-            // Jika error adalah permission/key invalid (bukan model 404), langsung hentikan loop
             const msg = (data.error.message || '').toLowerCase();
-            if (msg.includes('api key') || msg.includes('api_key') || msg.includes('credential') || data.error.code === 403) {
-              break;
+            
+            // Deteksi lonjakan beban pada model ini
+            if (msg.includes('high demand') || msg.includes('spikes in demand') || msg.includes('503') || msg.includes('unavailable') || msg.includes('resource_exhausted')) {
+              isKeyConfirmed = true;
+              hadSpike = true;
+              console.warn(`Model ${modelName} sedang high demand, mencoba model cadangan...`);
+              continue; // Coba model berikutnya
+            }
+
+            // Jika error adalah permission/key invalid
+            if (msg.includes('api key') || msg.includes('api_key') || msg.includes('credential') || data.error.code === 403 || data.error.code === 400) {
+              return {
+                valid: false,
+                message: `Kunci API tidak valid: ${data.error.message}`
+              };
             }
           }
         }
       } catch (err: any) {
         lastClientError = err?.message || String(err);
       }
+    }
+
+    // Jika autentikasi terbukti valid tapi model sedang mengalami lonjakan trafik
+    if (isKeyConfirmed || hadSpike) {
+      StorageService.addLog('AI_GEMINI', 'Gemini API Key valid dan terverifikasi (beban Google sedang tinggi).', undefined, 'success');
+      return {
+        valid: true,
+        message: 'Gemini API Key valid dan terverifikasi! (Catatan: Server Google saat ini sedang mengalami lonjakan beban/high demand sementara, namun kunci Anda aktif dan sistem otomatis menggunakan model responsif saat pembuatan soal).'
+      };
     }
 
     StorageService.addLog('AI_GEMINI', `Validasi Gemini gagal: ${lastClientError}`, undefined, 'error');
@@ -238,7 +288,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
           ? settings.geminiModel
           : 'gemini-3.8-flash';
 
-        const modelsToTry = Array.from(new Set([configuredModel, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest']));
+        const modelsToTry = Array.from(new Set([configuredModel, 'gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-4-argon']));
 
         for (const modelName of modelsToTry) {
           try {
@@ -263,6 +313,11 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
                 const { isJson, data } = await this.safeParseResponse(directRes);
                 if (!directRes.ok || !isJson) {
                   const errMsg = data?.error?.message || `HTTP ${directRes.status}`;
+                  // Jika model terkena lonjakan beban (high demand / 503 / 429), langsung beralih ke model berikutnya
+                  if (errMsg.includes('high demand') || errMsg.includes('Spikes in demand') || errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+                    console.warn(`Model ${modelName} high demand, mencoba model berikutnya...`);
+                    throw new Error(`HIGH_DEMAND: ${errMsg}`);
+                  }
                   throw new Error(errMsg);
                 }
 
@@ -272,6 +327,10 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
                   break;
                 }
               } catch (retryErr: any) {
+                const msg = String(retryErr?.message || '');
+                if (msg.startsWith('HIGH_DEMAND')) {
+                  break; // Langsung coba model berikutnya tanpa tunggu retry
+                }
                 if (attempt === 2) throw retryErr;
                 await new Promise(r => setTimeout(r, 1000 * attempt));
               }

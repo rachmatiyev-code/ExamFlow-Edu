@@ -60,9 +60,32 @@ apiRouter.post('/gemini/validate-key', async (req, res) => {
       }
     });
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    // 1. Uji autentikasi API Key langsung ke metadata endpoint Google
+    // Endpoint ini tidak memerlukan inferensi AI sehingga tidak terpengaruh lonjakan beban (high demand)
+    let isKeyAuthenticated = false;
+    try {
+      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=${encodeURIComponent(apiKey)}`);
+      if (listRes.ok) {
+        isKeyAuthenticated = true;
+      } else {
+        const errJson: any = await listRes.json().catch(() => ({}));
+        const rawMsg = errJson?.error?.message || '';
+        if (listRes.status === 400 || listRes.status === 403 || rawMsg.toLowerCase().includes('api key') || rawMsg.toLowerCase().includes('not valid')) {
+          return res.status(400).json({
+            valid: false,
+            message: 'Kunci API Gemini tidak valid atau ditolak Google. Periksa kembali API Key dari Google AI Studio.'
+          });
+        }
+      }
+    } catch {
+      // Abaikan jika network local fetch bermasalah, lanjutkan ke generateContent
+    }
+
+    // 2. Uji ketersediaan model aktif
+    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-4-argon'];
     let lastError: any = null;
     let validatedModel = 'gemini-3.8-flash';
+    let hadHighDemandSpike = false;
 
     for (const model of candidateModels) {
       for (let attempt = 1; attempt <= 2; attempt++) {
@@ -77,20 +100,34 @@ apiRouter.post('/gemini/validate-key', async (req, res) => {
             validatedModel = model;
             return res.json({
               valid: true,
-              message: 'Gemini API Key valid dan siap digunakan!',
+              message: `Gemini API Key valid dan siap digunakan! (Model aktif: ${validatedModel})`,
               model: validatedModel
             });
           }
         } catch (err: any) {
           lastError = err;
           const status = err?.status || err?.code;
-          // If 503/504/UNAVAILABLE, wait slightly and retry or try next model
-          if (status === 503 || status === 'UNAVAILABLE' || String(err?.message).includes('503')) {
-            await new Promise(r => setTimeout(r, 800 * attempt));
-            continue;
+          const errString = String(err?.message || '');
+
+          // Deteksi pesan lonjakan trafik (high demand)
+          if (
+            errString.includes('high demand') || 
+            errString.includes('Spikes in demand') || 
+            errString.includes('503') || 
+            errString.includes('UNAVAILABLE') || 
+            errString.includes('RESOURCE_EXHAUSTED') ||
+            status === 503 ||
+            status === 429
+          ) {
+            // Karena error ini berasal dari Google AI inference, ini membuktikan kunci API valid!
+            isKeyAuthenticated = true;
+            hadHighDemandSpike = true;
+            console.warn(`Model ${model} sedang high demand, mencoba model alternatif...`);
+            break; // Langsung coba model berikutnya
           }
-          // If it's 400/403 (invalid key), do not retry next models
-          if (status === 400 || status === 403 || String(err?.message).includes('API key not valid')) {
+
+          // Jika benar-benar 400/403 kunci tidak valid
+          if (status === 400 || status === 403 || errString.includes('API key not valid')) {
             return res.status(400).json({
               valid: false,
               message: 'Kunci API Gemini tidak valid atau tidak diizinkan.'
@@ -98,6 +135,16 @@ apiRouter.post('/gemini/validate-key', async (req, res) => {
           }
         }
       }
+    }
+
+    // Jika autentikasi kunci sukses atau Google merespons pesan lonjakan beban (high demand)
+    if (isKeyAuthenticated || hadHighDemandSpike) {
+      return res.json({
+        valid: true,
+        message: 'Gemini API Key valid dan aktif! (Catatan: Server Google saat ini sedang mengalami lonjakan beban/high demand sementara, namun kunci Anda terverifikasi dan sistem otomatis memilih model terbaik saat pembuatan soal).',
+        model: 'gemini-flash-latest',
+        highDemand: true
+      });
     }
 
     let friendlyErrorMessage = 'Layanan AI sedang sibuk. Silakan coba sesaat lagi.';
@@ -208,7 +255,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
     let lastError: any = null;
     let questionsData = null;
 
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-4-argon'];
     for (const model of modelsToTry) {
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
@@ -231,7 +278,13 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
           }
         } catch (retryErr: any) {
           lastError = retryErr;
-          console.warn(`Gemini (${model}) attempt ${attempt} failed:`, retryErr?.message);
+          const msg = String(retryErr?.message || '');
+          console.warn(`Gemini (${model}) attempt ${attempt} failed:`, msg);
+          
+          // Jika model sedang lonjakan beban (high demand / 503 / 429), langsung beralih ke model berikutnya
+          if (msg.includes('high demand') || msg.includes('Spikes in demand') || msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('RESOURCE_EXHAUSTED')) {
+            break;
+          }
           if (attempt < 2) {
             await new Promise(r => setTimeout(r, 1000 * attempt));
           }

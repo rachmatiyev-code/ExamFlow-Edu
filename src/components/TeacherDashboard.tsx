@@ -55,7 +55,11 @@ import {
   Search,
   Filter,
   Printer,
-  X
+  X,
+  Bookmark,
+  UserCog,
+  User,
+  Check
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -86,7 +90,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
 
   // Sub-tabs
-  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'analytics' | 'profile' | 'users' | 'gas'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'analytics' | 'students' | 'users' | 'profile' | 'gas'>('exams');
 
   // Exam Management State
   const [selectedExamId, setSelectedExamId] = useState<string>(exams[0]?.id || '');
@@ -97,6 +101,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Partial<Question> | null>(null);
   const [manualTaxonomyMode, setManualTaxonomyMode] = useState<'bloom' | 'solo' | 'both'>('both');
+  const [draftToast, setDraftToast] = useState<string | null>(null);
 
   // AI Generator Modal State
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -116,7 +121,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     setProfileForm(profile);
   }, [profile]);
 
-  // Student & User Management State
+  // Student Management State
   const [studentForm, setStudentForm] = useState({ studentNo: '', fullName: '', classGrade: '' });
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -127,13 +132,29 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [studentSyncMsg, setStudentSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [studentDeleteConfirm, setStudentDeleteConfirm] = useState<{ id: string; name: string } | 'bulk' | null>(null);
 
-  const [userForm, setUserForm] = useState({ username: '', fullName: '', password: '', role: 'teacher' as 'admin' | 'teacher' });
+  // User Accounts Management State (Admin & Guru)
+  const [systemUsers, setSystemUsers] = useState<UserAccount[]>(() => StorageService.getUsers());
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
+  const [userAccountForm, setUserAccountForm] = useState({
+    id: '',
+    username: '',
+    password: '',
+    fullName: '',
+    role: 'teacher' as 'admin' | 'teacher',
+    email: '',
+    active: true
+  });
+  const [userModalError, setUserModalError] = useState<string | null>(null);
+  const [isSavingUsersToSheets, setIsSavingUsersToSheets] = useState(false);
+  const [userSyncMsg, setUserSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [userDeleteConfirm, setUserDeleteConfirm] = useState<{ id: string; username: string; fullName: string } | null>(null);
 
-  // Copy notification
-  const [hasCopiedGas, setHasCopiedGas] = useState(false);
-
-  // Submission detail modal
+  // Submission Detail, Selection & Editing States
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<string[]>([]);
+  const [editingSubmission, setEditingSubmission] = useState<Submission | null>(null);
+  const [isEditingSubmissionModalOpen, setIsEditingSubmissionModalOpen] = useState(false);
 
   // Analytics Filters & Search State
   const [analyticsExamFilter, setAnalyticsExamFilter] = useState<string>('all');
@@ -145,6 +166,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [sharingExam, setSharingExam] = useState<Exam | null>(null);
   const [hasCopiedShareLink, setHasCopiedShareLink] = useState(false);
   const [hasCopiedShareMsg, setHasCopiedShareMsg] = useState(false);
+
+  // Copy GAS Code
+  // Copy GAS Code
+  const [hasCopiedGas, setHasCopiedGas] = useState(false);
+
+  // Selalu perbarui daftar akun pengguna saat tab Users dibuka atau saat data aplikasi diperbarui
+  useEffect(() => {
+    setSystemUsers(StorageService.getUsers());
+  }, [activeTab, exams, students, submissions]);
 
   // Handle Login
   const handleLogin = (e: React.FormEvent) => {
@@ -584,10 +614,189 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // Delete individual submission (e.g. test dummy data)
   const handleDeleteSubmission = (subId: string) => {
     if (!window.confirm('Hapus rekaman nilai submission ini?')) return;
-    const currentSubs = StorageService.getSubmissions();
-    const updated = currentSubs.filter(s => s && s.id !== subId);
-    StorageService.saveSubmissions(updated);
+    StorageService.deleteSubmission(subId);
+    setSelectedSubmissionIds(prev => prev.filter(id => id !== subId));
     onRefreshData();
+  };
+
+  // Bulk delete selected submissions
+  const handleBulkDeleteSubmissions = () => {
+    if (selectedSubmissionIds.length === 0) return;
+    if (!window.confirm(`Hapus ${selectedSubmissionIds.length} data rekaman nilai yang dipilih?`)) return;
+    StorageService.deleteSubmissionsBulk(selectedSubmissionIds);
+    setSelectedSubmissionIds([]);
+    onRefreshData();
+  };
+
+  // Clear dummy submissions
+  const handleClearDummySubmissions = () => {
+    if (!window.confirm('Bersihkan seluruh rekaman nilai dummy bawaan sistem?')) return;
+    StorageService.clearDummySubmissions();
+    setSelectedSubmissionIds([]);
+    onRefreshData();
+  };
+
+  // Open Edit Submission Modal
+  const handleOpenEditSubmission = (sub: Submission) => {
+    setEditingSubmission({ ...sub });
+    setIsEditingSubmissionModalOpen(true);
+  };
+
+  // Save Edited Submission
+  const handleSaveEditedSubmission = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSubmission) return;
+    StorageService.updateSubmission(editingSubmission.id, editingSubmission);
+    setIsEditingSubmissionModalOpen(false);
+    setEditingSubmission(null);
+    onRefreshData();
+  };
+
+  // Save Question as Draft
+  const handleSaveDraftQuestion = () => {
+    if (!selectedExamId) {
+      alert('Pilih paket ujian terlebih dahulu.');
+      return;
+    }
+    const draft = StorageService.saveDraftQuestion(selectedExamId, {
+      ...editingQuestion,
+      isDraft: true,
+      status: 'draft'
+    });
+    setDraftToast(`Draft butir soal "${draft.prompt.slice(0, 30)}..." berhasil disimpan!`);
+    setTimeout(() => setDraftToast(null), 3500);
+    setIsQuestionModalOpen(false);
+    setEditingQuestion(null);
+    onRefreshData();
+  };
+
+  // User Accounts Management Handlers
+  const handleOpenAddUser = () => {
+    setUserAccountForm({
+      id: '',
+      username: '',
+      password: '',
+      fullName: '',
+      role: 'teacher',
+      email: '',
+      active: true
+    });
+    setUserModalError(null);
+    setEditingUser(null);
+    setIsUserModalOpen(true);
+  };
+
+  const handleOpenEditUser = (u: UserAccount) => {
+    setUserAccountForm({
+      id: u.id,
+      username: u.username,
+      password: '', // Blank by default so existing password stays if untouched
+      fullName: u.fullName,
+      role: u.role,
+      email: u.email || '',
+      active: u.active !== false
+    });
+    setUserModalError(null);
+    setEditingUser(u);
+    setIsUserModalOpen(true);
+  };
+
+  const handleSaveUserAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUserModalError(null);
+
+    const cleanUsername = userAccountForm.username.trim();
+    const cleanFullName = userAccountForm.fullName.trim();
+    if (!cleanUsername) {
+      setUserModalError('Username wajib diisi.');
+      return;
+    }
+    if (!cleanFullName) {
+      setUserModalError('Nama lengkap pengguna wajib diisi.');
+      return;
+    }
+
+    try {
+      if (editingUser) {
+        // Update user
+        const updatePayload: Partial<UserAccount> = {
+          username: cleanUsername,
+          fullName: cleanFullName,
+          role: userAccountForm.role,
+          email: userAccountForm.email.trim(),
+          active: userAccountForm.active
+        };
+        if (userAccountForm.password && userAccountForm.password.trim()) {
+          updatePayload.password = userAccountForm.password.trim();
+        }
+        StorageService.updateUser(editingUser.id, updatePayload);
+      } else {
+        // Add new user
+        if (!userAccountForm.password || !userAccountForm.password.trim()) {
+          setUserModalError('Password wajib diisi untuk akun baru.');
+          return;
+        }
+        StorageService.addUser({
+          id: `USR-${Date.now()}`,
+          username: cleanUsername,
+          password: userAccountForm.password.trim(),
+          fullName: cleanFullName,
+          role: userAccountForm.role,
+          email: userAccountForm.email.trim(),
+          active: userAccountForm.active
+        });
+      }
+
+      const updatedUsers = StorageService.getUsers();
+      setSystemUsers(updatedUsers);
+      setIsUserModalOpen(false);
+      setEditingUser(null);
+
+      // Otomatis sinkronkan data akun ke Google Sheets jika URL GAS aktif
+      if (StorageService.getSettings().gasWebAppUrl) {
+        GasClient.pushUsers(updatedUsers).catch(() => {});
+      }
+    } catch (err: any) {
+      setUserModalError(err?.message || 'Gagal menyimpan akun.');
+    }
+  };
+
+  const handleDeleteUserAccount = (id: string) => {
+    StorageService.deleteUser(id);
+    const updated = StorageService.getUsers();
+    setSystemUsers(updated);
+    setUserDeleteConfirm(null);
+    if (StorageService.getSettings().gasWebAppUrl) {
+      GasClient.pushUsers(updated).catch(() => {});
+    }
+  };
+
+  const handleClearDummyUsers = () => {
+    if (!window.confirm('Bersihkan seluruh akun pengguna dummy bawaan sistem (admin & guru demo)? Akun kustom Anda akan tetap aman.')) return;
+    StorageService.clearDummyUsers();
+    const updated = StorageService.getUsers();
+    setSystemUsers(updated);
+    if (StorageService.getSettings().gasWebAppUrl) {
+      GasClient.pushUsers(updated).catch(() => {});
+    }
+  };
+
+  const handleSaveUsersToSheets = async () => {
+    setIsSavingUsersToSheets(true);
+    setUserSyncMsg(null);
+    try {
+      const res = await GasClient.pushUsers(systemUsers);
+      if (res.success) {
+        setUserSyncMsg({ type: 'success', text: res.message || 'Akun pengguna berhasil disimpan ke Google Sheets!' });
+      } else {
+        setUserSyncMsg({ type: 'error', text: res.message || 'Gagal menyimpan akun ke Google Sheets.' });
+      }
+    } catch (err: any) {
+      setUserSyncMsg({ type: 'error', text: err?.message || 'Gagal simpan akun.' });
+    } finally {
+      setIsSavingUsersToSheets(false);
+      setTimeout(() => setUserSyncMsg(null), 5000);
+    }
   };
 
   // -------------------------------------------------------------
@@ -808,15 +1017,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveTab('profile')}
+          onClick={() => setActiveTab('students')}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
-            activeTab === 'profile'
+            activeTab === 'students'
               ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
               : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
-          <Building2 className="w-3.5 h-3.5" />
-          <span>Profil Sekolah & Logo</span>
+          <Users className="w-3.5 h-3.5" />
+          <span>Data Siswa ({students.length})</span>
         </button>
 
         <button
@@ -827,8 +1036,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
-          <Users className="w-3.5 h-3.5" />
-          <span>Data Siswa ({students.length})</span>
+          <UserCog className="w-3.5 h-3.5" />
+          <span>Kelola Pengguna ({systemUsers.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('profile')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+            activeTab === 'profile'
+              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
+              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <Building2 className="w-3.5 h-3.5" />
+          <span>Profil Sekolah & Logo</span>
         </button>
 
         <button
@@ -843,6 +1064,23 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           <span>Kode Google Apps Script</span>
         </button>
       </div>
+
+      {/* Toast Notification Banner (e.g. Draft saved) */}
+      {draftToast && (
+        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 rounded-xl text-xs font-semibold text-emerald-800 dark:text-emerald-200 flex items-center justify-between animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{draftToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDraftToast(null)}
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* ---------------------------------------------------------
           SUB-TAB 1: EXAM MANAGEMENT & HISTORY
@@ -1241,6 +1479,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                onClick={handleClearDummySubmissions}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-semibold rounded-lg transition-colors no-print"
+                title="Hapus data nilai dummy bawaan sistem"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Bersihkan Nilai Dummy</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => window.print()}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors no-print"
                 title="Cetak lembar rekap nilai siswa"
@@ -1446,6 +1694,32 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </div>
           </div>
 
+          {/* Bulk Selection Bar for Submissions */}
+          {selectedSubmissionIds.length > 0 && (
+            <div className="p-3 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 rounded-xl flex items-center justify-between text-xs animate-fadeIn no-print">
+              <span className="font-bold text-indigo-900 dark:text-indigo-200">
+                {selectedSubmissionIds.length} data rekaman nilai dipilih dari {filteredAnalyticsSubmissions.length} nilai
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedSubmissionIds([])}
+                  className="px-3 py-1.5 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 rounded-lg transition-colors font-medium"
+                >
+                  Batal Pilih
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkDeleteSubmissions}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Terpilih ({selectedSubmissionIds.length})</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Submissions Table */}
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
             <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-4">
@@ -1454,7 +1728,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   Daftar Perolehan Nilai & Hasil Ujian
                 </h4>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Klik "Rincian" untuk memeriksa jawaban siswa per nomor soal atau ekspor hasil ke CSV.
+                  Centang untuk memilih nilai, klik "Edit" untuk mengubah skor/status, atau "Rincian" untuk memeriksa lembar jawaban siswa.
                 </p>
               </div>
 
@@ -1467,6 +1741,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                    <th className="p-3 w-10 text-center no-print">
+                      <input
+                        type="checkbox"
+                        checked={filteredAnalyticsSubmissions.length > 0 && selectedSubmissionIds.length === filteredAnalyticsSubmissions.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedSubmissionIds(filteredAnalyticsSubmissions.map(s => s.id));
+                          } else {
+                            setSelectedSubmissionIds([]);
+                          }
+                        }}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        title="Pilih Semua Nilai"
+                      />
+                    </th>
                     <th className="p-3">NIS</th>
                     <th className="p-3">Nama Siswa</th>
                     <th className="p-3">Kelas</th>
@@ -1476,7 +1765,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     <th className="p-3 text-center font-mono">Pindah Tab</th>
                     <th className="p-3 text-center font-mono">Durasi</th>
                     <th className="p-3 font-mono text-slate-400">Waktu Kirim</th>
-                    <th className="p-3 text-right">Aksi</th>
+                    <th className="p-3 text-right no-print">Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1487,9 +1776,29 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     const dateFormatted = sub.submittedAt
                       ? new Date(sub.submittedAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
                       : '-';
+                    const isSelected = selectedSubmissionIds.includes(sub.id);
 
                     return (
-                      <tr key={sub.id} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                      <tr 
+                        key={sub.id} 
+                        className={`border-b border-slate-100 dark:border-slate-800/60 transition-colors ${
+                          isSelected ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/30'
+                        }`}
+                      >
+                        <td className="p-3 text-center no-print">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedSubmissionIds(prev => [...prev, sub.id]);
+                              } else {
+                                setSelectedSubmissionIds(prev => prev.filter(id => id !== sub.id));
+                              }
+                            }}
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                        </td>
                         <td className="p-3 font-mono font-medium">{sub.studentNo}</td>
                         <td className="p-3 font-semibold text-slate-900 dark:text-white">{sub.studentName}</td>
                         <td className="p-3 text-slate-500">{sub.classGrade}</td>
@@ -1526,20 +1835,30 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         <td className="p-3 font-mono text-slate-400 text-[11px]">
                           {dateFormatted}
                         </td>
-                        <td className="p-3 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-2">
+                        <td className="p-3 text-right whitespace-nowrap no-print">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
                               onClick={() => setViewingSubmission(sub)}
-                              className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
+                              className="px-2 py-1 text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded transition-colors"
+                              title="Lihat rincian lembar jawaban siswa"
                             >
                               Rincian
                             </button>
                             <button
                               type="button"
+                              onClick={() => handleOpenEditSubmission(sub)}
+                              className="px-2 py-1 text-xs text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors flex items-center gap-1 font-medium"
+                              title="Edit nilai dan status siswa"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleDeleteSubmission(sub.id)}
-                              className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition-colors"
-                              title="Hapus submission ini"
+                              className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+                              title="Hapus rekaman nilai ini"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -1551,7 +1870,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                   {filteredAnalyticsSubmissions.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="p-10 text-center">
+                      <td colSpan={11} className="p-10 text-center">
                         {safeSubmissions.length > 0 ? (
                           <div className="space-y-3">
                             <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -1850,9 +2169,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       )}
 
       {/* ---------------------------------------------------------
-          SUB-TAB 5: STUDENT ROSTER (Daftar Siswa Terdaftar)
+          SUB-TAB 4: STUDENT ROSTER (Daftar Siswa Terdaftar)
          --------------------------------------------------------- */}
-      {activeTab === 'users' && (
+      {activeTab === 'students' && (
         <div className="space-y-6 animate-fadeIn">
           {/* Header & Main Actions */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -2068,6 +2387,165 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         </tr>
                       );
                     })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          SUB-TAB 5: USER ACCOUNTS MANAGEMENT (Admin & Guru)
+         --------------------------------------------------------- */}
+      {activeTab === 'users' && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Header & Main Actions */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <UserCog className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Manajemen Akun Pengguna & Guru</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-mono font-bold">
+                  {systemUsers.length} Akun
+                </span>
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Kelola hak akses sistem, tambah akun guru baru, edit informasi login, dan simpan langsung ke Google Sheets.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleClearDummyUsers}
+                className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-semibold text-xs rounded-xl transition-colors border border-rose-200 dark:border-rose-900/60"
+                title="Hapus akun demo dummy bawaan sistem"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Bersihkan Akun Dummy</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveUsersToSheets}
+                disabled={isSavingUsersToSheets}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors disabled:opacity-50"
+              >
+                {isSavingUsersToSheets ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                <span>{isSavingUsersToSheets ? 'Menyimpan ke Sheets...' : 'Simpan Akun ke Sheets'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenAddUser}
+                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Tambah Pengguna Baru</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Sync / Notification Banner */}
+          {userSyncMsg && (
+            <div
+              className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 border animate-fadeIn ${
+                userSyncMsg.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                  : 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+              }`}
+            >
+              {userSyncMsg.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <div className="flex-1">{userSyncMsg.text}</div>
+            </div>
+          )}
+
+          {/* User Accounts Table */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                    <th className="p-3">Username</th>
+                    <th className="p-3">Nama Lengkap</th>
+                    <th className="p-3">Peran / Hak Akses</th>
+                    <th className="p-3">Email</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {systemUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400">
+                        Belum ada akun pengguna terdaftar. Klik tombol "Tambah Pengguna Baru" untuk membuat akun guru atau admin.
+                      </td>
+                    </tr>
+                  ) : (
+                    systemUsers.map(u => (
+                      <tr 
+                        key={u.id}
+                        className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
+                      >
+                        <td className="p-3 font-mono font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <User className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>{u.username}</span>
+                        </td>
+                        <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{u.fullName}</td>
+                        <td className="p-3">
+                          <span className={`inline-block px-2.5 py-0.5 rounded text-[11px] font-bold ${
+                            u.role === 'admin'
+                              ? 'bg-purple-50 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                              : 'bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                          }`}>
+                            {u.role === 'admin' ? 'Administrator' : 'Guru Pengampu'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                          {u.email || '-'}
+                        </td>
+                        <td className="p-3">
+                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
+                            u.active !== false
+                              ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400'
+                              : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-400'
+                          }`}>
+                            {u.active !== false ? 'Aktif' : 'Nonaktif'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditUser(u)}
+                              className="px-2.5 py-1 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1 font-medium"
+                              title="Edit Akun Pengguna"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setUserDeleteConfirm({ id: u.id, username: u.username, fullName: u.fullName })}
+                              className="px-2.5 py-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors flex items-center gap-1 font-medium"
+                              title="Hapus Akun Pengguna"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Hapus</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
                   )}
                 </tbody>
               </table>
@@ -2931,19 +3409,29 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 />
               </div>
 
-              <div className="pt-4 flex justify-end gap-2">
+              <div className="pt-4 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsQuestionModalOpen(false)}
-                  className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+                  className="px-4 py-2.5 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium transition-colors"
                 >
                   Batal
                 </button>
                 <button
-                  type="submit"
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-sm"
+                  type="button"
+                  onClick={handleSaveDraftQuestion}
+                  className="px-4 py-2.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
+                  title="Simpan butir soal ini sebagai draft sementara tanpa validasi ketat"
                 >
-                  Simpan Soal
+                  <Bookmark className="w-3.5 h-3.5" />
+                  <span>Simpan Draft Soal</span>
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan Soal</span>
                 </button>
               </div>
             </form>
@@ -3379,6 +3867,382 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {/* ---------------------------------------------------------
+          MODAL: EDIT REKAMAN NILAI SISWA
+         --------------------------------------------------------- */}
+      {isEditingSubmissionModalOpen && editingSubmission && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Edit Rekaman Nilai Siswa</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditingSubmissionModalOpen(false);
+                  setEditingSubmission(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditedSubmission} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    NIS / NISN
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingSubmission.studentNo}
+                    onChange={(e) => setEditingSubmission({ ...editingSubmission, studentNo: e.target.value })}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Kelas
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingSubmission.classGrade || ''}
+                    onChange={(e) => setEditingSubmission({ ...editingSubmission, classGrade: e.target.value })}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nama Lengkap Siswa
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editingSubmission.studentName}
+                  onChange={(e) => setEditingSubmission({ ...editingSubmission, studentName: e.target.value })}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Skor Diperoleh
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={editingSubmission.score}
+                    onChange={(e) => {
+                      const score = Number(e.target.value) || 0;
+                      const maxScore = editingSubmission.maxScore || 100;
+                      const percentage = Math.round((score / maxScore) * 100);
+                      setEditingSubmission({
+                        ...editingSubmission,
+                        score,
+                        percentage,
+                        passed: percentage >= 75
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Skor Maksimal
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={editingSubmission.maxScore}
+                    onChange={(e) => {
+                      const maxScore = Number(e.target.value) || 100;
+                      const score = editingSubmission.score || 0;
+                      const percentage = Math.round((score / maxScore) * 100);
+                      setEditingSubmission({
+                        ...editingSubmission,
+                        maxScore,
+                        percentage,
+                        passed: percentage >= 75
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Persentase (%)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={editingSubmission.percentage}
+                    onChange={(e) => {
+                      const percentage = Number(e.target.value) || 0;
+                      setEditingSubmission({
+                        ...editingSubmission,
+                        percentage,
+                        passed: percentage >= 75
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-indigo-600 dark:text-indigo-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Status Kelulusan
+                  </label>
+                  <select
+                    value={editingSubmission.passed ? 'true' : 'false'}
+                    onChange={(e) => setEditingSubmission({ ...editingSubmission, passed: e.target.value === 'true' })}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-medium"
+                  >
+                    <option value="true">Lulus (Tuntas KKM)</option>
+                    <option value="false">Remedial</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Pelanggaran Tab
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={editingSubmission.tabSwitchCount || 0}
+                    onChange={(e) => setEditingSubmission({ ...editingSubmission, tabSwitchCount: Number(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Catatan Guru / Feedback
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Catatan motivasi atau rekomendasi materi..."
+                  value={editingSubmission.feedback || ''}
+                  onChange={(e) => setEditingSubmission({ ...editingSubmission, feedback: e.target.value })}
+                  className="w-full p-2.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingSubmissionModalOpen(false);
+                    setEditingSubmission(null);
+                  }}
+                  className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg shadow-xs"
+                >
+                  Simpan Perubahan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          MODAL: TAMBAH / EDIT USER ACCOUNT
+         --------------------------------------------------------- */}
+      {isUserModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <UserCog className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span>{editingUser ? 'Edit Akun Pengguna' : 'Tambah Akun Pengguna Baru'}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsUserModalOpen(false);
+                  setEditingUser(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {userModalError && (
+              <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{userModalError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveUserAccount} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Username <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: guru_biologi, pak_ahmad"
+                  value={userAccountForm.username}
+                  onChange={(e) => setUserAccountForm({ ...userAccountForm, username: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Password {editingUser ? '(Kosongkan jika tidak diubah)' : <span className="text-rose-500">*</span>}
+                </label>
+                <input
+                  type="password"
+                  placeholder={editingUser ? '•••••••• (Tetap sama)' : 'Masukkan password baru'}
+                  required={!editingUser}
+                  value={userAccountForm.password}
+                  onChange={(e) => setUserAccountForm({ ...userAccountForm, password: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nama Lengkap & Gelar <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: Ahmad Subardjo, S.Pd."
+                  value={userAccountForm.fullName}
+                  onChange={(e) => setUserAccountForm({ ...userAccountForm, fullName: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Peran / Hak Akses
+                  </label>
+                  <select
+                    value={userAccountForm.role}
+                    onChange={(e) => setUserAccountForm({ ...userAccountForm, role: e.target.value as any })}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-medium"
+                  >
+                    <option value="teacher">Guru Pengampu</option>
+                    <option value="admin">Administrator</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Status Akun
+                  </label>
+                  <select
+                    value={userAccountForm.active ? 'active' : 'inactive'}
+                    onChange={(e) => setUserAccountForm({ ...userAccountForm, active: e.target.value === 'active' })}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-medium"
+                  >
+                    <option value="active">Aktif</option>
+                    <option value="inactive">Nonaktif</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Email (Opsional)
+                </label>
+                <input
+                  type="email"
+                  placeholder="email@sekolah.sch.id"
+                  value={userAccountForm.email}
+                  onChange={(e) => setUserAccountForm({ ...userAccountForm, email: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsUserModalOpen(false);
+                    setEditingUser(null);
+                  }}
+                  className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg shadow-xs"
+                >
+                  {editingUser ? 'Perbarui Akun' : 'Tambah Akun'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          DIALOG: KONFIRMASI HAPUS PENGGUNA
+         --------------------------------------------------------- */}
+      {userDeleteConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn">
+            <div className="w-10 h-10 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center mb-3">
+              <Trash2 className="w-5 h-5" />
+            </div>
+            <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-1">
+              Hapus Akun Pengguna?
+            </h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+              Anda yakin ingin menghapus akun <strong>"{userDeleteConfirm.username}"</strong> ({userDeleteConfirm.fullName})? Pengguna ini tidak akan bisa login lagi ke sistem ujian.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setUserDeleteConfirm(null)}
+                className="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg font-medium"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteUserAccount(userDeleteConfirm.id)}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg shadow-xs"
+              >
+                Hapus Akun
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Draft Toast */}
+      {draftToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs font-medium border border-slate-700 animate-slideUp">
+          <Bookmark className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>{draftToast}</span>
         </div>
       )}
     </div>

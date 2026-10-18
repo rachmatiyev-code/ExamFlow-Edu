@@ -104,6 +104,19 @@ export default function App() {
             setTimeout(() => setSyncSuccessBanner(null), 4000);
           }
         });
+      } else {
+        // Penting: Jika URL GAS sudah tersimpan di Pengaturan aplikasi, selalu otomatis muat data terbaru dari Google Sheets saat aplikasi dibuka
+        const savedSettings = StorageService.getSettings();
+        if (savedSettings.gasWebAppUrl && savedSettings.gasWebAppUrl.trim().startsWith('http')) {
+          GasClient.fetchAllFromSheets().then((res) => {
+            if (res.success) {
+              refreshAllData();
+              StorageService.addLog('SYNC', 'Data pengguna, ujian, dan soal berhasil dimuat otomatis dari Google Sheets saat aplikasi dibuka.', undefined, 'success');
+            }
+          }).catch((err) => {
+            console.warn('Gagal sinkronisasi otomatis saat buka app:', err);
+          });
+        }
       }
     } catch (err) {
       console.warn('Gagal membaca parameter URL:', err);
@@ -136,6 +149,12 @@ export default function App() {
     const localStudents = StorageService.getStudents();
     if (localStudents.length > 0) {
       await GasClient.pushStudents(localStudents);
+    }
+
+    // 3b. Push current local custom users to Google Sheets
+    const localUsers = StorageService.getUsers().filter(u => !StorageService.isDummyUser(u.id) && !StorageService.isDummyUser(u.username));
+    if (localUsers.length > 0) {
+      await GasClient.pushUsers(localUsers);
     }
 
     // 4. Pull latest data from sheets

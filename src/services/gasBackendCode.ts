@@ -195,8 +195,17 @@ function doPost(e) {
       payload = JSON.parse(e.parameter.payload);
     }
 
-    const action = payload.action;
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (action === 'getAllData' || action === 'fetchAll') {
+      const data = {
+        profile: getSheetDataAsObjects(ss.getSheetByName(SHEETS.PROFILE))[0] || null,
+        exams: getSheetDataAsObjects(ss.getSheetByName(SHEETS.EXAMS)),
+        questions: getSheetDataAsObjects(ss.getSheetByName(SHEETS.QUESTIONS)),
+        students: getSheetDataAsObjects(ss.getSheetByName(SHEETS.STUDENTS)),
+        submissions: getSheetDataAsObjects(ss.getSheetByName(SHEETS.SUBMISSIONS)),
+        users: getSheetDataAsObjects(ss.getSheetByName(SHEETS.USERS))
+      };
+      return jsonResponse({ status: 'success', data: data });
+    }
 
     if (action === 'init') {
       initDatabase();
@@ -262,6 +271,39 @@ function doPost(e) {
       return jsonResponse({ status: 'success', message: 'Data ' + students.length + ' siswa berhasil disimpan ke Google Sheets', count: students.length });
     }
 
+    if (action === 'saveUsers' || action === 'syncUsers') {
+      const users = payload.users || [];
+      let shUs = ss.getSheetByName(SHEETS.USERS);
+      if (!shUs) {
+        initDatabase();
+        shUs = ss.getSheetByName(SHEETS.USERS);
+      }
+      
+      const lastRow = shUs.getLastRow();
+      const lastCol = Math.max(7, shUs.getLastColumn());
+      if (lastRow > 1) {
+        shUs.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+      }
+      
+      if (users.length > 0) {
+        const rows = users.map(function(u) {
+          return [
+            String(u.id || ('USR-' + Utilities.getUuid().slice(0, 8))),
+            String(u.username || ''),
+            String(u.password || ''),
+            String(u.fullName || ''),
+            String(u.role || 'teacher'),
+            String(u.email || ''),
+            u.active !== false
+          ];
+        });
+        shUs.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+      }
+      
+      logAction('USER', 'Data ' + users.length + ' akun guru/admin berhasil disimpan ke Google Sheets');
+      return jsonResponse({ status: 'success', message: 'Data ' + users.length + ' akun berhasil disimpan ke Google Sheets', count: users.length });
+    }
+
     if (action === 'saveExam') {
       const exam = payload.exam;
       const questions = payload.questions || [];
@@ -287,31 +329,34 @@ function doPost(e) {
         exam.redeployCount || 0
       ]);
 
-      // Hapus soal lama dari ujian ini lalu masukkan ulang
+      // Hapus soal lama dari ujian ini lalu masukkan ulang secara instan (Batch setValues)
       deleteRowsByColumnValue(shQu, 'examId', exam.id);
-      for (let i = 0; i < questions.length; i++) {
-        const q = questions[i];
-        shQu.appendRow([
-          q.id,
-          exam.id,
-          i + 1,
-          q.prompt,
-          q.type,
-          q.mediaType || 'none',
-          q.mediaUrl || '',
-          JSON.stringify(q.options || []),
-          JSON.stringify(q.correctKey || ''),
-          q.points || 10,
-          q.explanation || '',
-          q.bloomLevel || '',
-          q.soloLevel || '',
-          q.basicCompetency || '',
-          q.indicator || ''
-        ]);
+      if (questions.length > 0) {
+        const qRows = questions.map(function(q, i) {
+          return [
+            String(q.id || ('Q-' + exam.id + '-' + (i + 1))),
+            String(exam.id),
+            i + 1,
+            String(q.prompt || ''),
+            String(q.type || 'multiple_choice'),
+            String(q.mediaType || 'none'),
+            String(q.mediaUrl || ''),
+            typeof q.options === 'string' ? q.options : JSON.stringify(q.options || []),
+            typeof q.correctKey === 'string' ? q.correctKey : JSON.stringify(q.correctKey || ''),
+            Number(q.points || 10),
+            String(q.explanation || ''),
+            String(q.bloomLevel || ''),
+            String(q.soloLevel || ''),
+            String(q.basicCompetency || ''),
+            String(q.indicator || '')
+          ];
+        });
+        const startRow = shQu.getLastRow() + 1;
+        shQu.getRange(startRow, 1, qRows.length, qRows[0].length).setValues(qRows);
       }
 
       logAction('EXAM', 'Ujian disimpan: ' + exam.title + ' (' + questions.length + ' soal)');
-      return jsonResponse({ status: 'success', message: 'Ujian dan soal berhasil diperbarui' });
+      return jsonResponse({ status: 'success', message: 'Ujian dan ' + questions.length + ' soal berhasil diperbarui' });
     }
 
     if (action === 'deleteExam') {
@@ -460,11 +505,18 @@ function deleteRowsByColumnValue(sheet, keyColumn, keyValue) {
   const colIndex = headers.indexOf(keyColumn);
   if (colIndex === -1) return;
   
-  // Hapus dari baris terbawah ke atas
-  for (let i = data.length - 1; i >= 1; i--) {
-    if (data[i][colIndex] === keyValue) {
-      sheet.deleteRow(i + 1);
+  const cleanTarget = String(keyValue || '').trim().toLowerCase();
+  const retained = [headers];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][colIndex] || '').trim().toLowerCase() !== cleanTarget) {
+      retained.push(data[i]);
     }
+  }
+
+  // Bersihkan data lama dan tulis ulang secara instan (Batch I/O tanpa timeout)
+  sheet.clearContents();
+  if (retained.length > 0) {
+    sheet.getRange(1, 1, retained.length, retained[0].length).setValues(retained);
   }
 }
 

@@ -19,7 +19,8 @@ const STORAGE_KEYS = {
   LOGS: 'examflow_logs_v1',
   SETTINGS: 'examflow_settings_v1',
   CURRENT_USER: 'examflow_current_user_v1',
-  PENDING_SYNC: 'examflow_pending_sync_v1'
+  PENDING_SYNC: 'examflow_pending_sync_v1',
+  INITIALIZED: 'examflow_initialized_v1'
 };
 
 const DEFAULT_PROFILE: SchoolProfile = {
@@ -113,171 +114,7 @@ const DEFAULT_EXAMS: Exam[] = [
   }
 ];
 
-const DEFAULT_QUESTIONS: Question[] = [
-  {
-    id: 'Q-001',
-    examId: 'EXAM-2026-001',
-    order: 1,
-    prompt: 'Dengarkan rekaman audio penjelasan mekanisme respirasi seluler berikut. Organel sel manakah yang menjadi tempat berlangsungnya siklus Krebs dan fosforilasi oksidatif?',
-    type: 'multiple_choice',
-    mediaType: 'audio',
-    // Public sample sound clip
-    mediaUrl: 'https://cdn.freesound.org/previews/612/612095_11861866-lq.mp3',
-    options: [
-      { id: 'opt_a', text: 'Mitokondria (khususnya matriks dan krista)' },
-      { id: 'opt_b', text: 'Retikulum Endoplasma Kasar' },
-      { id: 'opt_c', text: 'Aparatus Golgi' },
-      { id: 'opt_d', text: 'Ribosom sitoplasma' }
-    ],
-    correctKey: 'opt_a',
-    points: 20,
-    explanation: 'Siklus Krebs berlangsung di dalam matriks mitokondria, sedangkan rantai transpor elektron dan fosforilasi oksidatif terjadi pada membran dalam (krista) mitokondria.',
-    bloomLevel: 'C2 - Memahami',
-    soloLevel: 'Multistructural',
-    basicCompetency: '3.2 Menjelaskan proses metabolisme sebagai reaksi enzimatis dalam makhluk hidup',
-    indicator: 'Peserta didik dapat mengidentifikasi organel respirasi seluler berdasarkan informasi audio'
-  },
-  {
-    id: 'Q-002',
-    examId: 'EXAM-2026-001',
-    order: 2,
-    prompt: 'Perhatikan diagram struktur sel tumbuhan berikut. Bagian yang ditunjukkan oleh huruf bernomor 3 berfungsi sebagai apa?',
-    type: 'multiple_choice',
-    mediaType: 'image',
-    mediaUrl: 'https://images.unsplash.com/photo-1530026405186-ed1f139313f8?w=800&auto=format&fit=crop&q=80',
-    options: [
-      { id: 'opt_a', text: 'Fotosintesis dan sintesis glukosa (Kloroplas)' },
-      { id: 'opt_b', text: 'Menjaga turgiditas sel dan menyimpan cadangan makanan (Vakuola besar)' },
-      { id: 'opt_c', text: 'Pengendali seluruh aktivitas pembelahan sel (Nukleus)' },
-      { id: 'opt_d', text: 'Perlindungan mekanik dan dinding sel' }
-    ],
-    correctKey: 'opt_b',
-    points: 20,
-    explanation: 'Vakuola besar pada sel tumbuhan dewasa berperan menimbun air, menjaga tekanan turgor sel, serta menyimpan senyawa metabolit sekunder.',
-    bloomLevel: 'C4 - Menganalisis',
-    soloLevel: 'Relational',
-    basicCompetency: '3.1 Memahami komponen kimiawi penyusun sel, ciri hidup pada sel yang ditunjukkan oleh struktur, fungsi dan proses yang berlangsung di dalam sel',
-    indicator: 'Disajikan gambar struktur sel, siswa mampu menganalisis fungsi organel spesifik'
-  },
-  {
-    id: 'Q-003',
-    examId: 'EXAM-2026-001',
-    order: 3,
-    prompt: 'Amati cuplikan video simulasi pembelahan sel (Mitosis) di bawah ini. Pada fase manakah kromatid saudara ditarik menuju kutub sel yang berlawanan oleh benang spindel?',
-    type: 'multiple_choice',
-    mediaType: 'video',
-    mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
-    options: [
-      { id: 'opt_a', text: 'Profase' },
-      { id: 'opt_b', text: 'Metafase' },
-      { id: 'opt_c', text: 'Anafase' },
-      { id: 'opt_d', text: 'Telofase' }
-    ],
-    correctKey: 'opt_c',
-    points: 20,
-    explanation: 'Pada tahap anafase, sentromer membelah dan kromatid ditarik ke masing-masing kutub yang berlawanan oleh pemendekan mikrotubulus spindel.',
-    bloomLevel: 'C3 - Menerapkan',
-    soloLevel: 'Multistructural',
-    basicCompetency: '3.4 Menganalisis proses pembelahan sel sebagai dasar penurunan sifat dari induk kepada keturunannya',
-    indicator: 'Siswa dapat menentukan tahapan mitosis dari demonstrasi visual gerak kromosom'
-  },
-  {
-    id: 'Q-004',
-    examId: 'EXAM-2026-001',
-    order: 4,
-    prompt: 'Manakah faktor-faktor lingkungan di bawah ini yang memengaruhi laju transpirasi pada daun tumbuhan secara langsung? (Pilih semua yang benar)',
-    type: 'checkbox',
-    mediaType: 'none',
-    options: [
-      { id: 'opt_a', text: 'Intensitas cahaya matahari' },
-      { id: 'opt_b', text: 'Kelembaban udara sekitar' },
-      { id: 'opt_c', text: 'Kecepatan angin' },
-      { id: 'opt_d', text: 'Kadar gas nitrogen bebas' }
-    ],
-    correctKey: ['opt_a', 'opt_b', 'opt_c'],
-    points: 20,
-    explanation: 'Intensitas cahaya, kelembapan, suhu, dan pergerakan angin memengaruhi laju pembukaan stomata dan penguapan air daun. Gas N2 bebas tidak memengaruhi transpirasi secara langsung.',
-    bloomLevel: 'C4 - Menganalisis',
-    soloLevel: 'Relational',
-    basicCompetency: '3.3 Menganalisis keterkaitan antara struktur sel pada jaringan tumbuhan dengan fungsi organ pada tumbuhan',
-    indicator: 'Siswa dapat menganalisis multi-faktor yang memengaruhi fisiologi transportasi tumbuhan'
-  },
-  {
-    id: 'Q-005',
-    examId: 'EXAM-2026-001',
-    order: 5,
-    prompt: 'Jelaskan mengapa pemanasan global dapat mengganggu rantai makanan pada ekosistem terumbu karang melalui fenomena pemutihan karang (coral bleaching)!',
-    type: 'essay',
-    mediaType: 'none',
-    options: [],
-    correctKey: 'Kenaikan suhu air laut menyebabkan karang mengeluarkan alga simbiotik Zooxanthellae yang menyediakan nutrisi melalui fotosintesis, sehingga karang memutih dan mati, memicu runtuhnya produsen bagi ikan herbivora.',
-    points: 20,
-    explanation: 'Penjelasan harus mencakup pelepasan alga simbiotik zooxanthellae akibat stres termal, hilangnya sumber makanan utama, dan dampak berantai pada herbivora serta predator karang.',
-    bloomLevel: 'C5 - Mengevaluasi',
-    soloLevel: 'Extended Abstract',
-    basicCompetency: '3.10 Menganalisis komponen-komponen ekosistem dan interaksi antar komponen tersebut',
-    indicator: 'Siswa dapat mengevaluasi dampak kenaikan suhu global terhadap stabilitas trofik ekosistem karang'
-  },
-  // Questions for Exam 2
-  {
-    id: 'Q-006',
-    examId: 'EXAM-2026-002',
-    order: 1,
-    prompt: 'Sebuah gelombang elektromagnetik memiliki frekuensi 6 x 10^14 Hz di ruang hampa. Berapakah panjang gelombangnya jika kecepatan cahaya c = 3 x 10^8 m/s?',
-    type: 'multiple_choice',
-    mediaType: 'none',
-    options: [
-      { id: 'opt_a', text: '500 nm (Cahaya tampak)' },
-      { id: 'opt_b', text: '200 nm (Ultraviolet)' },
-      { id: 'opt_c', text: '750 nm (Inframerah)' },
-      { id: 'opt_d', text: '1200 nm (Gelombang mikro)' }
-    ],
-    correctKey: 'opt_a',
-    points: 30,
-    explanation: 'λ = c / f = (3 x 10^8) / (6 x 10^14) = 0.5 x 10^-6 m = 500 nm.',
-    bloomLevel: 'C3 - Menerapkan',
-    soloLevel: 'Multistructural',
-    basicCompetency: '3.6 Menganalisis fenomena radiasi elektromagnetik, pemanfaatannya, dan dampaknya',
-    indicator: 'Siswa dapat menghitung panjang gelombang elektromagnetik dari frekuensi yang diketahui'
-  },
-  {
-    id: 'Q-007',
-    examId: 'EXAM-2026-002',
-    order: 2,
-    prompt: 'Manakah spektrum gelombang elektromagnetik yang memiliki energi foton tertinggi?',
-    type: 'multiple_choice',
-    mediaType: 'none',
-    options: [
-      { id: 'opt_a', text: 'Sinar Gamma' },
-      { id: 'opt_b', text: 'Sinar-X' },
-      { id: 'opt_c', text: 'Sinar Ultraviolet' },
-      { id: 'opt_d', text: 'Gelombang Radio' }
-    ],
-    correctKey: 'opt_a',
-    points: 35,
-    explanation: 'Energi foton sebanding dengan frekuensi (E = h.f). Sinar gamma memiliki frekuensi tertinggi dalam spektrum gelombang elektromagnetik.',
-    bloomLevel: 'C2 - Memahami',
-    soloLevel: 'Unistructural',
-    basicCompetency: '3.6 Menganalisis fenomena radiasi elektromagnetik',
-    indicator: 'Siswa dapat menentukan urutan energi spektrum gelombang elektromagnetik'
-  },
-  {
-    id: 'Q-008',
-    examId: 'EXAM-2026-002',
-    order: 3,
-    prompt: 'Jelaskan prinsip kerja transmisi data nirkabel menggunakan gelombang mikro pada jaringan seluler modern!',
-    type: 'essay',
-    mediaType: 'none',
-    options: [],
-    correctKey: 'Gelombang mikro mentransmisikan sinyal data melalui modulasi frekuensi tinggi secara point-to-point dengan bandwidth besar.',
-    points: 35,
-    explanation: 'Prinsip garis lurus (line-of-sight), modulasi data, stasiun pemancar BTS, dan konversi sinyal analog-digital.',
-    bloomLevel: 'C4 - Menganalisis',
-    soloLevel: 'Relational',
-    basicCompetency: '4.6 Mempresentasikan manfaat dan dampak radiasi elektromagnetik',
-    indicator: 'Siswa dapat menguraikan penerapan teknologi gelombang mikro pada komunikasi digital'
-  }
-];
+const DEFAULT_QUESTIONS: Question[] = [];
 
 const DEFAULT_STUDENTS: Student[] = [
   { id: 'STD-1001', studentNo: '1001', fullName: 'Ahmad Fauzi Rahman', classGrade: 'X MIPA 1', email: 'ahmad@sekolah.sch.id', status: 'active' },
@@ -288,59 +125,7 @@ const DEFAULT_STUDENTS: Student[] = [
   { id: 'STD-1006', studentNo: '1006', fullName: 'Farhan Maulana', classGrade: 'X MIPA 1', email: 'farhan@sekolah.sch.id', status: 'active' }
 ];
 
-const DEFAULT_SUBMISSIONS: Submission[] = [
-  {
-    id: 'SUB-9001',
-    examId: 'EXAM-2026-001',
-    studentNo: '1001',
-    studentName: 'Ahmad Fauzi Rahman',
-    classGrade: 'X MIPA 1',
-    answers: { 'Q-001': 'opt_a', 'Q-002': 'opt_b', 'Q-003': 'opt_c', 'Q-004': ['opt_a', 'opt_b', 'opt_c'], 'Q-005': 'Pemutihan karang terjadi akibat pengeluaran alga simbiotik karena panas.' },
-    score: 100,
-    maxScore: 100,
-    percentage: 100,
-    passed: true,
-    submittedAt: new Date(Date.now() - 3600000).toISOString(),
-    tabSwitchCount: 0,
-    timeSpentSeconds: 1540,
-    syncStatus: 'synced',
-    feedback: 'Hasil istimewa! Pemahaman konsep respirasi dan sel sangat mendalam.'
-  },
-  {
-    id: 'SUB-9002',
-    examId: 'EXAM-2026-001',
-    studentNo: '1002',
-    studentName: 'Bunga Citra Lestari',
-    classGrade: 'X MIPA 1',
-    answers: { 'Q-001': 'opt_a', 'Q-002': 'opt_a', 'Q-003': 'opt_c', 'Q-004': ['opt_a', 'opt_b'], 'Q-005': 'Suhu laut naik menyebabkan karang mati.' },
-    score: 75,
-    maxScore: 100,
-    percentage: 75,
-    passed: true,
-    submittedAt: new Date(Date.now() - 7200000).toISOString(),
-    tabSwitchCount: 1,
-    timeSpentSeconds: 1820,
-    syncStatus: 'synced',
-    feedback: 'Bagus, perlu ketelitian pada struktur organel vakuola dan kloroplas.'
-  },
-  {
-    id: 'SUB-9003',
-    examId: 'EXAM-2026-001',
-    studentNo: '1006',
-    studentName: 'Farhan Maulana',
-    classGrade: 'X MIPA 1',
-    answers: { 'Q-001': 'opt_b', 'Q-002': 'opt_c', 'Q-003': 'opt_c', 'Q-004': ['opt_a'], 'Q-005': 'Karang memutih karena tidak ada cahaya.' },
-    score: 45,
-    maxScore: 100,
-    percentage: 45,
-    passed: false,
-    submittedAt: new Date(Date.now() - 10800000).toISOString(),
-    tabSwitchCount: 3,
-    timeSpentSeconds: 1980,
-    syncStatus: 'synced',
-    feedback: 'Perlu remedial materi organel sel dan ekosistem.'
-  }
-];
+const DEFAULT_SUBMISSIONS: Submission[] = [];
 
 const DEFAULT_USERS: UserAccount[] = [
   {
@@ -437,11 +222,33 @@ export class StorageService {
 
   // Questions
   static getQuestions(): Question[] {
-    return this.getItem<Question[]>(STORAGE_KEYS.QUESTIONS, DEFAULT_QUESTIONS);
+    const raw = localStorage.getItem(STORAGE_KEYS.QUESTIONS);
+    if (raw !== null) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          // Bersihkan soal dummy agar tidak membebani dan mengaburkan ujian nyata
+          return parsed.filter(q => !this.isDummyQuestion(q.id));
+        }
+      } catch {}
+    }
+    return [];
   }
 
   static saveQuestions(questions: Question[]): void {
-    this.setItem(STORAGE_KEYS.QUESTIONS, questions);
+    const cleanList = questions.filter(q => !this.isDummyQuestion(q.id));
+    this.setItem(STORAGE_KEYS.QUESTIONS, cleanList);
+    localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
+  }
+
+  static isDummyQuestion(id: string): boolean {
+    const clean = String(id || '').trim().toUpperCase();
+    return ['Q-001', 'Q-002', 'Q-003', 'Q-004', 'Q-005', 'Q-006', 'Q-007', 'Q-008'].includes(clean) || clean.startsWith('Q-DUMMY-');
+  }
+
+  static clearDummyQuestions(): void {
+    const list = this.getQuestions().filter(q => !this.isDummyQuestion(q.id));
+    this.saveQuestions(list);
   }
 
   static getQuestionsByExamId(examId: string): Question[] {
@@ -452,16 +259,58 @@ export class StorageService {
   }
 
   static saveQuestionsForExam(examId: string, questions: Question[]): void {
-    const all = this.getQuestions().filter(q => q.examId !== examId);
+    const cleanId = String(examId || '').trim().toLowerCase();
+    const all = this.getQuestions().filter(q => String(q.examId || '').trim().toLowerCase() !== cleanId);
     this.saveQuestions([...all, ...questions]);
     // Perbarui totalQuestions pada exam
     const exams = this.getExams();
-    const target = exams.find(e => e.id === examId);
+    const target = exams.find(e => String(e.id || '').trim().toLowerCase() === cleanId);
     if (target) {
       target.totalQuestions = questions.length;
       this.saveExams(exams);
     }
     this.addLog('EXAM', `${questions.length} soal disimpan untuk ujian ${examId}`);
+  }
+
+  static saveDraftQuestion(examId: string, question: Partial<Question>): Question {
+    const cleanId = String(examId || '').trim().toLowerCase();
+    const currentQs = this.getQuestionsByExamId(cleanId);
+    const qId = question.id || `DRAFT-${Date.now()}`;
+    const draftQ: Question = {
+      id: qId,
+      examId,
+      order: question.order || currentQs.length + 1,
+      prompt: question.prompt || '(Draft Soal Tanpa Judul)',
+      type: question.type || 'multiple_choice',
+      mediaType: question.mediaType || 'none',
+      mediaUrl: question.mediaUrl || '',
+      options: question.options || [
+        { id: 'opt_a', text: 'Pilihan A' },
+        { id: 'opt_b', text: 'Pilihan B' },
+        { id: 'opt_c', text: 'Pilihan C' },
+        { id: 'opt_d', text: 'Pilihan D' }
+      ],
+      correctKey: question.correctKey || 'opt_a',
+      points: Number(question.points) || 10,
+      explanation: question.explanation || '',
+      bloomLevel: question.bloomLevel || 'C3 - Menerapkan',
+      soloLevel: question.soloLevel || 'Multistructural',
+      basicCompetency: question.basicCompetency || '',
+      indicator: question.indicator || '',
+      isDraft: true,
+      status: 'draft'
+    };
+
+    let updatedList: Question[];
+    const existingIdx = currentQs.findIndex(q => q.id === qId);
+    if (existingIdx >= 0) {
+      updatedList = currentQs.map(q => q.id === qId ? draftQ : q);
+    } else {
+      updatedList = [...currentQs, draftQ];
+    }
+    this.saveQuestionsForExam(examId, updatedList);
+    this.addLog('EXAM', `Draft butir soal disimpan: "${draftQ.prompt.slice(0, 30)}..."`, undefined, 'info');
+    return draftQ;
   }
 
   // Students
@@ -515,19 +364,72 @@ export class StorageService {
 
   // Submissions
   static getSubmissions(): Submission[] {
-    return this.getItem<Submission[]>(STORAGE_KEYS.SUBMISSIONS, DEFAULT_SUBMISSIONS);
+    const raw = localStorage.getItem(STORAGE_KEYS.SUBMISSIONS);
+    if (raw !== null) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          // Selalu bersihkan data dummy agar dasbor nilai selalu nyata dan bersih
+          return parsed.filter(s => !this.isDummySubmission(s.id, s.studentNo, s.studentName));
+        }
+      } catch {}
+    }
+    // Jangan pernah memuat data dummy nilai saat membuka aplikasi
+    return [];
   }
 
   static saveSubmissions(submissions: Submission[]): void {
-    this.setItem(STORAGE_KEYS.SUBMISSIONS, submissions);
+    // Pastikan data yang disimpan bersih dari dummy
+    const cleanList = submissions.filter(s => !this.isDummySubmission(s.id, s.studentNo, s.studentName));
+    this.setItem(STORAGE_KEYS.SUBMISSIONS, cleanList);
+    localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
+  }
+
+  static isDummySubmission(id: string, studentNo?: string, studentName?: string): boolean {
+    const sId = String(id || '').trim().toUpperCase();
+    if (['SUB-9001', 'SUB-9002', 'SUB-9003'].includes(sId) || sId.startsWith('SUB-900') || sId.startsWith('SUB-DUMMY')) return true;
+    const name = String(studentName || '').toLowerCase().trim();
+    if (name === 'ahmad fauzi rahman' || name === 'bunga citra lestari') return true;
+    return false;
+  }
+
+  static clearDummySubmissions(): void {
+    const list = this.getSubmissions().filter(s => !this.isDummySubmission(s.id, s.studentNo, s.studentName));
+    this.saveSubmissions(list);
   }
 
   static addSubmission(submission: Submission): void {
     const list = this.getSubmissions();
-    list.unshift(submission);
-    this.saveSubmissions(list);
+    const cleanList = list.filter(s => s.id !== submission.id);
+    cleanList.unshift(submission);
+    this.saveSubmissions(cleanList);
     this.addPendingSync(submission);
     this.addLog('EXAM', `Jawaban siswa ${submission.studentName} (${submission.studentNo}) tersimpan`);
+  }
+
+  static updateSubmission(id: string, updatedFields: Partial<Submission>): void {
+    const list = this.getSubmissions();
+    const idx = list.findIndex(s => s.id === id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...updatedFields };
+      this.saveSubmissions(list);
+      this.addLog('EXAM', `Data nilai siswa ${list[idx].studentName} (${list[idx].studentNo}) berhasil diperbarui`, undefined, 'info');
+    }
+  }
+
+  static deleteSubmission(id: string): void {
+    const list = this.getSubmissions().filter(s => s.id !== id);
+    this.saveSubmissions(list);
+    this.removePendingSync(id);
+    this.addLog('EXAM', `Data rekaman nilai ID ${id} dihapus dari penyimpanan`, undefined, 'warn');
+  }
+
+  static deleteSubmissionsBulk(ids: string[]): void {
+    const idSet = new Set(ids);
+    const list = this.getSubmissions().filter(s => !idSet.has(s.id));
+    this.saveSubmissions(list);
+    ids.forEach(id => this.removePendingSync(id));
+    this.addLog('EXAM', `${ids.length} data nilai siswa dihapus sekaligus`, undefined, 'warn');
   }
 
   static markSubmissionSynced(submissionId: string): void {
@@ -560,18 +462,77 @@ export class StorageService {
 
   // Users & Auth
   static getUsers(): UserAccount[] {
-    return this.getItem<UserAccount[]>(STORAGE_KEYS.USERS, DEFAULT_USERS);
+    const raw = localStorage.getItem(STORAGE_KEYS.USERS);
+    if (raw !== null) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Jika ada akun kustom asli dari guru/admin, buang akun dummy agar tidak tercampur
+          const customUsers = parsed.filter(u => !this.isDummyUser(u.id) && !this.isDummyUser(u.username));
+          if (customUsers.length > 0) return customUsers;
+          return parsed;
+        }
+      } catch {}
+    }
+    const isInit = localStorage.getItem(STORAGE_KEYS.INITIALIZED);
+    if (isInit) return [];
+    return DEFAULT_USERS;
   }
 
   static saveUsers(users: UserAccount[]): void {
     this.setItem(STORAGE_KEYS.USERS, users);
+    localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
+  }
+
+  static isDummyUser(idOrUsername: string): boolean {
+    const clean = String(idOrUsername || '').toLowerCase().trim();
+    return ['usr-admin', 'usr-guru', 'usr-001', 'usr-002', 'admin', 'guru'].includes(clean);
+  }
+
+  static clearDummyUsers(): void {
+    const list = this.getUsers().filter(u => !this.isDummyUser(u.id) && !this.isDummyUser(u.username));
+    this.saveUsers(list);
+  }
+
+  static addUser(user: UserAccount): void {
+    const list = this.getUsers();
+    const cleanUsername = user.username.trim().toLowerCase();
+    if (list.some(u => u.username.toLowerCase() === cleanUsername)) {
+      throw new Error(`Username "${user.username}" sudah digunakan.`);
+    }
+    const sanitized: UserAccount = {
+      ...user,
+      id: user.id || `USR-${Date.now()}`,
+      username: user.username.trim(),
+      fullName: user.fullName.trim(),
+      role: user.role || 'teacher',
+      email: (user.email || '').trim(),
+      active: user.active !== false
+    };
+    list.push(sanitized);
+    this.saveUsers(list);
+    this.addLog('AUTH', `Akun pengguna baru dibuat: ${user.fullName} (${user.username})`, undefined, 'success');
+  }
+
+  static updateUser(id: string, updatedFields: Partial<UserAccount>): void {
+    const list = this.getUsers();
+    const idx = list.findIndex(u => u.id === id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...updatedFields };
+      this.saveUsers(list);
+      this.addLog('AUTH', `Akun pengguna diperbarui: ${list[idx].username}`, undefined, 'info');
+      const curr = this.getCurrentUser();
+      if (curr && curr.id === id) {
+        this.setCurrentUser(list[idx]);
+      }
+    }
   }
 
   static upsertUser(user: UserAccount): void {
     const list = this.getUsers();
-    const idx = list.findIndex(u => u.username === user.username || u.id === user.id);
+    const idx = list.findIndex(u => u.username.toLowerCase() === user.username.toLowerCase() || (user.id && u.id === user.id));
     if (idx >= 0) {
-      list[idx] = user;
+      list[idx] = { ...list[idx], ...user };
     } else {
       list.push(user);
     }
@@ -581,6 +542,7 @@ export class StorageService {
   static deleteUser(id: string): void {
     const list = this.getUsers().filter(u => u.id !== id);
     this.saveUsers(list);
+    this.addLog('AUTH', `Akun pengguna ID ${id} dihapus`, undefined, 'warn');
   }
 
   static getCurrentUser(): UserAccount | null {

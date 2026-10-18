@@ -370,23 +370,42 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
 /**
  * Proxy route ke Google Apps Script untuk mengatasi pembatasan CORS browser
  */
-apiRouter.post('/gas-proxy', async (req, res) => {
+apiRouter.all('/gas-proxy', async (req, res) => {
   try {
-    const { url, payload, action } = req.body;
-    if (!url) {
+    const targetUrl = req.body?.url || req.query?.url;
+    if (!targetUrl || typeof targetUrl !== 'string') {
       return res.status(400).json({ status: 'error', message: 'URL GAS kosong' });
     }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload || { action })
-    });
+    const isGet = req.method === 'GET' || (req.body && req.body._method === 'GET');
+    const fetchOptions: RequestInit = {
+      method: isGet ? 'GET' : 'POST',
+      headers: {
+        'Accept': 'application/json'
+      },
+      redirect: 'follow'
+    };
 
-    const data = await response.json().catch(() => ({ status: 'success' }));
-    return res.json(data);
+    if (!isGet) {
+      const payload = req.body?.payload || req.body;
+      fetchOptions.headers = {
+        ...fetchOptions.headers,
+        'Content-Type': 'text/plain;charset=utf-8'
+      };
+      fetchOptions.body = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    }
+
+    const response = await fetch(targetUrl, fetchOptions);
+    const text = await response.text();
+    try {
+      const json = JSON.parse(text);
+      return res.json(json);
+    } catch {
+      return res.json({ status: 'success', raw: text });
+    }
   } catch (err: any) {
-    return res.status(500).json({ status: 'error', message: err?.message });
+    console.error('Proxy GAS error:', err);
+    return res.status(500).json({ status: 'error', message: err?.message || 'Gagal menghubungi Google Apps Script' });
   }
 });
 

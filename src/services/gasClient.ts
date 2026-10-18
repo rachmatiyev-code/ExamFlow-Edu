@@ -1,5 +1,5 @@
 import { StorageService } from './storage';
-import { Exam, Question, SchoolProfile, Submission, Student } from '../types';
+import { Exam, Question, SchoolProfile, Submission, Student, UserAccount } from '../types';
 
 export interface PingResult {
   success: boolean;
@@ -141,11 +141,33 @@ export class GasClient {
       StorageService.addLog('SYNC', 'Memulai sinkronisasi data dari Google Sheets...');
       const fetchUrl = `${url}${url.includes('?') ? '&' : '?'}action=getAllData&_t=${Date.now()}`;
       
-      const res = await fetch(fetchUrl);
-      const { isJson, data, errorMessage } = await this.safeParseGasResponse(res);
+      let data: any = null;
 
-      if (!isJson || !data) {
-        throw new Error(errorMessage || `Respons dari Google Sheets tidak valid (HTTP ${res.status})`);
+      // 1. Coba lewat proxy serverless backend (bebas dari batasan CORS browser dan redirect Google 302)
+      try {
+        const proxyRes = await fetch('/api/gas-proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: fetchUrl, payload: { action: 'getAllData' } })
+        });
+        if (proxyRes.ok) {
+          const proxyJson = await proxyRes.json();
+          if (proxyJson && (proxyJson.status === 'success' || proxyJson.data)) {
+            data = proxyJson;
+          }
+        }
+      } catch {
+        // Fallback ke direct browser fetch jika proxy tidak tersedia
+      }
+
+      // 2. Direct browser fetch jika proxy tidak mengembalikan data
+      if (!data) {
+        const res = await fetch(fetchUrl);
+        const parsed = await this.safeParseGasResponse(res);
+        if (!parsed.isJson || !parsed.data) {
+          throw new Error(parsed.errorMessage || `Respons dari Google Sheets tidak valid (HTTP ${res.status})`);
+        }
+        data = parsed.data;
       }
 
       if (data.status !== 'success' || !data.data) {
@@ -198,11 +220,12 @@ export class GasClient {
             indicator: q.indicator || ''
           };
         });
-        // Gabungkan soal dari server dengan soal lokal secara cerdas
-        const existingQs = StorageService.getQuestions();
+        // Gabungkan soal dari server dengan soal lokal secara cerdas (tanpa soal dummy)
+        const cleanNormalized = normalizedQuestions.filter(q => !StorageService.isDummyQuestion(q.id));
+        const existingQs = StorageService.getQuestions().filter(q => !StorageService.isDummyQuestion(q.id));
         const qMap = new Map<string, Question>();
         existingQs.forEach(q => qMap.set(q.id, q));
-        normalizedQuestions.forEach(q => qMap.set(q.id, q));
+        cleanNormalized.forEach(q => qMap.set(q.id, q));
         StorageService.saveQuestions(Array.from(qMap.values()));
       }
       if (Array.isArray(students)) {
@@ -261,14 +284,41 @@ export class GasClient {
             feedback: String(s.feedback || '')
           };
         });
-        const existingSubs = StorageService.getSubmissions();
+        // Selalu bersihkan submission dummy dari hasil sync
+        const cleanRemoteSubs = normalizedSubmissions.filter(s => !StorageService.isDummySubmission(s.id));
+        const existingSubs = StorageService.getSubmissions().filter(s => !StorageService.isDummySubmission(s.id));
         const subMap = new Map<string, Submission>();
         existingSubs.forEach(sub => subMap.set(sub.id, sub));
-        normalizedSubmissions.forEach(sub => subMap.set(sub.id, sub));
+        cleanRemoteSubs.forEach(sub => subMap.set(sub.id, sub));
         StorageService.saveSubmissions(Array.from(subMap.values()));
       }
-      if (Array.isArray(users) && users.length > 0) {
-        StorageService.saveUsers(users);
+      if (Array.isArray(users)) {
+        // Cek cerdas agar data akun pengguna asli guru tidak tertimpa atau tercampur akun dummy
+        const localUsers = StorageService.getUsers().filter(u => !StorageService.isDummyUser(u.id) && !StorageService.isDummyUser(u.username));
+        const remoteCleanUsers = users.filter((u: any) => !StorageService.isDummyUser(u.id) && !StorageService.isDummyUser(u.username));
+
+        if (remoteCleanUsers.length > 0) {
+          const uMap = new Map<string, UserAccount>();
+          localUsers.forEach(u => uMap.set(u.username.toLowerCase(), u));
+          remoteCleanUsers.forEach((u: any) => {
+            const username = String(u.username || '').trim();
+            if (username) {
+              uMap.set(username.toLowerCase(), {
+                id: String(u.id || `USR-${Date.now()}`),
+                username,
+                password: String(u.password || 'password123'),
+                fullName: String(u.fullName || username),
+                role: (u.role === 'admin' ? 'admin' : 'teacher'),
+                email: String(u.email || ''),
+                active: u.active !== false && u.active !== 'false'
+              });
+            }
+          });
+          StorageService.saveUsers(Array.from(uMap.values()));
+        } else if (localUsers.length > 0) {
+          // Sheets masih kosong atau hanya punya dummy, push akun lokal asli ke Sheets
+          await this.pushUsers(localUsers);
+        }
       }
 
       StorageService.addLog('SYNC', `Sinkronisasi sukses! Data berhasil dimuat dari Google Sheets.`, undefined, 'success');
@@ -384,9 +434,13 @@ export class GasClient {
    * Menyimpan atau memperbarui ujian & soal ke Google Sheets
    */
   static async pushExam(exam: Exam, questions: Question[]): Promise<{ success: boolean; message: string }> {
-    // Simpan ke lokal dulu
-    StorageService.upsertExam(exam);
-    StorageService.saveQuestionsForExam(exam.id, questions);
+    // Simpan ke lokal dulu dengan jumlah soal aktual
+    const updatedExam: Exam = {
+      ...exam,
+      totalQuestions: questions.length
+    };
+    StorageService.upsertExam(updatedExam);
+    StorageService.saveQuestionsForExam(updatedExam.id, questions);
 
     const url = this.getWebAppUrl();
     if (!url) {
@@ -399,13 +453,13 @@ export class GasClient {
     try {
       const res = await this.postToGas({
         action: 'saveExam',
-        exam,
+        exam: updatedExam,
         questions
       });
 
       if (!res.success) throw new Error(res.message);
-      StorageService.addLog('SYNC', `Ujian "${exam.title}" berhasil disinkronkan ke Google Sheets!`, undefined, 'success');
-      return { success: true, message: 'Ujian dan soal berhasil disinkronkan ke Google Sheets!' };
+      StorageService.addLog('SYNC', `Ujian "${updatedExam.title}" (${questions.length} butir soal) berhasil disinkronkan ke Google Sheets!`, undefined, 'success');
+      return { success: true, message: `Ujian dan ${questions.length} butir soal berhasil disinkronkan ke Google Sheets!` };
     } catch (err: any) {
       StorageService.addLog('SYNC', `Gagal push ujian ke Google Sheets: ${err?.message}. Data tetap aman di lokal.`, undefined, 'warn');
       return { success: true, message: 'Ujian tersimpan di lokal. Sinkronkan ke Google Sheets nanti setelah koneksi siap.' };
@@ -494,6 +548,47 @@ export class GasClient {
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       StorageService.addLog('SYNC', `Gagal mengirim data siswa ke Google Sheets: ${errMsg}`, undefined, 'warn');
+      return { success: false, message: errMsg };
+    }
+  }
+
+  /**
+   * Menyimpan dan menyinkronkan daftar akun pengguna / guru / admin ke Google Sheets
+   */
+  static async pushUsers(users: UserAccount[]): Promise<{ success: boolean; message: string; count?: number }> {
+    // Filter akun dummy agar tidak pernah terkirim ke spreadsheet
+    const cleanUsers = users.filter(u => !StorageService.isDummyUser(u.id) && !StorageService.isDummyUser(u.username));
+    StorageService.saveUsers(cleanUsers.length > 0 ? cleanUsers : users);
+
+    const url = this.getWebAppUrl();
+    if (!url) {
+      return { 
+        success: true, 
+        message: 'Data akun pengguna tersimpan di lokal (atur URL Google Apps Script di Pengaturan untuk sync otomatis).', 
+        count: cleanUsers.length 
+      };
+    }
+
+    try {
+      StorageService.addLog('SYNC', `Mengirim ${cleanUsers.length} data akun pengguna ke Google Sheets...`);
+      let res = await this.postToGas({ action: 'saveUsers', users: cleanUsers });
+      if (!res.success && res.message && res.message.includes('tidak dikenal')) {
+        res = await this.postToGas({ action: 'syncUsers', users: cleanUsers });
+      }
+
+      if (!res.success) {
+        throw new Error(res.message || 'Gagal menyimpan akun ke Google Sheets.');
+      }
+
+      StorageService.addLog('SYNC', `Berhasil menyimpan ${cleanUsers.length} akun pengguna ke Google Sheets!`, undefined, 'success');
+      return {
+        success: true,
+        message: res.message || `Berhasil menyimpan ${cleanUsers.length} akun pengguna ke Google Sheets!`,
+        count: cleanUsers.length
+      };
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      StorageService.addLog('SYNC', `Gagal mengirim akun pengguna ke Google Sheets: ${errMsg}`, undefined, 'warn');
       return { success: false, message: errMsg };
     }
   }

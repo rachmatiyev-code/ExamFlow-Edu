@@ -92,7 +92,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
   // Auto-select exam if directed via shared student link
   useEffect(() => {
-    if (initialExamId && exams.length > 0 && !isExamActive) {
+    if (initialExamId && !isExamActive) {
       const cleanTarget = String(initialExamId).trim().toLowerCase();
       const target = exams.find(e => String(e.id).trim().toLowerCase() === cleanTarget);
       if (target) {
@@ -106,6 +106,39 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           setExamToken(target.token);
         }
         setIsLoginModalOpen(true);
+
+        // Jika soal di lokal masih belum lengkap dibanding target ujian (misal hanya 15 dari 25 soal), unduh sisanya dari Sheets!
+        if (target.totalQuestions && qs.length < target.totalQuestions) {
+          setIsDownloadingQuestions(true);
+          GasClient.fetchAllFromSheets().then(() => {
+            setIsDownloadingQuestions(false);
+            const updated = StorageService.getQuestionsByExamId(target.id);
+            if (updated.length > 0) setExamQuestions(updated);
+          }).catch(() => {
+            setIsDownloadingQuestions(false);
+          });
+        }
+      } else {
+        // Ujian belum ada di memori lokal, unduh langsung dari Sheets
+        setIsDownloadingQuestions(true);
+        GasClient.fetchAllFromSheets().then(() => {
+          setIsDownloadingQuestions(false);
+          const freshExams = StorageService.getExams();
+          const found = freshExams.find(e => String(e.id).trim().toLowerCase() === cleanTarget);
+          if (found) {
+            setSelectedExam(found);
+            const qs = StorageService.getQuestionsByExamId(found.id);
+            setExamQuestions(qs);
+            if (initialToken) {
+              setExamToken(initialToken);
+            } else if (found.token) {
+              setExamToken(found.token);
+            }
+            setIsLoginModalOpen(true);
+          }
+        }).catch(() => {
+          setIsDownloadingQuestions(false);
+        });
       }
     }
   }, [initialExamId, initialToken, exams, isExamActive]);
@@ -219,15 +252,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     if (!selectedExam) return;
 
-    // Pastikan butir soal ujian telah termuat sebelum memulai
+    // Pastikan seluruh butir soal ujian telah termuat sebelum memulai
     let qs = StorageService.getQuestionsByExamId(selectedExam.id);
     if (qs.length === 0) {
       const allQs = StorageService.getQuestions();
       qs = allQs.filter(q => String(q.examId).trim().toLowerCase() === String(selectedExam.id).trim().toLowerCase());
     }
 
-    if (qs.length === 0) {
-      setLoginError('Sedang mengunduh butir soal dari database server...');
+    const expectedCount = selectedExam.totalQuestions || 0;
+    const isUnderloaded = expectedCount > 0 && qs.length < expectedCount;
+
+    if (qs.length === 0 || isUnderloaded) {
+      setLoginError(`Mengunduh seluruh butir soal (${expectedCount > 0 ? expectedCount : 'lengkap'} butir soal) dari server Google Sheets...`);
       setIsDownloadingQuestions(true);
       GasClient.fetchAllFromSheets().then(() => {
         setIsDownloadingQuestions(false);
@@ -241,7 +277,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         }
       }).catch(() => {
         setIsDownloadingQuestions(false);
-        setLoginError('Gagal mengunduh soal dari Google Sheets. Periksa koneksi internet Anda.');
+        if (qs.length > 0) {
+          // Lanjutkan dengan soal lokal yang ada jika offline
+          setExamQuestions(qs);
+          setLoginError(null);
+          startExamSession(qs);
+        } else {
+          setLoginError('Gagal mengunduh soal dari Google Sheets. Periksa koneksi internet Anda.');
+        }
       });
       return;
     }
@@ -1084,6 +1127,29 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 {selectedExam.title} ({selectedExam.subject})
               </p>
+              <div className="flex items-center justify-center gap-2 mt-2">
+                <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-semibold text-xs">
+                  {selectedExam.totalQuestions || examQuestions.length} Butir Soal · {selectedExam.durationMinutes} Menit
+                </span>
+                <button
+                  type="button"
+                  disabled={isDownloadingQuestions}
+                  onClick={async () => {
+                    setIsDownloadingQuestions(true);
+                    try {
+                      await GasClient.fetchAllFromSheets();
+                      const fresh = StorageService.getQuestionsByExamId(selectedExam.id);
+                      setExamQuestions(fresh);
+                    } finally {
+                      setIsDownloadingQuestions(false);
+                    }
+                  }}
+                  className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-md transition-colors"
+                  title="Muat ulang soal terbaru dari Google Sheets"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isDownloadingQuestions ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
             </div>
 
             {loginError && (

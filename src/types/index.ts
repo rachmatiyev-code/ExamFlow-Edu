@@ -53,6 +53,8 @@ export interface Question {
   soloLevel?: SoloLevel;
   basicCompetency?: string;
   indicator?: string;
+  isDraft?: boolean;
+  status?: 'draft' | 'published';
 }
 
 export interface Exam {

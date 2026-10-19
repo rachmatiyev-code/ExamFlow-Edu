@@ -248,7 +248,8 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
       questionType = 'multiple_choice',
       subject = 'Umum', 
       grade = 'SMA/SMK',
-      customApiKey 
+      customApiKey,
+      learningObjectives = []
     } = req.body;
 
     const apiKey = (customApiKey || process.env.GEMINI_API_KEY || '').trim();
@@ -266,6 +267,11 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
       }
     });
 
+    const validObjectives = Array.isArray(learningObjectives) ? learningObjectives.filter(Boolean).slice(0, 15) : [];
+    const tpInstruction = validObjectives.length > 0
+      ? `\n- TUJUAN PEMBELAJARAN (TP) YANG HARUS DICAKUP (Total ${validObjectives.length} TP, dukung hingga 15 TP):\n${validObjectives.map((tp: string, idx: number) => `  TP ${idx + 1}: ${tp}`).join('\n')}\nDistribusikan butir soal secara berimbang ke seluruh Tujuan Pembelajaran di atas. Setiap butir soal HARUS mengisi atribut "learningObjective" sesuai dengan teks TP yang disasarnya.\n`
+      : '';
+
     const typeInstruction = 
       questionType === 'multiple_choice' ? 'Semua butir soal berbentuk Pilihan Ganda Tunggal ("type": "multiple_choice") dengan 4 atau 5 pilihan ("options") dan 1 kunci benar ("correctKey": "opt_a").' :
       questionType === 'checkbox' ? 'Semua butir soal berbentuk Pilihan Ganda Kompleks ("type": "checkbox") dengan 4 atau 5 pilihan di mana terdapat 2 atau lebih jawaban yang benar ("correctKey": ["opt_a", "opt_c"]).' :
@@ -281,7 +287,7 @@ Tugas Anda adalah menghasilkan persis ${count} butir soal berkualitas tinggi unt
 - Jenjang Kelas: ${grade}
 - Tingkat Kesulitan: ${difficulty}
 - Kerangka Taksonomi: ${taxonomy === 'solo' ? 'SOLO (Prestructural, Unistructural, Multistructural, Relational, Extended Abstract)' : 'Bloom-Anderson (C1 Mengingat, C2 Memahami, C3 Menerapkan, C4 Menganalisis, C5 Mengevaluasi, C6 Mencipta)'}
-- Bentuk Soal: ${typeInstruction}
+- Bentuk Soal: ${typeInstruction}${tpInstruction}
 
 Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
 [
@@ -302,7 +308,8 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
     "bloomLevel": "C3 - Menerapkan",
     "soloLevel": "Multistructural",
     "basicCompetency": "Kompetensi Dasar / Capaian Pembelajaran terkait",
-    "indicator": "Indikator pencapaian kompetensi soal ini"
+    "indicator": "Indikator pencapaian kompetensi soal ini",
+    "learningObjective": "${validObjectives[0] || 'Peserta didik mampu memahami konsep pokok materi'}"
   }
 ]
 

@@ -78,7 +78,7 @@ function initDatabase() {
   let shQuestions = ss.getSheetByName(SHEETS.QUESTIONS);
   if (!shQuestions) {
     shQuestions = ss.insertSheet(SHEETS.QUESTIONS);
-    shQuestions.appendRow(['id', 'examId', 'order', 'prompt', 'type', 'mediaType', 'mediaUrl', 'optionsJson', 'correctKeyJson', 'points', 'explanation', 'bloomLevel', 'soloLevel', 'basicCompetency', 'indicator']);
+    shQuestions.appendRow(['id', 'examId', 'order', 'prompt', 'type', 'mediaType', 'mediaUrl', 'optionsJson', 'correctKeyJson', 'points', 'explanation', 'bloomLevel', 'soloLevel', 'basicCompetency', 'indicator', 'learningObjective']);
     formatHeaderRow(shQuestions);
   }
 
@@ -348,7 +348,8 @@ function doPost(e) {
             String(q.bloomLevel || ''),
             String(q.soloLevel || ''),
             String(q.basicCompetency || ''),
-            String(q.indicator || '')
+            String(q.indicator || ''),
+            String(q.learningObjective || '')
           ];
         });
         const startRow = shQu.getLastRow() + 1;

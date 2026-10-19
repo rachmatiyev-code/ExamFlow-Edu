@@ -223,13 +223,16 @@ export const KisiKisiMatrix: React.FC<KisiKisiMatrixProps> = ({ profile, exams }
                 <th className="border border-slate-300 dark:border-slate-700 print:border-black p-2.5 text-center w-12">
                   No.
                 </th>
-                <th className="border border-slate-300 dark:border-slate-700 print:border-black p-2.5 min-w-[180px]">
-                  Kompetensi Dasar / Capaian Pembelajaran
+                <th className="border border-slate-300 dark:border-slate-700 print:border-black p-2.5 min-w-[170px]">
+                  Kompetensi Dasar / Capaian Pembelajaran (CP)
                 </th>
-                <th className="border border-slate-300 dark:border-slate-700 print:border-black p-2.5 min-w-[140px]">
+                <th className="border border-slate-300 dark:border-slate-700 print:border-black p-2.5 min-w-[200px] bg-indigo-50/50 dark:bg-indigo-950/20 print:bg-transparent">
+                  Tujuan Pembelajaran (TP)
+                </th>
+                <th className="border border-slate-300 dark:border-slate-700 print:border-black p-2.5 min-w-[130px]">
                   Materi Pokok
                 </th>
-                <th className="border border-slate-300 dark:border-slate-700 print:border-black p-2.5 min-w-[220px]">
+                <th className="border border-slate-300 dark:border-slate-700 print:border-black p-2.5 min-w-[200px]">
                   Indikator Soal
                 </th>
                 <th className="border border-slate-300 dark:border-slate-700 print:border-black p-2.5 text-center min-w-[130px]">
@@ -247,6 +250,9 @@ export const KisiKisiMatrix: React.FC<KisiKisiMatrixProps> = ({ profile, exams }
               {questions.map((q, idx) => {
                 const cogLevel = getCognitiveLevel(q);
                 const bentukStr = q.type === 'multiple_choice' ? 'PG' : q.type === 'checkbox' ? 'PG Kompleks' : 'Uraian';
+                const defaultTp = (selectedExam?.learningObjectives && selectedExam.learningObjectives.length > 0)
+                  ? selectedExam.learningObjectives[idx % selectedExam.learningObjectives.length]
+                  : 'Peserta didik mampu memahami dan menganalisis konsep materi secara komprehensif';
 
                 return (
                   <tr key={q.id} className="print-break-inside-avoid hover:bg-slate-50 dark:hover:bg-slate-800/30 print:hover:bg-transparent">
@@ -265,6 +271,23 @@ export const KisiKisiMatrix: React.FC<KisiKisiMatrixProps> = ({ profile, exams }
                         />
                       ) : (
                         q.basicCompetency || 'Menganalisis prinsip dan konsep pokok materi'
+                      )}
+                    </td>
+
+                    {/* Tujuan Pembelajaran (TP) */}
+                    <td className="border border-slate-300 dark:border-slate-700 print:border-black p-2.5 leading-relaxed bg-indigo-50/20 dark:bg-indigo-950/10 print:bg-transparent">
+                      {isEditing ? (
+                        <textarea
+                          rows={3}
+                          value={q.learningObjective || ''}
+                          placeholder={defaultTp}
+                          onChange={(e) => handleUpdateQuestion(q.id, 'learningObjective', e.target.value)}
+                          className="w-full p-1.5 rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-xs"
+                        />
+                      ) : (
+                        <div className="text-slate-800 dark:text-slate-200 print:text-black">
+                          {q.learningObjective || defaultTp}
+                        </div>
                       )}
                     </td>
 

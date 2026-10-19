@@ -53,6 +53,7 @@ export interface Question {
   soloLevel?: SoloLevel;
   basicCompetency?: string;
   indicator?: string;
+  learningObjective?: string; // Tujuan Pembelajaran (TP)
   isDraft?: boolean;
   status?: 'draft' | 'published';
 }
@@ -72,6 +73,7 @@ export interface Exam {
   totalQuestions: number;
   token?: string; // Optional exam access token/PIN
   instructions?: string;
+  learningObjectives?: string[]; // Hingga 15 Tujuan Pembelajaran (TP)
   createdAt: string;
   redeployCount?: number;
 }
@@ -131,4 +133,43 @@ export interface AppSettings {
   offlineMode: boolean;
   theme: 'light' | 'dark' | 'system';
   enableAudioChime: boolean;
+}
+
+export interface QuestionAnalysis {
+  questionId: string;
+  order: number;
+  prompt: string;
+  type: string;
+  learningObjective: string;
+  bloomLevel?: string;
+  totalAttempts: number;
+  correctCount: number;
+  correctRate: number; // 0 - 100%
+  difficultyIndex: number; // P-value (0.0 - 1.0)
+  difficultyLevel: 'Sangat Mudah' | 'Mudah' | 'Sedang' | 'Sukar' | 'Sangat Sukar';
+  discriminationIndex: number; // D-index (-1.0 to 1.0)
+  discriminationStatus: 'Sangat Baik' | 'Baik' | 'Cukup' | 'Jelek (Revisi)' | 'Sangat Jelek (Buang)';
+}
+
+export interface ObjectiveAnalysis {
+  objective: string;
+  questionCount: number;
+  questionOrders: number[];
+  averageMastery: number; // 0 - 100%
+  masteredStudentCount: number;
+  unmasteredStudentCount: number;
+  status: 'Tuntas' | 'Perlu Perbaikan' | 'Kritis';
+}
+
+export interface StudentRemedialRecommendation {
+  studentNo: string;
+  studentName: string;
+  classGrade: string;
+  score: number;
+  percentage: number;
+  passed: boolean;
+  unmasteredObjectives: string[];
+  masteredObjectives: string[];
+  remedialPlan: string[];
+  enrichmentPlan: string[];
 }

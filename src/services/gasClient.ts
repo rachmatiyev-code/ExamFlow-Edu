@@ -217,7 +217,8 @@ export class GasClient {
             bloomLevel: q.bloomLevel,
             soloLevel: q.soloLevel,
             basicCompetency: q.basicCompetency || '',
-            indicator: q.indicator || ''
+            indicator: q.indicator || '',
+            learningObjective: q.learningObjective || ''
           };
         });
         // Gabungkan soal dari server dengan soal lokal secara cerdas (tanpa soal dummy)
@@ -577,6 +578,14 @@ export class GasClient {
       }
 
       if (!res.success) {
+        if (res.message && res.message.includes('tidak dikenal')) {
+          const guidance = 'Akun berhasil disimpan di lokal browser. Namun Google Apps Script di Spreadsheet Anda belum diperbarui ke versi terbaru. Silakan buka tab Pengaturan > Salin Kode Apps Script > Deploy Versi Baru (New Deployment) di Google Sheets.';
+          StorageService.addLog('SYNC', guidance, undefined, 'warn');
+          return {
+            success: false,
+            message: guidance
+          };
+        }
         throw new Error(res.message || 'Gagal menyimpan akun ke Google Sheets.');
       }
 
@@ -588,7 +597,7 @@ export class GasClient {
       };
     } catch (err: any) {
       const errMsg = err?.message || String(err);
-      StorageService.addLog('SYNC', `Gagal mengirim akun pengguna ke Google Sheets: ${errMsg}`, undefined, 'warn');
+      StorageService.addLog('SYNC', `Penyimpanan akun: ${errMsg}`, undefined, 'warn');
       return { success: false, message: errMsg };
     }
   }

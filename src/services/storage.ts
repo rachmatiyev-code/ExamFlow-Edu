@@ -211,6 +211,15 @@ export class StorageService {
     this.addLog('EXAM', `Ujian "${exam.title}" berhasil disimpan secara lokal`);
   }
 
+  static updateExam(id: string, updates: Partial<Exam>): void {
+    const list = this.getExams();
+    const idx = list.findIndex(e => e.id === id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...updates };
+      this.saveExams(list);
+    }
+  }
+
   static deleteExam(id: string): void {
     const list = this.getExams().filter(e => e.id !== id);
     this.saveExams(list);

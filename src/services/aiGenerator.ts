@@ -9,6 +9,7 @@ export interface GenerateParams {
   questionType?: 'multiple_choice' | 'checkbox' | 'true_false' | 'essay' | 'mixed';
   subject: string;
   grade: string;
+  learningObjectives?: string[]; // Hingga 15 Tujuan Pembelajaran (TP)
 }
 
 export class AiGeneratorService {
@@ -233,6 +234,11 @@ export class AiGeneratorService {
         qType === 'essay' ? 'Semua butir soal berbentuk Uraian / Isian Singkat ("type": "essay") dengan "options": [] dan "correctKey" berupa rangkuman jawaban/kata kunci esai.' :
         'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), dan Uraian ("type": "essay").';
 
+      const validObjectives = Array.isArray(params.learningObjectives) ? params.learningObjectives.filter(Boolean).slice(0, 15) : [];
+      const tpSection = validObjectives.length > 0
+        ? `\n- TUJUAN PEMBELAJARAN (TP) - DUKUNG HINGGA 15 TP:\n${validObjectives.map((tp, i) => `  TP ${i + 1}: ${tp}`).join('\n')}\nDistribusikan butir soal secara berimbang ke seluruh Tujuan Pembelajaran di atas. Setiap butir soal HARUS menyertakan atribut "learningObjective" sesuai dengan teks Tujuan Pembelajaran yang diukurnya.\n`
+        : '';
+
       const promptText = `
 Anda adalah seorang ahli pembuat asesmen kurikulum nasional (Kurikulum Merdeka / K13).
 Tugas Anda adalah menghasilkan persis ${batchCount} butir soal berkualitas tinggi (bagian ${bIdx + 1} dari ${batchSizes.length}) untuk:
@@ -241,7 +247,7 @@ Tugas Anda adalah menghasilkan persis ${batchCount} butir soal berkualitas tingg
 - Jenjang Kelas: ${params.grade}
 - Tingkat Kesulitan: ${params.difficulty}
 - Kerangka Taksonomi: ${params.taxonomy === 'solo' ? 'SOLO (Prestructural, Unistructural, Multistructural, Relational, Extended Abstract)' : 'Bloom-Anderson (C1 Mengingat, C2 Memahami, C3 Menerapkan, C4 Menganalisis, C5 Mengevaluasi, C6 Mencipta)'}
-- Bentuk Soal: ${typeInstruction}
+- Bentuk Soal: ${typeInstruction}${tpSection}
 
 Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
 [
@@ -262,7 +268,8 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
     "bloomLevel": "C3 - Menerapkan",
     "soloLevel": "Multistructural",
     "basicCompetency": "Kompetensi Dasar / Capaian Pembelajaran terkait",
-    "indicator": "Indikator soal"
+    "indicator": "Indikator soal",
+    "learningObjective": "${validObjectives[0] || 'Peserta didik mampu memahami konsep pokok materi'}"
   }
 ]
 
@@ -293,7 +300,8 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
             questionType: params.questionType,
             subject: params.subject,
             grade: params.grade,
-            customApiKey
+            customApiKey,
+            learningObjectives: params.learningObjectives
           })
         });
 

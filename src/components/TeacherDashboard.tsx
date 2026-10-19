@@ -12,6 +12,7 @@ import {
 import { StorageService } from '../services/storage';
 import { GasClient } from '../services/gasClient';
 import { AiGeneratorService } from '../services/aiGenerator';
+import { AnalysisService } from '../services/analysisService';
 import { GAS_BACKEND_SCRIPT } from '../services/gasBackendCode';
 import { 
   Plus, 
@@ -59,7 +60,14 @@ import {
   Bookmark,
   UserCog,
   User,
-  Check
+  Check,
+  Target,
+  Award,
+  TrendingUp,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  FileCheck
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -112,6 +120,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [aiQuestionType, setAiQuestionType] = useState<'multiple_choice' | 'checkbox' | 'true_false' | 'essay' | 'mixed'>('multiple_choice');
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
+
+  // Tujuan Pembelajaran (TP) State (Dukung hingga 15 TP)
+  const [aiLearningObjectives, setAiLearningObjectives] = useState<string[]>([
+    'Memahami konsep dan prinsip dasar materi pembelajaran',
+    'Menganalisis keterkaitan antar variabel atau komponen konsep',
+    'Menerapkan rumus atau kaidah dalam pemecahan masalah kontekstual'
+  ]);
+  const [newAiTpInput, setNewAiTpInput] = useState('');
+  const [newExamTpInput, setNewExamTpInput] = useState('');
+
+  // Analytics Sub-tab View State ('rekap' | 'item_analysis' | 'remedial')
+  const [analyticsViewMode, setAnalyticsViewMode] = useState<'rekap' | 'item_analysis' | 'remedial'>('rekap');
 
   // School Profile Edit State
   const [profileForm, setProfileForm] = useState<SchoolProfile>(profile);
@@ -248,7 +268,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       token: editingExam.token || '',
       instructions: editingExam.instructions || 'Kerjakan dengan teliti dan jujur.',
       createdAt: editingExam.createdAt || new Date().toISOString(),
-      redeployCount: editingExam.redeployCount || 0
+      redeployCount: editingExam.redeployCount || 0,
+      learningObjectives: Array.isArray(editingExam.learningObjectives) ? editingExam.learningObjectives.filter(Boolean).slice(0, 15) : []
     };
 
     const qs = isNew ? [] : StorageService.getQuestionsByExamId(examToSave.id);
@@ -310,7 +331,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       bloomLevel: editingQuestion.bloomLevel || 'C3 - Menerapkan',
       soloLevel: editingQuestion.soloLevel || 'Multistructural',
       basicCompetency: editingQuestion.basicCompetency || '',
-      indicator: editingQuestion.indicator || ''
+      indicator: editingQuestion.indicator || '',
+      learningObjective: editingQuestion.learningObjective || ''
     };
 
     let updatedList: Question[];
@@ -365,6 +387,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     setIsGeneratingAi(true);
     setAiMessage(null);
 
+    const cleanObjectives = aiLearningObjectives.filter(Boolean).slice(0, 15);
+
     try {
       const res = await AiGeneratorService.generateQuestions(
         currentExam.id, 
@@ -375,7 +399,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           taxonomy: aiTaxonomy,
           questionType: aiQuestionType,
           subject: currentExam.subject,
-          grade: currentExam.grade
+          grade: currentExam.grade,
+          learningObjectives: cleanObjectives
         },
         (_completed, _total, message) => {
           setAiMessage(message);
@@ -384,6 +409,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
       setIsGeneratingAi(false);
       if (res.success && res.questions) {
+        if (cleanObjectives.length > 0 && (!currentExam.learningObjectives || currentExam.learningObjectives.length === 0)) {
+          currentExam.learningObjectives = cleanObjectives;
+          StorageService.updateExam(currentExam.id, { learningObjectives: cleanObjectives });
+        }
         const existing = StorageService.getQuestionsByExamId(currentExam.id);
         const merged = [...existing, ...res.questions];
         // Renumber orders
@@ -945,6 +974,45 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     : 0;
   const passCount = examSubmissions.filter(s => s.passed).length;
   const passRate = examSubmissions.length > 0 ? Math.round((passCount / examSubmissions.length) * 100) : 0;
+
+  // Analisis Butir Soal, Ketercapaian TP & Rekomendasi Remidi/Pengayaan
+  const activeAnalysisExamId = analyticsExamFilter !== 'all' ? analyticsExamFilter : (selectedExamId || exams[0]?.id || '');
+  const targetAnalysisExam = exams.find(e => String(e.id).trim().toLowerCase() === String(activeAnalysisExamId).trim().toLowerCase()) || exams[0];
+  const targetAnalysisQuestions = targetAnalysisExam ? StorageService.getQuestionsByExamId(targetAnalysisExam.id) : [];
+  const targetAnalysisSubmissions = safeSubmissions.filter(s => String(s.examId || '').trim().toLowerCase() === String(targetAnalysisExam?.id || '').trim().toLowerCase());
+
+  // 1. Analisis Butir Soal (Item Analysis)
+  const questionAnalysisList = (targetAnalysisExam && targetAnalysisQuestions.length > 0)
+    ? AnalysisService.analyzeQuestions(targetAnalysisExam.id, targetAnalysisQuestions, targetAnalysisSubmissions)
+    : [];
+
+  // 2. Analisis Ketuntasan per Tujuan Pembelajaran (TP)
+  const objectiveAnalysisList = (targetAnalysisQuestions.length > 0)
+    ? AnalysisService.analyzeObjectives(targetAnalysisQuestions, targetAnalysisSubmissions)
+    : [];
+
+  // 3. Saran Remidi dan Pengayaan Siswa
+  const studentRecommendations = (targetAnalysisExam && targetAnalysisQuestions.length > 0)
+    ? AnalysisService.generateStudentRecommendations(targetAnalysisExam, targetAnalysisQuestions, targetAnalysisSubmissions)
+    : [];
+
+  const filteredStudentRecommendations = studentRecommendations.filter(rec => {
+    if (analyticsClassFilter !== 'all') {
+      const cleanClassFilter = String(analyticsClassFilter).trim().toLowerCase();
+      const cleanClass = String(rec.classGrade || '').trim().toLowerCase();
+      if (cleanClass !== cleanClassFilter) return false;
+    }
+    if (analyticsStatusFilter === 'passed' && !rec.passed) return false;
+    if (analyticsStatusFilter === 'remedial' && rec.passed) return false;
+    if (analyticsSearchQuery.trim()) {
+      const q = analyticsSearchQuery.trim().toLowerCase();
+      const matchName = String(rec.studentName || '').toLowerCase().includes(q);
+      const matchNo = String(rec.studentNo || '').toLowerCase().includes(q);
+      const matchClass = String(rec.classGrade || '').toLowerCase().includes(q);
+      if (!matchName && !matchNo && !matchClass) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
@@ -1509,8 +1577,66 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </div>
           </div>
 
-          {/* Interactive Filter & Search Controls */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 no-print">
+          {/* Sub-tab Switcher: Rekapitulasi Nilai | Analisis Butir Soal & TP | Saran Remidi & Pengayaan */}
+          <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3 no-print overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setAnalyticsViewMode('rekap')}
+              className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 shrink-0 ${
+                analyticsViewMode === 'rekap'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Rekapitulasi Nilai Siswa</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${analyticsViewMode === 'rekap' ? 'bg-indigo-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                {safeSubmissions.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAnalyticsViewMode('item_analysis')}
+              className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 shrink-0 ${
+                analyticsViewMode === 'item_analysis'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Analisis Butir Soal & Tujuan Pembelajaran</span>
+              {objectiveAnalysisList.length > 0 && (
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${analyticsViewMode === 'item_analysis' ? 'bg-indigo-700 text-white' : 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600'}`}>
+                  {objectiveAnalysisList.length} TP
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAnalyticsViewMode('remedial')}
+              className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 shrink-0 ${
+                analyticsViewMode === 'remedial'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Saran Remidi & Pengayaan Siswa</span>
+              {studentRecommendations.length > 0 && (
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${analyticsViewMode === 'remedial' ? 'bg-indigo-700 text-white' : 'bg-amber-50 dark:bg-amber-950 text-amber-600'}`}>
+                  {studentRecommendations.filter(r => !r.passed).length} Remidi
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Sub-tab 1: Rekapitulasi Nilai Siswa */}
+          {analyticsViewMode === 'rekap' && (
+            <div className="space-y-6 animate-fadeIn">
+              {/* Interactive Filter & Search Controls */}
+              <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 no-print">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {/* Exam Selector Filter */}
               <div>
@@ -1931,6 +2057,541 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* Sub-tab 2: Analisis Butir Soal & Tujuan Pembelajaran */}
+      {analyticsViewMode === 'item_analysis' && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Exam Selector & Analysis Controls */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Analisis Butir Soal & Ketercapaian Tujuan Pembelajaran (TP)</span>
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Evaluasi psikometrik validitas empirik butir soal (Tingkat Kesukaran & Daya Pembeda) dan ketuntasan TP kurikulum.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                  Paket Ujian:
+                </label>
+                <select
+                  value={targetAnalysisExam?.id || ''}
+                  onChange={(e) => {
+                    setSelectedExamId(e.target.value);
+                    setAnalyticsExamFilter(e.target.value);
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                >
+                  {exams.map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.subject} - {e.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors no-print"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Cetak Analisis</span>
+              </button>
+            </div>
+          </div>
+
+          {/* KPI Metrics Summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-xs text-slate-400 block mb-1">Butir Soal & Peserta</span>
+              <div className="text-2xl font-extrabold text-slate-900 dark:text-white font-mono">
+                {targetAnalysisQuestions.length} <span className="text-xs font-normal text-slate-400">Soal / {targetAnalysisSubmissions.length} Siswa</span>
+              </div>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                {targetAnalysisExam?.subject || 'Mata Pelajaran'}
+              </span>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-xs text-slate-400 block mb-1">Ketuntasan TP Kelas</span>
+              <div className="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 font-mono">
+                {objectiveAnalysisList.length > 0 
+                  ? Math.round((objectiveAnalysisList.filter(o => o.status === 'Tuntas').length / objectiveAnalysisList.length) * 100) 
+                  : 0}%
+              </div>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                {objectiveAnalysisList.filter(o => o.status === 'Tuntas').length} dari {objectiveAnalysisList.length} TP Tuntas
+              </span>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-xs text-slate-400 block mb-1">Rata-rata Tingkat Kesukaran (P)</span>
+              <div className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
+                {questionAnalysisList.length > 0 
+                  ? (questionAnalysisList.reduce((acc, q) => acc + q.difficultyIndex, 0) / questionAnalysisList.length).toFixed(2)
+                  : '0.00'}
+              </div>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                Ideal: 0.30 - 0.70 (Sedang)
+              </span>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-xs text-slate-400 block mb-1">Rata-rata Daya Pembeda (D)</span>
+              <div className="text-2xl font-extrabold text-violet-600 dark:text-violet-400 font-mono">
+                {questionAnalysisList.length > 0 
+                  ? (questionAnalysisList.reduce((acc, q) => acc + q.discriminationIndex, 0) / questionAnalysisList.length).toFixed(2)
+                  : '0.00'}
+              </div>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                Ideal: &ge; 0.30 (Baik/Sangat Baik)
+              </span>
+            </div>
+          </div>
+
+          {/* Tabel 1: Analisis Ketercapaian per Tujuan Pembelajaran (TP) */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Target className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <span>1. Analisis Ketercapaian per Tujuan Pembelajaran (TP)</span>
+                </h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Distribusi ketuntasan materi pembelajaran berdasarkan perolehan skor butir soal terkait.
+                </p>
+              </div>
+              <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                {objectiveAnalysisList.length} Tujuan Pembelajaran
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                    <th className="p-3 w-12 text-center">No.</th>
+                    <th className="p-3 min-w-[280px]">Tujuan Pembelajaran (TP)</th>
+                    <th className="p-3 text-center min-w-[120px]">Butir Terkait</th>
+                    <th className="p-3 text-center min-w-[140px]">Rata-Rata Penguasaan</th>
+                    <th className="p-3 text-center min-w-[140px]">Siswa Tuntas / Belum</th>
+                    <th className="p-3 text-center min-w-[120px]">Status TP</th>
+                    <th className="p-3 min-w-[200px]">Rekomendasi Tindak Lanjut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {objectiveAnalysisList.map((obj, idx) => (
+                    <tr key={idx} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="p-3 text-center font-mono font-bold">{idx + 1}</td>
+                      <td className="p-3 font-medium text-slate-900 dark:text-white leading-relaxed">
+                        {obj.objective}
+                      </td>
+                      <td className="p-3 text-center">
+                        <div className="flex flex-wrap items-center justify-center gap-1">
+                          {obj.questionOrders.map(ord => (
+                            <span key={ord} className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                              #{ord}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="p-3 text-center">
+                        <div className="inline-flex flex-col items-center gap-1">
+                          <span className="font-mono font-bold text-sm text-indigo-600 dark:text-indigo-400">
+                            {obj.averageMastery}%
+                          </span>
+                          <div className="w-20 bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full ${obj.averageMastery >= 75 ? 'bg-emerald-500' : obj.averageMastery >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                              style={{ width: `${obj.averageMastery}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-3 text-center font-mono text-xs">
+                        <span className="text-emerald-600 font-bold">{obj.masteredStudentCount} Tuntas</span>
+                        <span className="text-slate-400 mx-1">/</span>
+                        <span className="text-rose-500 font-bold">{obj.unmasteredStudentCount} Belum</span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`inline-block px-2.5 py-1 rounded text-[11px] font-bold ${
+                          obj.status === 'Tuntas'
+                            ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                            : obj.status === 'Perlu Perbaikan'
+                            ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                            : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                        }`}>
+                          {obj.status}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
+                        {obj.status === 'Tuntas' 
+                          ? 'Pertahankan pemahaman dan berikan materi pengayaan kontekstual.' 
+                          : obj.status === 'Perlu Perbaikan' 
+                          ? 'Bimbingan terfokus pada indikator butir soal terkait dan latihan terstruktur.' 
+                          : 'Remedial intensif klasikal, pembedahan miskonsepsi, dan asesmen ulang.'}
+                      </td>
+                    </tr>
+                  ))}
+
+                  {objectiveAnalysisList.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-slate-400">
+                        Belum ada butir soal atau nilai ujian yang dapat dianalisis untuk paket ini.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Tabel 2: Analisis Butir Soal Lengkap */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <FileCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <span>2. Analisis Butir Soal Empirik (Tingkat Kesukaran & Daya Pembeda)</span>
+                </h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Klasifikasi psikometrik standar Kemendikbudristek untuk mengevaluasi mutu dan daya diskriminasi setiap butir soal.
+                </p>
+              </div>
+              <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                {questionAnalysisList.length} Butir Soal
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                    <th className="p-3 w-10 text-center font-mono">No.</th>
+                    <th className="p-3 min-w-[240px]">Pertanyaan Soal & Tipe</th>
+                    <th className="p-3 min-w-[120px]">Taksonomi</th>
+                    <th className="p-3 min-w-[200px]">Tujuan Pembelajaran (TP)</th>
+                    <th className="p-3 text-center min-w-[100px]">Benar (%)</th>
+                    <th className="p-3 text-center min-w-[130px]">Tingkat Kesukaran (P)</th>
+                    <th className="p-3 text-center min-w-[140px]">Daya Pembeda (D)</th>
+                    <th className="p-3 min-w-[140px]">Rekomendasi Butir</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {questionAnalysisList.map((qa) => {
+                    const bentukStr = qa.type === 'multiple_choice' ? 'PG' : qa.type === 'checkbox' ? 'PG Kompleks' : 'Uraian';
+                    return (
+                      <tr key={qa.questionId} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                        <td className="p-3 text-center font-mono font-bold">{qa.order}</td>
+                        <td className="p-3">
+                          <p className="font-medium text-slate-900 dark:text-white line-clamp-2 leading-relaxed">
+                            {qa.prompt}
+                          </p>
+                          <span className="inline-block mt-1 text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
+                            {bentukStr}
+                          </span>
+                        </td>
+                        <td className="p-3 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                          {qa.bloomLevel || 'C3'}
+                        </td>
+                        <td className="p-3 text-[11px] text-slate-700 dark:text-slate-300 leading-tight">
+                          {qa.learningObjective}
+                        </td>
+                        <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          {qa.correctRate}%
+                          <span className="block text-[10px] font-normal text-slate-400">
+                            ({qa.correctCount}/{qa.totalAttempts})
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className="font-mono font-bold text-xs block">
+                            P = {qa.difficultyIndex}
+                          </span>
+                          <span className={`inline-block mt-0.5 px-2 py-0.5 rounded text-[10px] font-semibold ${
+                            qa.difficultyLevel === 'Sedang'
+                              ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                              : qa.difficultyLevel === 'Mudah' || qa.difficultyLevel === 'Sukar'
+                              ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                              : 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                          }`}>
+                            {qa.difficultyLevel}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className="font-mono font-bold text-xs block">
+                            D = {qa.discriminationIndex}
+                          </span>
+                          <span className={`inline-block mt-0.5 px-2 py-0.5 rounded text-[10px] font-semibold ${
+                            qa.discriminationStatus === 'Sangat Baik' || qa.discriminationStatus === 'Baik'
+                              ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                              : qa.discriminationStatus === 'Cukup'
+                              ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
+                              : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                          }`}>
+                            {qa.discriminationStatus}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <span className={`inline-block px-2 py-1 rounded text-[10px] font-bold ${
+                            qa.discriminationIndex >= 0.30
+                              ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                              : qa.discriminationIndex >= 0.20
+                              ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
+                              : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                          }`}>
+                            {qa.discriminationIndex >= 0.30
+                              ? 'Diterima (Mutu Baik)'
+                              : qa.discriminationIndex >= 0.20
+                              ? 'Revisi Pengecoh'
+                              : 'Revisi Total / Buang'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  {questionAnalysisList.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-slate-400">
+                        Belum ada data butir soal yang dianalisis.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sub-tab 3: Saran Remidi & Pengayaan Siswa */}
+      {analyticsViewMode === 'remedial' && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Header & Controls */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Program & Rekomendasi Remidi / Pengayaan per Siswa</span>
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Rekomendasi tindak lanjut individual yang otomatis disesuaikan dengan Tujuan Pembelajaran yang belum vs sudah dikuasai siswa.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 no-print">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Cetak Lembar Remidi & Pengayaan</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Status KPI Summary for Remedial */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 no-print">
+            <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-xs text-slate-400 block mb-1">Total Siswa Peserta</span>
+              <span className="text-2xl font-extrabold text-slate-900 dark:text-white font-mono">
+                {studentRecommendations.length} Siswa
+              </span>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-xs text-slate-400 block mb-1">Tuntas KKM (Pengayaan)</span>
+              <span className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 font-mono">
+                {studentRecommendations.filter(r => r.passed).length}
+              </span>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                {studentRecommendations.length > 0 ? Math.round((studentRecommendations.filter(r => r.passed).length / studentRecommendations.length) * 100) : 0}% dari peserta
+              </span>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-xs text-slate-400 block mb-1">Perlu Remedial</span>
+              <span className="text-2xl font-extrabold text-rose-600 dark:text-rose-400 font-mono">
+                {studentRecommendations.filter(r => !r.passed).length}
+              </span>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                {studentRecommendations.length > 0 ? Math.round((studentRecommendations.filter(r => !r.passed).length / studentRecommendations.length) * 100) : 0}% dari peserta
+              </span>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+              <span className="text-xs text-slate-400 block mb-1">Batas Kelulusan (KKM)</span>
+              <span className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 font-mono">
+                {targetAnalysisExam?.passingScore || 75}
+              </span>
+              <span className="text-[11px] text-slate-400 block mt-0.5">
+                Skor minimum kelulusan
+              </span>
+            </div>
+          </div>
+
+          {/* Student Cards List */}
+          <div className="space-y-4">
+            {filteredStudentRecommendations.map((rec) => (
+              <div 
+                key={rec.studentNo}
+                className={`bg-white dark:bg-slate-900 rounded-2xl p-5 border transition-shadow shadow-xs ${
+                  !rec.passed
+                    ? 'border-amber-200 dark:border-amber-900/60'
+                    : 'border-slate-200 dark:border-slate-800'
+                }`}
+              >
+                {/* Header info per student */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${
+                      rec.passed 
+                        ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400' 
+                        : 'bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400'
+                    }`}>
+                      {rec.studentName.charAt(0)}
+                    </div>
+                    <div>
+                      <h5 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <span>{rec.studentName}</span>
+                        <span className="text-xs font-normal text-slate-400 font-mono">({rec.studentNo})</span>
+                      </h5>
+                      <span className="text-xs text-slate-500">
+                        Kelas {rec.classGrade} · Ujian: {targetAnalysisExam?.subject} ({targetAnalysisExam?.title})
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <span className="text-xs text-slate-400 block">Nilai Ujian</span>
+                      <span className="text-lg font-black font-mono text-indigo-600 dark:text-indigo-400">
+                        {rec.percentage}%
+                      </span>
+                    </div>
+                    <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider ${
+                      rec.passed
+                        ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                        : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                    }`}>
+                      {rec.passed ? 'Lulus / Tuntas KKM' : 'Perlu Remedial'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Breakdown TP & Plans */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-4">
+                  {/* Left: Program Remedial (Tujuan Pembelajaran Belum Tuntas) */}
+                  <div className="p-4 rounded-xl bg-rose-50/40 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h6 className="text-xs font-bold text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>Tujuan Pembelajaran Belum Dikuasai ({rec.unmasteredObjectives.length})</span>
+                      </h6>
+                      <span className="text-[10px] font-semibold text-rose-600 uppercase font-mono">
+                        Program Remidi
+                      </span>
+                    </div>
+
+                    {rec.unmasteredObjectives.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {rec.unmasteredObjectives.map((tp, i) => (
+                          <div key={i} className="flex items-start gap-2 p-2 rounded-lg bg-white dark:bg-slate-900 border border-rose-100 dark:border-rose-900/50 text-xs">
+                            <span className="font-mono text-[10px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-950 px-1.5 py-0.5 rounded shrink-0">
+                              TP
+                            </span>
+                            <span className="text-slate-800 dark:text-slate-200 text-[11px] leading-tight">
+                              {tp}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium py-1">
+                        Siswa telah menjawab benar seluruh indikator butir soal!
+                      </p>
+                    )}
+
+                    {/* Rencana Tindak Lanjut Remidi */}
+                    <div className="pt-2 border-t border-rose-200/60 dark:border-rose-900/40">
+                      <span className="text-[11px] font-bold text-rose-900 dark:text-rose-200 block mb-1">
+                        Saran Langkah Intervensi Remedial:
+                      </span>
+                      <ul className="space-y-1 text-[11px] text-slate-700 dark:text-slate-300 list-disc list-inside">
+                        {rec.remedialPlan.map((plan, idx) => (
+                          <li key={idx} className="leading-relaxed">
+                            {plan}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
+                  {/* Right: Program Pengayaan (Tujuan Pembelajaran Sudah Dikuasai) */}
+                  <div className="p-4 rounded-xl bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h6 className="text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Tujuan Pembelajaran Dikuasai ({rec.masteredObjectives.length})</span>
+                      </h6>
+                      <span className="text-[10px] font-semibold text-emerald-600 uppercase font-mono">
+                        Program Pengayaan
+                      </span>
+                    </div>
+
+                    {rec.masteredObjectives.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {rec.masteredObjectives.map((tp, i) => (
+                          <div key={i} className="flex items-start gap-2 p-2 rounded-lg bg-white dark:bg-slate-900 border border-emerald-100 dark:border-emerald-900/50 text-xs">
+                            <span className="font-mono text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 rounded shrink-0">
+                              TP
+                            </span>
+                            <span className="text-slate-800 dark:text-slate-200 text-[11px] leading-tight">
+                              {tp}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 py-1">
+                        Belum ada TP yang tuntas penuh. Prioritaskan program perbaikan remedial.
+                      </p>
+                    )}
+
+                    {/* Rencana Tindak Lanjut Pengayaan */}
+                    <div className="pt-2 border-t border-emerald-200/60 dark:border-emerald-900/40">
+                      <span className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200 block mb-1">
+                        Saran Langkah Pengembangan Pengayaan:
+                      </span>
+                      <ul className="space-y-1 text-[11px] text-slate-700 dark:text-slate-300 list-disc list-inside">
+                        {rec.enrichmentPlan.map((plan, idx) => (
+                          <li key={idx} className="leading-relaxed">
+                            {plan}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {filteredStudentRecommendations.length === 0 && (
+              <div className="p-12 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+                Belum ada rekaman nilai siswa untuk dianalisis pada paket ujian ini.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )}
 
       {/* ---------------------------------------------------------
           SUB-TAB 4: SCHOOL PROFILE & LOGO EDITOR
@@ -2681,6 +3342,106 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 />
               </div>
 
+              {/* Tujuan Pembelajaran (TP) — Mendukung hingga 15 TP */}
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Tujuan Pembelajaran (TP) — Dukung Hingga 15 TP</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {(() => {
+                      const targetExamObj = exams.find(e => e.id === (selectedExamId || exams[0]?.id)) || exams[0];
+                      if (targetExamObj?.learningObjectives && targetExamObj.learningObjectives.length > 0) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAiLearningObjectives(targetExamObj.learningObjectives!.slice(0, 15));
+                            }}
+                            className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                            title="Ambil daftar TP dari konfigurasi data ujian ini"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>Muat dari Ujian</span>
+                          </button>
+                        );
+                      }
+                      return null;
+                    })()}
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold">
+                      {aiLearningObjectives.length}/15 TP
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newAiTpInput}
+                    onChange={(e) => setNewAiTpInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (newAiTpInput.trim() && aiLearningObjectives.length < 15) {
+                          setAiLearningObjectives(prev => [...prev, newAiTpInput.trim()]);
+                          setNewAiTpInput('');
+                        }
+                      }
+                    }}
+                    placeholder="Ketik Tujuan Pembelajaran lalu tekan Enter atau Tambah"
+                    disabled={aiLearningObjectives.length >= 15}
+                    className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newAiTpInput.trim() && aiLearningObjectives.length < 15) {
+                        setAiLearningObjectives(prev => [...prev, newAiTpInput.trim()]);
+                        setNewAiTpInput('');
+                      }
+                    }}
+                    disabled={aiLearningObjectives.length >= 15 || !newAiTpInput.trim()}
+                    className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tambah TP</span>
+                  </button>
+                </div>
+
+                {/* TP list chips */}
+                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                  {aiLearningObjectives.map((tp, idx) => (
+                    <div key={idx} className="flex items-start justify-between gap-2 p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs shadow-2xs">
+                      <span className="font-mono text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded shrink-0">
+                        TP {idx + 1}
+                      </span>
+                      <span className="flex-1 text-[11px] text-slate-800 dark:text-slate-200 leading-tight">
+                        {tp}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAiLearningObjectives(prev => prev.filter((_, i) => i !== idx));
+                        }}
+                        className="text-slate-400 hover:text-rose-500 p-0.5 transition-colors"
+                        title="Hapus TP ini"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {aiLearningObjectives.length === 0 && (
+                    <p className="text-[11px] text-slate-400 italic">
+                      Belum ada Tujuan Pembelajaran. Tambahkan minimal 1 TP agar butir soal yang digenerate AI lebih presisi dan sesuai kurikulum.
+                    </p>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  AI akan mendistribusikan pembuatan soal secara akurat dan merata ke seluruh Tujuan Pembelajaran yang Anda cantumkan di atas.
+                </p>
+              </div>
+
               {/* Bentuk Soal Selector */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -2959,6 +3720,89 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   onChange={(e) => setEditingExam({ ...editingExam, token: e.target.value.toUpperCase() })}
                   className="w-full px-3.5 py-2 text-xs font-mono font-bold uppercase tracking-wider rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"
                 />
+              </div>
+
+              {/* Tujuan Pembelajaran (TP) — Hingga 15 TP */}
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Tujuan Pembelajaran (TP) Ujian (Maks. 15 TP)</span>
+                  </label>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-bold">
+                    {(editingExam.learningObjectives || []).length}/15 TP
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Tambah TP baru (misal: Menganalisis cara kerja transformator)"
+                    value={newExamTpInput}
+                    onChange={(e) => setNewExamTpInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (newExamTpInput.trim()) {
+                          const currentList = editingExam.learningObjectives || [];
+                          if (currentList.length < 15) {
+                            setEditingExam({ ...editingExam, learningObjectives: [...currentList, newExamTpInput.trim()] });
+                            setNewExamTpInput('');
+                          }
+                        }
+                      }
+                    }}
+                    disabled={(editingExam.learningObjectives || []).length >= 15}
+                    className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newExamTpInput.trim()) {
+                        const currentList = editingExam.learningObjectives || [];
+                        if (currentList.length < 15) {
+                          setEditingExam({ ...editingExam, learningObjectives: [...currentList, newExamTpInput.trim()] });
+                          setNewExamTpInput('');
+                        }
+                      }
+                    }}
+                    disabled={(editingExam.learningObjectives || []).length >= 15 || !newExamTpInput.trim()}
+                    className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tambah</span>
+                  </button>
+                </div>
+
+                {/* List of TP */}
+                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                  {(editingExam.learningObjectives || []).map((tp, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
+                      <span className="font-bold text-indigo-600 dark:text-indigo-400 shrink-0 font-mono text-[10px] bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded">
+                        TP {idx + 1}
+                      </span>
+                      <span className="flex-1 text-slate-800 dark:text-slate-200 text-[11px] leading-tight">
+                        {tp}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = (editingExam.learningObjectives || []).filter((_, i) => i !== idx);
+                          setEditingExam({ ...editingExam, learningObjectives: updated });
+                        }}
+                        className="text-slate-400 hover:text-rose-500 transition-colors p-0.5"
+                        title="Hapus TP ini"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {(!editingExam.learningObjectives || editingExam.learningObjectives.length === 0) && (
+                    <p className="text-[11px] text-slate-400 italic py-1">
+                      Belum ada TP spesifik. TP dapat ditambahkan sekarang atau otomatis tersinkron saat men-generate soal AI.
+                    </p>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
@@ -3392,6 +4236,60 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                     />
                   </div>
+                </div>
+
+                {/* Tujuan Pembelajaran (TP) */}
+                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      Tujuan Pembelajaran (TP) Terkait Butir Soal
+                    </label>
+                    {(() => {
+                      const examObj = exams.find(e => e.id === selectedExamId);
+                      if (examObj?.learningObjectives && examObj.learningObjectives.length > 0) {
+                        return (
+                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
+                            Tersedia {examObj.learningObjectives.length} TP Ujian
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+
+                  {(() => {
+                    const examObj = exams.find(e => e.id === selectedExamId);
+                    const examTps = examObj?.learningObjectives || [];
+                    return (
+                      <div className="space-y-1.5">
+                        {examTps.length > 0 && (
+                          <select
+                            value={examTps.includes(editingQuestion.learningObjective || '') ? editingQuestion.learningObjective : '__custom__'}
+                            onChange={(e) => {
+                              if (e.target.value !== '__custom__') {
+                                setEditingQuestion({ ...editingQuestion, learningObjective: e.target.value });
+                              }
+                            }}
+                            className="w-full px-3 py-1.5 text-xs rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/40 dark:bg-indigo-950/30 text-slate-900 dark:text-white"
+                          >
+                            <option value="__custom__">-- Pilih dari TP Ujian atau Ketik Bebas di Bawah --</option>
+                            {examTps.map((tp, idx) => (
+                              <option key={idx} value={tp}>
+                                TP {idx + 1}: {tp.length > 70 ? tp.slice(0, 70) + '...' : tp}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <input
+                          type="text"
+                          placeholder="Ketik Tujuan Pembelajaran butir soal ini (misal: Siswa mampu menghitung nilai hambatan pengganti)"
+                          value={editingQuestion.learningObjective || ''}
+                          onChange={(e) => setEditingQuestion({ ...editingQuestion, learningObjective: e.target.value })}
+                          className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

@@ -157,6 +157,12 @@ export default function App() {
       await GasClient.pushUsers(localUsers);
     }
 
+    // 3c. Push current local curriculum (CP, Elemen & TP) to Google Sheets
+    const localCurriculum = StorageService.getCurriculum();
+    if (localCurriculum.length > 0) {
+      await GasClient.pushCurriculum(localCurriculum);
+    }
+
     // 4. Pull latest data from sheets
     const pullResult = await GasClient.fetchAllFromSheets();
 

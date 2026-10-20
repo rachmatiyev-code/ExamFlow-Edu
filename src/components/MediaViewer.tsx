@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { processMediaUrl } from '../services/mediaHelper';
 
 interface MediaViewerProps {
   isOpen: boolean;
@@ -12,6 +13,9 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ isOpen, onClose, image
   const [scale, setScale] = React.useState(1);
 
   if (!isOpen || !imageUrl) return null;
+
+  const processed = processMediaUrl(imageUrl, 'image');
+  const displayUrl = processed.directUrl || imageUrl;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -52,9 +56,14 @@ export const MediaViewer: React.FC<MediaViewerProps> = ({ isOpen, onClose, image
 
         <div className="overflow-auto max-h-[75vh] flex items-center justify-center p-4 bg-slate-950">
           <img
-            src={imageUrl}
+            src={displayUrl}
             alt={title || 'Gambar Soal'}
             referrerPolicy="no-referrer"
+            onError={(e) => {
+              if (processed.thumbnailUrl && e.currentTarget.src !== processed.thumbnailUrl) {
+                e.currentTarget.src = processed.thumbnailUrl;
+              }
+            }}
             style={{ transform: `scale(${scale})`, transition: 'transform 0.15s ease' }}
             className="max-w-full max-h-[70vh] object-contain rounded-md"
           />

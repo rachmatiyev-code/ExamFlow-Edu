@@ -3,6 +3,7 @@ import { Exam, Question, SchoolProfile, Student, Submission } from '../types';
 import { StorageService } from '../services/storage';
 import { GasClient } from '../services/gasClient';
 import { MediaViewer } from './MediaViewer';
+import { QuestionMedia, QuestionPromptRenderer } from './QuestionMedia';
 import confetti from 'canvas-confetti';
 import { 
   Clock, 
@@ -665,84 +666,24 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   </button>
                 </div>
 
-                {/* Multimedia Attachment Container (Audio, Image, Video) */}
-                {currentQ.mediaType !== 'none' && currentQ.mediaUrl && (
-                  <div className="mb-6 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 p-4">
-                    {/* Audio Player */}
-                    {currentQ.mediaType === 'audio' && (
-                      <div className="flex flex-col sm:flex-row items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-lg border border-slate-200 dark:border-slate-800">
-                        <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-                          <Volume2 className="w-5 h-5" />
-                        </div>
-                        <div className="flex-1 w-full">
-                          <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                            Lampiran Audio Soal (Dengarkan baik-baik):
-                          </div>
-                          <audio
-                            controls
-                            src={currentQ.mediaUrl}
-                            className="w-full h-8"
-                          >
-                            Peramban Anda tidak mendukung pemutar audio.
-                          </audio>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Image with Zoom */}
-                    {currentQ.mediaType === 'image' && (
-                      <div className="space-y-2">
-                        <div className="relative group max-h-96 overflow-hidden rounded-lg bg-slate-950 flex items-center justify-center">
-                          <img
-                            src={currentQ.mediaUrl}
-                            alt="Lampiran Soal"
-                            referrerPolicy="no-referrer"
-                            className="max-h-96 w-auto object-contain cursor-pointer hover:opacity-95 transition-opacity"
-                            onClick={() => setZoomImageUrl(currentQ.mediaUrl || null)}
-                          />
-                          <button
-                            onClick={() => setZoomImageUrl(currentQ.mediaUrl || null)}
-                            className="absolute bottom-3 right-3 px-3 py-1.5 bg-black/70 hover:bg-black text-white text-xs rounded-lg flex items-center gap-1.5 backdrop-blur-xs transition-colors"
-                          >
-                            <Maximize2 className="w-3.5 h-3.5" />
-                            <span>Perbesar Gambar</span>
-                          </button>
-                        </div>
-                        <p className="text-[11px] text-slate-500 text-center">
-                          Klik gambar atau tombol perbesar untuk memeriksa rincian diagram.
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Video Embed */}
-                    {currentQ.mediaType === 'video' && (
-                      <div className="space-y-2">
-                        <div className="aspect-video w-full rounded-lg overflow-hidden bg-black">
-                          {currentQ.mediaUrl.includes('youtube.com') || currentQ.mediaUrl.includes('youtu.be') ? (
-                            <iframe
-                              src={currentQ.mediaUrl.replace('watch?v=', 'embed/')}
-                              title="Video Soal"
-                              className="w-full h-full border-0"
-                              allowFullScreen
-                            />
-                          ) : (
-                            <video
-                              controls
-                              src={currentQ.mediaUrl}
-                              className="w-full h-full object-contain"
-                            >
-                              Peramban Anda tidak mendukung pemutar video.
-                            </video>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                {/* Multimedia Attachment Container (Audio, Image, Video, Local File, Drive, YouTube) */}
+                {Boolean(currentQ.mediaUrl && currentQ.mediaUrl.trim() !== '') && (
+                  <div className="mb-6">
+                    <QuestionMedia
+                      mediaUrl={currentQ.mediaUrl}
+                      mediaType={currentQ.mediaType}
+                      title={`Lampiran Soal No. ${currentQuestionIndex + 1}`}
+                      onZoomImage={(url) => setZoomImageUrl(url)}
+                    />
                   </div>
                 )}
 
-                {/* Question Prompt */}
-                <div className="text-base sm:text-lg font-medium text-slate-900 dark:text-slate-100 mb-6 leading-relaxed whitespace-pre-line">
-                  {currentQ.prompt}
+                {/* Question Prompt with support for markdown images & rich text */}
+                <div className="text-base sm:text-lg font-medium text-slate-900 dark:text-slate-100 mb-6 leading-relaxed">
+                  <QuestionPromptRenderer
+                    prompt={currentQ.prompt}
+                    onZoomImage={(url) => setZoomImageUrl(url)}
+                  />
                 </div>
 
                 {/* Option Choices */}

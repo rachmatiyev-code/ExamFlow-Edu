@@ -53,9 +53,21 @@ export interface Question {
   soloLevel?: SoloLevel;
   basicCompetency?: string;
   indicator?: string;
+  element?: string; // Elemen materi (Kurikulum Merdeka)
+  learningOutcome?: string; // Capaian Pembelajaran (CP)
   learningObjective?: string; // Tujuan Pembelajaran (TP)
   isDraft?: boolean;
   status?: 'draft' | 'published';
+}
+
+export interface CurriculumItem {
+  id: string;
+  subject: string; // Mata Pelajaran
+  grade?: string; // Jenjang / Kelas / Fase (misal: Kelas X / Fase E)
+  element: string; // Elemen materi
+  learningOutcome: string; // Capaian Pembelajaran (CP)
+  learningObjectives: string[]; // Daftar Tujuan Pembelajaran (TP)
+  updatedAt?: string;
 }
 
 export interface Exam {
@@ -70,6 +82,11 @@ export interface Exam {
   startsAt: string; // ISO date string or YYYY-MM-DD HH:mm
   endsAt: string;
   status: 'draft' | 'active' | 'archived';
+  sessionStatus?: 'scheduled' | 'active' | 'ended'; // Kontrol sesi langsung: dijadwalkan, aktif, atau ditutup
+  sessionStartedAt?: string;
+  sessionEndedAt?: string;
+  allowLateSubmission?: boolean; // Izinkan siswa terlambat melanjutkan sesi
+  lateExtensionMinutes?: number; // Menit perpanjangan sesi untuk siswa terlambat
   totalQuestions: number;
   token?: string; // Optional exam access token/PIN
   instructions?: string;

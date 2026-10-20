@@ -1,5 +1,6 @@
 import { StorageService } from './storage';
-import { Exam, Question, SchoolProfile, Submission, Student, UserAccount } from '../types';
+import { Exam, Question, SchoolProfile, Submission, Student, UserAccount, CurriculumItem } from '../types';
+import { detectMediaType } from './mediaHelper';
 
 export interface PingResult {
   success: boolean;
@@ -174,7 +175,7 @@ export class GasClient {
         throw new Error(data.message || 'Data tidak ditemukan dalam respons Google Sheets');
       }
 
-      const { profile, exams, questions, students, submissions, users } = data.data;
+      const { profile, exams, questions, students, submissions, users, curriculum } = data.data;
       let count = 0;
 
       if (profile && profile.name) {
@@ -208,7 +209,9 @@ export class GasClient {
             order: Number(q.order || idx + 1),
             prompt: String(q.prompt || ''),
             type: q.type || 'multiple_choice',
-            mediaType: q.mediaType || 'none',
+            mediaType: (q.mediaUrl && (!q.mediaType || q.mediaType === 'none')) 
+              ? detectMediaType(q.mediaUrl, 'image') 
+              : (q.mediaType || 'none'),
             mediaUrl: q.mediaUrl || '',
             options: Array.isArray(opts) ? opts : [],
             correctKey: corrKey || 'opt_a',
@@ -320,6 +323,29 @@ export class GasClient {
           // Sheets masih kosong atau hanya punya dummy, push akun lokal asli ke Sheets
           await this.pushUsers(localUsers);
         }
+      }
+
+      if (Array.isArray(curriculum) && curriculum.length > 0) {
+        const parsedCurriculum: CurriculumItem[] = curriculum.map((c: any) => {
+          let tps = c.learningObjectives;
+          if ((!tps || !Array.isArray(tps)) && c.learningObjectivesJson) {
+            try {
+              tps = typeof c.learningObjectivesJson === 'string' ? JSON.parse(c.learningObjectivesJson) : c.learningObjectivesJson;
+            } catch {
+              tps = [];
+            }
+          }
+          return {
+            id: String(c.id || `CUR-${Date.now()}`),
+            subject: String(c.subject || ''),
+            grade: String(c.grade || ''),
+            element: String(c.element || ''),
+            learningOutcome: String(c.learningOutcome || ''),
+            learningObjectives: Array.isArray(tps) ? tps : [],
+            updatedAt: String(c.updatedAt || new Date().toISOString())
+          };
+        });
+        StorageService.saveCurriculum(parsedCurriculum);
       }
 
       StorageService.addLog('SYNC', `Sinkronisasi sukses! Data berhasil dimuat dari Google Sheets.`, undefined, 'success');
@@ -598,6 +624,44 @@ export class GasClient {
     } catch (err: any) {
       const errMsg = err?.message || String(err);
       StorageService.addLog('SYNC', `Penyimpanan akun: ${errMsg}`, undefined, 'warn');
+      return { success: false, message: errMsg };
+    }
+  }
+
+  /**
+   * Menyimpan dan menyinkronkan daftar Capaian Pembelajaran, Elemen & Tujuan Pembelajaran ke Google Sheets
+   */
+  static async pushCurriculum(items: CurriculumItem[]): Promise<{ success: boolean; message: string; count?: number }> {
+    StorageService.saveCurriculum(items);
+    const url = this.getWebAppUrl();
+    if (!url) {
+      return {
+        success: true,
+        message: 'Data kurikulum (CP/Elemen/TP) tersimpan di lokal (atur URL Google Apps Script di Pengaturan untuk sync otomatis).',
+        count: items.length
+      };
+    }
+
+    try {
+      StorageService.addLog('SYNC', `Mengirim ${items.length} elemen CP & TP kurikulum ke Google Sheets...`);
+      let res = await this.postToGas({ action: 'saveCurriculum', curriculum: items });
+      if (!res.success && res.message && res.message.includes('tidak dikenal')) {
+        res = await this.postToGas({ action: 'syncCurriculum', curriculum: items });
+      }
+
+      if (!res.success) {
+        throw new Error(res.message || 'Gagal menyimpan kurikulum ke Google Sheets.');
+      }
+
+      StorageService.addLog('SYNC', `Berhasil menyimpan ${items.length} kurikulum (CP/Elemen/TP) ke Google Sheets!`, undefined, 'success');
+      return {
+        success: true,
+        message: res.message || `Berhasil menyimpan ${items.length} data CP/TP ke Google Sheets!`,
+        count: items.length
+      };
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      StorageService.addLog('SYNC', `Penyimpanan kurikulum: ${errMsg}. Data tetap aman di memori lokal.`, undefined, 'warn');
       return { success: false, message: errMsg };
     }
   }

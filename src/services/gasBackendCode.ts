@@ -32,6 +32,7 @@ const SHEETS = {
   STUDENTS: 'Students',
   SUBMISSIONS: 'Submissions',
   USERS: 'Users',
+  CURRICULUM: 'Curriculum',
   LOGS: 'Logs'
 };
 
@@ -66,11 +67,11 @@ function initDatabase() {
     formatHeaderRow(shProfile);
   }
 
-  // 2. Exams
+  // 2. Exams (Didukung Sesi Ujian & Hingga 15 Tujuan Pembelajaran)
   let shExams = ss.getSheetByName(SHEETS.EXAMS);
   if (!shExams) {
     shExams = ss.insertSheet(SHEETS.EXAMS);
-    shExams.appendRow(['id', 'title', 'subject', 'grade', 'durationMinutes', 'passingScore', 'isStrict', 'allowReview', 'startsAt', 'endsAt', 'status', 'totalQuestions', 'token', 'instructions', 'createdAt', 'redeployCount']);
+    shExams.appendRow(['id', 'title', 'subject', 'grade', 'durationMinutes', 'passingScore', 'isStrict', 'allowReview', 'startsAt', 'endsAt', 'status', 'totalQuestions', 'token', 'instructions', 'sessionStatus', 'sessionStartedAt', 'sessionEndedAt', 'allowLateSubmission', 'lateExtensionMinutes', 'learningObjectives', 'createdAt', 'redeployCount']);
     formatHeaderRow(shExams);
   }
 
@@ -116,6 +117,29 @@ function initDatabase() {
     formatHeaderRow(shLogs);
   }
 
+  // 8. Curriculum (Capaian Pembelajaran, Elemen & Tujuan Pembelajaran Kurikulum Merdeka)
+  let shCurriculum = ss.getSheetByName(SHEETS.CURRICULUM);
+  if (!shCurriculum) {
+    shCurriculum = ss.insertSheet(SHEETS.CURRICULUM);
+    shCurriculum.appendRow(['id', 'subject', 'grade', 'element', 'learningOutcome', 'learningObjectivesJson', 'updatedAt']);
+    shCurriculum.appendRow([
+      'CUR-BIO-001',
+      'Biologi',
+      'Fase E (Kelas X)',
+      'Pemahaman Sains',
+      'Peserta didik memiliki kemampuan memahami keanekaragaman hayati, virus dan peranannya, inovasi bioteknologi, komponen ekosistem dan interaksi antar komponen serta perubahan lingkungan.',
+      JSON.stringify([
+        'Mengidentifikasi tingkatan keanekaragaman hayati gen, jenis, dan ekosistem di Indonesia',
+        'Menganalisis peranan virus dalam kehidupan sehari-hari dan cara penularannya',
+        'Menjelaskan prinsip bioteknologi konvensional dan modern beserta produknya',
+        'Menganalisis interaksi antar komponen biotik dan abiotik dalam suatu ekosistem',
+        'Mengevaluasi dampak aktivitas manusia terhadap perubahan lingkungan dan upaya pelestariannya'
+      ]),
+      new Date().toISOString()
+    ]);
+    formatHeaderRow(shCurriculum);
+  }
+
   return 'Database initialized successfully!';
 }
 
@@ -151,7 +175,8 @@ function doGet(e) {
         questions: getSheetDataAsObjects(ss.getSheetByName(SHEETS.QUESTIONS)),
         students: getSheetDataAsObjects(ss.getSheetByName(SHEETS.STUDENTS)),
         submissions: getSheetDataAsObjects(ss.getSheetByName(SHEETS.SUBMISSIONS)),
-        users: getSheetDataAsObjects(ss.getSheetByName(SHEETS.USERS))
+        users: getSheetDataAsObjects(ss.getSheetByName(SHEETS.USERS)),
+        curriculum: getSheetDataAsObjects(ss.getSheetByName(SHEETS.CURRICULUM))
       };
       return jsonResponse({ status: 'success', data: data });
     }
@@ -177,6 +202,10 @@ function doGet(e) {
       return jsonResponse({ status: 'success', data: getSheetDataAsObjects(ss.getSheetByName(SHEETS.STUDENTS)) });
     }
 
+    if (action === 'getCurriculum') {
+      return jsonResponse({ status: 'success', data: getSheetDataAsObjects(ss.getSheetByName(SHEETS.CURRICULUM)) });
+    }
+
     return jsonResponse({ status: 'error', message: 'Action tidak dikenal: ' + action });
   } catch (err) {
     return jsonResponse({ status: 'error', message: err.toString() });
@@ -194,6 +223,8 @@ function doPost(e) {
     } else if (e.parameter && e.parameter.payload) {
       payload = JSON.parse(e.parameter.payload);
     }
+    const action = payload.action || (e && e.parameter && e.parameter.action);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
 
     if (action === 'getAllData' || action === 'fetchAll') {
       const data = {
@@ -202,7 +233,8 @@ function doPost(e) {
         questions: getSheetDataAsObjects(ss.getSheetByName(SHEETS.QUESTIONS)),
         students: getSheetDataAsObjects(ss.getSheetByName(SHEETS.STUDENTS)),
         submissions: getSheetDataAsObjects(ss.getSheetByName(SHEETS.SUBMISSIONS)),
-        users: getSheetDataAsObjects(ss.getSheetByName(SHEETS.USERS))
+        users: getSheetDataAsObjects(ss.getSheetByName(SHEETS.USERS)),
+        curriculum: getSheetDataAsObjects(ss.getSheetByName(SHEETS.CURRICULUM))
       };
       return jsonResponse({ status: 'success', data: data });
     }
@@ -325,6 +357,12 @@ function doPost(e) {
         questions.length,
         exam.token || '',
         exam.instructions || '',
+        exam.sessionStatus || 'scheduled',
+        exam.sessionStartedAt || '',
+        exam.sessionEndedAt || '',
+        exam.allowLateSubmission || false,
+        exam.lateExtensionMinutes || 0,
+        typeof exam.learningObjectives === 'string' ? exam.learningObjectives : JSON.stringify(exam.learningObjectives || []),
         exam.createdAt || new Date().toISOString(),
         exam.redeployCount || 0
       ]);
@@ -391,6 +429,39 @@ function doPost(e) {
       ]);
       logAction('SYNC', 'Profil sekolah diperbarui: ' + p.name);
       return jsonResponse({ status: 'success', message: 'Profil sekolah berhasil disimpan' });
+    }
+
+    if (action === 'saveCurriculum' || action === 'syncCurriculum') {
+      const items = payload.curriculum || payload.items || [];
+      let shCur = ss.getSheetByName(SHEETS.CURRICULUM);
+      if (!shCur) {
+        initDatabase();
+        shCur = ss.getSheetByName(SHEETS.CURRICULUM);
+      }
+      
+      const lastRow = shCur.getLastRow();
+      const lastCol = Math.max(7, shCur.getLastColumn());
+      if (lastRow > 1) {
+        shCur.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+      }
+      
+      if (items.length > 0) {
+        const rows = items.map(function(c) {
+          return [
+            String(c.id || ('CUR-' + Utilities.getUuid().slice(0, 8))),
+            String(c.subject || ''),
+            String(c.grade || ''),
+            String(c.element || ''),
+            String(c.learningOutcome || ''),
+            typeof c.learningObjectives === 'string' ? c.learningObjectives : JSON.stringify(c.learningObjectives || []),
+            String(c.updatedAt || new Date().toISOString())
+          ];
+        });
+        shCur.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+      }
+      
+      logAction('CURRICULUM', 'Data CP, Elemen, dan TP untuk ' + items.length + ' kurikulum disimpan ke Google Sheets');
+      return jsonResponse({ status: 'success', message: 'Data ' + items.length + ' kurikulum (CP/Elemen/TP) berhasil disimpan ke Google Sheets', count: items.length });
     }
 
     if (action === 'syncAll') {

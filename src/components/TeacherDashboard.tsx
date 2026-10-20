@@ -7,13 +7,19 @@ import {
   Submission, 
   UserAccount, 
   BloomLevel, 
-  SoloLevel 
+  SoloLevel,
+  CurriculumItem
 } from '../types';
 import { StorageService } from '../services/storage';
 import { GasClient } from '../services/gasClient';
 import { AiGeneratorService } from '../services/aiGenerator';
 import { AnalysisService } from '../services/analysisService';
 import { GAS_BACKEND_SCRIPT } from '../services/gasBackendCode';
+import { MediaViewer } from './MediaViewer';
+import { QuestionMedia, QuestionPromptRenderer } from './QuestionMedia';
+import { MediaUploaderInput } from './MediaUploaderInput';
+import { CurriculumManagement } from './CurriculumManagement';
+import { detectMediaType } from '../services/mediaHelper';
 import { 
   Plus, 
   Trash2, 
@@ -67,7 +73,10 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
-  FileCheck
+  FileCheck,
+  Play,
+  StopCircle,
+  FastForward
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -98,7 +107,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
 
   // Sub-tabs
-  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'analytics' | 'students' | 'users' | 'profile' | 'gas'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'students' | 'users' | 'profile' | 'gas'>('exams');
+
+  // Curriculum State (Capaian Pembelajaran, Elemen & Tujuan Pembelajaran Kurikulum Merdeka)
+  const [curriculumList, setCurriculumList] = useState<CurriculumItem[]>(() => StorageService.getCurriculum());
+  const [curriculumForm, setCurriculumForm] = useState<Partial<CurriculumItem>>({
+    subject: exams[0]?.subject || 'Biologi',
+    grade: 'Fase E (Kelas X)',
+    element: '',
+    learningOutcome: '',
+    learningObjectives: []
+  });
+  const [curriculumTpInput, setCurriculumTpInput] = useState('');
+  const [isSavingCurriculum, setIsSavingCurriculum] = useState(false);
+  const [curriculumToast, setCurriculumToast] = useState<string | null>(null);
+  const [curriculumFilterSubject, setCurriculumFilterSubject] = useState<string>('all');
+  const [editingCurriculumId, setEditingCurriculumId] = useState<string | null>(null);
+
+  // Exam Session Control State (Mulai, Akhiri, dan Lanjutkan Sesi untuk Siswa Terlambat)
+  const [lateExtensionExam, setLateExtensionExam] = useState<Exam | null>(null);
+  const [lateExtensionMinutes, setLateExtensionMinutes] = useState<number>(30);
+  const [sessionToast, setSessionToast] = useState<string | null>(null);
 
   // Exam Management State
   const [selectedExamId, setSelectedExamId] = useState<string>(exams[0]?.id || '');
@@ -110,6 +139,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [editingQuestion, setEditingQuestion] = useState<Partial<Question> | null>(null);
   const [manualTaxonomyMode, setManualTaxonomyMode] = useState<'bloom' | 'solo' | 'both'>('both');
   const [draftToast, setDraftToast] = useState<string | null>(null);
+  const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
 
   // AI Generator Modal State
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -303,13 +333,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   };
 
   // Question Save / Delete
-  const handleSaveQuestion = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveQuestion = async (e?: React.FormEvent, shouldClose = true) => {
+    if (e) e.preventDefault();
     if (!selectedExamId || !editingQuestion?.prompt) return;
 
     const currentQs = StorageService.getQuestionsByExamId(selectedExamId);
     const isNew = !editingQuestion.id;
     const qId = editingQuestion.id || `Q-${Date.now()}`;
+
+    const rawMediaUrl = (editingQuestion.mediaUrl || '').trim();
+    const resolvedMediaType = (rawMediaUrl && (!editingQuestion.mediaType || editingQuestion.mediaType === 'none'))
+      ? detectMediaType(rawMediaUrl, 'image')
+      : (editingQuestion.mediaType || 'none');
 
     const newQuestion: Question = {
       id: qId,
@@ -317,8 +352,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       order: editingQuestion.order || currentQs.length + 1,
       prompt: editingQuestion.prompt,
       type: editingQuestion.type || 'multiple_choice',
-      mediaType: editingQuestion.mediaType || 'none',
-      mediaUrl: editingQuestion.mediaUrl || '',
+      mediaType: resolvedMediaType,
+      mediaUrl: rawMediaUrl,
       options: editingQuestion.options || [
         { id: 'opt_a', text: 'Pilihan A' },
         { id: 'opt_b', text: 'Pilihan B' },
@@ -332,6 +367,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       soloLevel: editingQuestion.soloLevel || 'Multistructural',
       basicCompetency: editingQuestion.basicCompetency || '',
       indicator: editingQuestion.indicator || '',
+      element: editingQuestion.element || '',
+      learningOutcome: editingQuestion.learningOutcome || '',
       learningObjective: editingQuestion.learningObjective || ''
     };
 
@@ -348,9 +385,185 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       await GasClient.pushExam(exam, updatedList);
     }
 
-    setIsQuestionModalOpen(false);
-    setEditingQuestion(null);
+    if (shouldClose) {
+      setIsQuestionModalOpen(false);
+      setEditingQuestion(null);
+      setDraftToast(`Butir soal No. ${newQuestion.order} berhasil disimpan & ditutup.`);
+    } else {
+      // Siapkan form butir soal berikutnya
+      const nextOrder = updatedList.length + 1;
+      setEditingQuestion({
+        order: nextOrder,
+        prompt: '',
+        type: newQuestion.type,
+        mediaType: 'none',
+        mediaUrl: '',
+        options: [
+          { id: 'opt_a', text: 'Pilihan A' },
+          { id: 'opt_b', text: 'Pilihan B' },
+          { id: 'opt_c', text: 'Pilihan C' },
+          { id: 'opt_d', text: 'Pilihan D' }
+        ],
+        correctKey: 'opt_a',
+        points: 20,
+        explanation: '',
+        bloomLevel: newQuestion.bloomLevel,
+        soloLevel: newQuestion.soloLevel,
+        basicCompetency: newQuestion.basicCompetency,
+        indicator: '',
+        element: newQuestion.element,
+        learningOutcome: newQuestion.learningOutcome,
+        learningObjective: newQuestion.learningObjective
+      });
+      setDraftToast(`Soal No. ${newQuestion.order} tersimpan. Siap memasukkan Soal No. ${nextOrder}.`);
+    }
+
     onRefreshData();
+    setTimeout(() => setDraftToast(null), 3000);
+  };
+
+  // -------------------------------------------------------------
+  // KURIKULUM MERDEKA: CAPAIAN PEMBELAJARAN & TUJUAN PEMBELAJARAN
+  // -------------------------------------------------------------
+  const handleSaveCurriculum = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!curriculumForm.subject?.trim() || !curriculumForm.element?.trim() || !curriculumForm.learningOutcome?.trim()) {
+      alert('Mata pelajaran, elemen materi, dan capaian pembelajaran (CP) wajib diisi.');
+      return;
+    }
+
+    setIsSavingCurriculum(true);
+    try {
+      const itemToSave: CurriculumItem = {
+        id: editingCurriculumId || curriculumForm.id || `CUR-${Date.now()}`,
+        subject: curriculumForm.subject.trim(),
+        grade: (curriculumForm.grade || 'Fase E (Kelas X)').trim(),
+        element: curriculumForm.element.trim(),
+        learningOutcome: curriculumForm.learningOutcome.trim(),
+        learningObjectives: curriculumForm.learningObjectives || [],
+        updatedAt: new Date().toISOString()
+      };
+
+      if (editingCurriculumId) {
+        StorageService.updateCurriculumItem(editingCurriculumId, itemToSave);
+      } else {
+        StorageService.addCurriculumItem(itemToSave);
+      }
+
+      const updated = StorageService.getCurriculum();
+      setCurriculumList(updated);
+
+      // Sinkronkan ke Google Sheets
+      const res = await GasClient.pushCurriculum(updated);
+      setCurriculumToast(res.success ? 'Capaian & Tujuan Pembelajaran berhasil disimpan ke database & Google Sheets!' : 'Tersimpan di database lokal.');
+
+      // Reset form
+      setCurriculumForm({
+        subject: itemToSave.subject,
+        grade: itemToSave.grade,
+        element: '',
+        learningOutcome: '',
+        learningObjectives: []
+      });
+      setEditingCurriculumId(null);
+      setCurriculumTpInput('');
+    } catch (err: any) {
+      alert(`Gagal menyimpan: ${err.message}`);
+    } finally {
+      setIsSavingCurriculum(false);
+      setTimeout(() => setCurriculumToast(null), 4000);
+    }
+  };
+
+  const handleDeleteCurriculum = async (id: string) => {
+    if (confirm('Hapus data Capaian & Tujuan Pembelajaran ini?')) {
+      StorageService.deleteCurriculumItem(id);
+      const updated = StorageService.getCurriculum();
+      setCurriculumList(updated);
+      await GasClient.pushCurriculum(updated);
+      setCurriculumToast('Capaian pembelajaran berhasil dihapus.');
+      setTimeout(() => setCurriculumToast(null), 3000);
+    }
+  };
+
+  const handleEditCurriculum = (item: CurriculumItem) => {
+    setEditingCurriculumId(item.id);
+    setCurriculumForm({ ...item });
+    setCurriculumTpInput('');
+    window.scrollTo({ top: 250, behavior: 'smooth' });
+  };
+
+  // -------------------------------------------------------------
+  // KONTROL SESI UJIAN (MULAI, AKHIRI, DAN LANJUTKAN SESI TERLAMBAT)
+  // -------------------------------------------------------------
+  const handleStartExamSession = async (exam: Exam) => {
+    const updated: Exam = {
+      ...exam,
+      sessionStatus: 'active',
+      sessionStartedAt: new Date().toISOString(),
+      status: 'active'
+    };
+    StorageService.upsertExam(updated);
+    const qs = StorageService.getQuestionsByExamId(exam.id);
+    await GasClient.pushExam(updated, qs);
+    setSessionToast(`Sesi ujian "${exam.title}" telah DIMULAI! Siswa dapat segera login dan mengerjakan.`);
+    StorageService.addLog('EXAM', `Sesi ujian "${exam.title}" resmi DIMULAI oleh pengawas`, undefined, 'success');
+    onRefreshData();
+    setTimeout(() => setSessionToast(null), 4000);
+  };
+
+  const handleEndExamSession = async (exam: Exam) => {
+    if (!confirm(`Akhiri sesi ujian "${exam.title}" sekarang?\n\nSiswa yang belum mengumpulkan tidak akan dapat login lagi kecuali Anda membuka sesi lanjutan (toleransi keterlambatan).`)) {
+      return;
+    }
+    const updated: Exam = {
+      ...exam,
+      sessionStatus: 'ended',
+      sessionEndedAt: new Date().toISOString()
+    };
+    StorageService.upsertExam(updated);
+    const qs = StorageService.getQuestionsByExamId(exam.id);
+    await GasClient.pushExam(updated, qs);
+    setSessionToast(`Sesi ujian "${exam.title}" telah resmi DIAKHIRI.`);
+    StorageService.addLog('EXAM', `Sesi ujian "${exam.title}" resmi DIAKHIRI oleh pengawas`, undefined, 'warn');
+    onRefreshData();
+    setTimeout(() => setSessionToast(null), 4000);
+  };
+
+  const handleOpenLateExtension = (exam: Exam) => {
+    setLateExtensionExam(exam);
+    setLateExtensionMinutes(exam.lateExtensionMinutes || 30);
+  };
+
+  const handleApplyLateExtension = async () => {
+    if (!lateExtensionExam) return;
+    const now = new Date();
+    const extendedDate = new Date(now.getTime() + (lateExtensionMinutes * 60 * 1000));
+    const year = extendedDate.getFullYear();
+    const month = String(extendedDate.getMonth() + 1).padStart(2, '0');
+    const day = String(extendedDate.getDate()).padStart(2, '0');
+    const hours = String(extendedDate.getHours()).padStart(2, '0');
+    const mins = String(extendedDate.getMinutes()).padStart(2, '0');
+    const newEndsAt = `${year}-${month}-${day} ${hours}:${mins}`;
+
+    const updated: Exam = {
+      ...lateExtensionExam,
+      sessionStatus: 'active',
+      allowLateSubmission: true,
+      lateExtensionMinutes: lateExtensionMinutes,
+      endsAt: newEndsAt,
+      status: 'active'
+    };
+
+    StorageService.upsertExam(updated);
+    const qs = StorageService.getQuestionsByExamId(lateExtensionExam.id);
+    await GasClient.pushExam(updated, qs);
+
+    setSessionToast(`Sesi ujian "${lateExtensionExam.title}" DILANJUTKAN untuk siswa terlambat (+${lateExtensionMinutes} menit s.d. ${hours}:${mins})!`);
+    StorageService.addLog('EXAM', `Sesi ujian "${lateExtensionExam.title}" DILANJUTKAN untuk siswa terlambat (+${lateExtensionMinutes} menit)`, undefined, 'info');
+    setLateExtensionExam(null);
+    onRefreshData();
+    setTimeout(() => setSessionToast(null), 5000);
   };
 
   const handleDeleteQuestion = async (qId: string) => {
@@ -1073,6 +1286,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('curriculum')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+            activeTab === 'curriculum'
+              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
+              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <Target className="w-3.5 h-3.5" />
+          <span>Capaian & TP (CP/TP) ({curriculumList.length})</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('analytics')}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
             activeTab === 'analytics'
@@ -1155,10 +1380,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
          --------------------------------------------------------- */}
       {activeTab === 'exams' && (
         <div className="space-y-6 animate-fadeIn">
+          {sessionToast && (
+            <div className="p-3.5 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-semibold text-indigo-900 dark:text-indigo-200 flex items-center justify-between shadow-xs animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>{sessionToast}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSessionToast(null)}
+                className="text-indigo-400 hover:text-indigo-600 dark:hover:text-white"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                Daftar Ujian & Riwayat Soal
+                Daftar Ujian & Kontrol Sesi Ujian
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Kelola jadwal ujian, edit butir soal, aktifkan kembali (redeploy), atau cetak spesifikasi kisi-kisi.
@@ -1261,6 +1502,72 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                               <Copy className="w-3 h-3" />
                             </button>
                           )}
+                        </div>
+                      </div>
+
+                      {/* Live Exam Session Control Section */}
+                      <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-700/80">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5 text-xs">
+                            <span className="font-sans text-slate-400 font-semibold">Sesi:</span>
+                            {exam.sessionStatus === 'active' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 animate-pulse">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                Sesi Berlangsung
+                              </span>
+                            ) : exam.sessionStatus === 'ended' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                <StopCircle className="w-3 h-3 text-slate-500" />
+                                Sesi Ditutup
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300">
+                                <Clock className="w-3 h-3 text-blue-500" />
+                                Dijadwalkan
+                              </span>
+                            )}
+                          </div>
+
+                          {exam.allowLateSubmission && (
+                            <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700" title="Toleransi perpanjangan sesi untuk siswa terlambat">
+                              +{exam.lateExtensionMinutes || 30}m Terlambat
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Session Control Buttons */}
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {exam.sessionStatus !== 'active' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleStartExamSession(exam)}
+                              className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs"
+                              title="Mulai sesi ujian sekarang (Siswa dapat langsung login)"
+                            >
+                              <Play className="w-3 h-3 fill-current" />
+                              <span>Mulai Sesi</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleEndExamSession(exam)}
+                              className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs"
+                              title="Tutup & akhiri sesi ujian ini"
+                            >
+                              <StopCircle className="w-3 h-3" />
+                              <span>Akhiri Sesi</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenLateExtension(exam)}
+                            className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs"
+                            title="Lanjutkan sesi atau beri perpanjangan waktu untuk siswa terlambat"
+                          >
+                            <FastForward className="w-3 h-3 text-amber-600" />
+                            <span>Lanjutkan (Terlambat)</span>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1450,23 +1757,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   </div>
                 </div>
 
-                {/* Prompt */}
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3 whitespace-pre-line">
-                  {q.prompt}
-                </p>
+                {/* Prompt with rich formatting & embedded media support */}
+                <div className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-3">
+                  <QuestionPromptRenderer prompt={q.prompt} onZoomImage={setZoomImageUrl} />
+                </div>
 
                 {/* Media Preview if attached */}
-                {q.mediaType !== 'none' && q.mediaUrl && (
-                  <div className="mb-3 p-2 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-slate-200 dark:border-slate-700/60 max-w-sm">
-                    {q.mediaType === 'image' && (
-                      <img src={q.mediaUrl} alt="Pratinjau" referrerPolicy="no-referrer" className="max-h-36 rounded object-contain" />
-                    )}
-                    {q.mediaType === 'audio' && (
-                      <audio controls src={q.mediaUrl} className="w-full h-8" />
-                    )}
-                    {q.mediaType === 'video' && (
-                      <span className="text-xs text-indigo-500 font-mono truncate block">Video: {q.mediaUrl}</span>
-                    )}
+                {Boolean(q.mediaUrl && q.mediaUrl.trim() !== '') && (
+                  <div className="mb-3 max-w-md">
+                    <QuestionMedia
+                      mediaUrl={q.mediaUrl}
+                      mediaType={q.mediaType}
+                      title={`Lampiran Soal No. ${q.order}`}
+                      compact={true}
+                      onZoomImage={setZoomImageUrl}
+                    />
                   </div>
                 )}
 
@@ -1525,6 +1830,69 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             )}
           </div>
         </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          SUB-TAB: CURRICULUM (CAPAIAN PEMBELAJARAN, ELEMEN & TP)
+         --------------------------------------------------------- */}
+      {activeTab === 'curriculum' && (
+        <CurriculumManagement
+          curriculumList={curriculumList}
+          onSaveCurriculum={async (item) => {
+            if (curriculumList.some(c => c.id === item.id)) {
+              StorageService.updateCurriculumItem(item.id, item);
+            } else {
+              StorageService.addCurriculumItem(item);
+            }
+            const updated = StorageService.getCurriculum();
+            setCurriculumList(updated);
+            await GasClient.pushCurriculum(updated);
+          }}
+          onDeleteCurriculum={handleDeleteCurriculum}
+          onSyncGas={async () => {
+            const list = StorageService.getCurriculum();
+            await GasClient.pushCurriculum(list);
+          }}
+          onResetDefaultTemplate={() => {
+            StorageService.saveCurriculum([]);
+            const reloaded = StorageService.getCurriculum();
+            setCurriculumList(reloaded);
+            GasClient.pushCurriculum(reloaded);
+          }}
+          onUseForQuestion={(item, tp) => {
+            setActiveTab('questions');
+            const targetExam = exams.find(e => e.subject.toLowerCase() === item.subject.toLowerCase()) || exams[0];
+            if (targetExam) {
+              setSelectedExamId(targetExam.id);
+            }
+            const currentQs = targetExam ? StorageService.getQuestionsByExamId(targetExam.id) : [];
+            setEditingQuestion({
+              order: currentQs.length + 1,
+              prompt: tp ? `Berdasarkan tujuan pembelajaran '${tp}', jelaskan atau selesaikan pertanyaan berikut:` : '',
+              type: 'multiple_choice',
+              mediaType: 'none',
+              mediaUrl: '',
+              options: [
+                { id: 'opt_a', text: 'Pilihan A' },
+                { id: 'opt_b', text: 'Pilihan B' },
+                { id: 'opt_c', text: 'Pilihan C' },
+                { id: 'opt_d', text: 'Pilihan D' }
+              ],
+              correctKey: 'opt_a',
+              points: 20,
+              explanation: '',
+              bloomLevel: 'C3 - Menerapkan',
+              soloLevel: 'Multistructural',
+              basicCompetency: `${item.subject} - ${item.element}`,
+              indicator: tp || `Siswa mampu memahami ${item.element}`,
+              element: item.element,
+              learningOutcome: item.learningOutcome,
+              learningObjective: tp || (item.learningObjectives && item.learningObjectives[0]) || ''
+            });
+            setIsQuestionModalOpen(true);
+          }}
+          exams={exams}
+        />
       )}
 
       {/* ---------------------------------------------------------
@@ -3342,6 +3710,60 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 />
               </div>
 
+              {/* Dropdown Capaian Pembelajaran, Elemen & TP (Kurikulum Merdeka) */}
+              <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                    <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Pilih Capaian Pembelajaran & Elemen (Kurikulum Merdeka)</span>
+                  </label>
+                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
+                    {curriculumList.length} CP Tersimpan
+                  </span>
+                </div>
+
+                <select
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    if (!selectedId) return;
+                    const cur = curriculumList.find(c => c.id === selectedId);
+                    if (cur) {
+                      setAiTopic(`${cur.subject}: ${cur.element}`);
+                      if (cur.learningObjectives && cur.learningObjectives.length > 0) {
+                        setAiLearningObjectives(cur.learningObjectives.slice(0, 15));
+                      }
+                    }
+                  }}
+                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
+                >
+                  <option value="">-- Pilih Capaian Pembelajaran / Elemen Kurikulum --</option>
+                  {curriculumList.map((cur) => (
+                    <option key={cur.id} value={cur.id}>
+                      [{cur.subject}] {cur.element} — {cur.learningOutcome.length > 60 ? cur.learningOutcome.slice(0, 60) + '...' : cur.learningOutcome}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="flex items-center gap-2">
+                  <select
+                    onChange={(e) => {
+                      const tpVal = e.target.value;
+                      if (tpVal && !aiLearningObjectives.includes(tpVal) && aiLearningObjectives.length < 15) {
+                        setAiLearningObjectives(prev => [...prev, tpVal]);
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                  >
+                    <option value="">-- Tambah Tujuan Pembelajaran (TP) Spesifik ke Daftar --</option>
+                    {curriculumList.flatMap(c => c.learningObjectives.map((tp, idx) => ({ key: `${c.id}-${idx}`, label: `[${c.subject}] ${tp}`, text: tp }))).map(item => (
+                      <option key={item.key} value={item.text} disabled={aiLearningObjectives.includes(item.text)}>
+                        {item.label.length > 80 ? item.label.slice(0, 80) + '...' : item.label} {aiLearningObjectives.includes(item.text) ? '(Sudah Ada)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               {/* Tujuan Pembelajaran (TP) — Mendukung hingga 15 TP */}
               <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
@@ -3588,10 +4010,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   type="button"
                   disabled={isGeneratingAi}
                   onClick={handleGenerateAiQuestions}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-50 transition-colors"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-50 transition-colors"
                 >
-                  {isGeneratingAi && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>{isGeneratingAi ? 'Menghasilkan Soal...' : `Mulai Buat ${aiCount} Soal AI`}</span>
+                  {isGeneratingAi ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span>{isGeneratingAi ? 'Menghasilkan & Menyimpan Soal...' : `Generate, Simpan & Tutup (${aiCount} Soal AI)`}</span>
                 </button>
               </div>
             </div>
@@ -3937,40 +4359,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 />
               </div>
 
-              {/* Multimedia Attachment Selector */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700/80 space-y-3">
-                <div className="flex items-center gap-4 text-xs font-semibold">
-                  <span>Sisipkan Media:</span>
-                  {(['none', 'image', 'audio', 'video'] as const).map(m => (
-                    <label key={m} className="flex items-center gap-1.5 cursor-pointer capitalize">
-                      <input
-                        type="radio"
-                        name="mediaType"
-                        value={m}
-                        checked={editingQuestion.mediaType === m}
-                        onChange={() => setEditingQuestion({ ...editingQuestion, mediaType: m })}
-                        className="text-indigo-600"
-                      />
-                      <span>{m === 'none' ? 'Tanpa Media' : m}</span>
-                    </label>
-                  ))}
-                </div>
-
-                {editingQuestion.mediaType !== 'none' && (
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">
-                      URL Media ({editingQuestion.mediaType === 'audio' ? 'Link MP3' : editingQuestion.mediaType === 'image' ? 'Link Gambar / Unsplash' : 'Link Video MP4 atau YouTube'}):
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="https://..."
-                      value={editingQuestion.mediaUrl || ''}
-                      onChange={(e) => setEditingQuestion({ ...editingQuestion, mediaUrl: e.target.value })}
-                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                    />
-                  </div>
-                )}
-              </div>
+              {/* Multimedia Attachment Selector with PC Upload & Drive / YouTube */}
+              <MediaUploaderInput
+                mediaType={editingQuestion.mediaType || 'none'}
+                mediaUrl={editingQuestion.mediaUrl || ''}
+                onChange={(mType, mUrl) => setEditingQuestion({ ...editingQuestion, mediaType: mType, mediaUrl: mUrl })}
+                onZoomImage={(url) => setZoomImageUrl(url)}
+              />
 
               {/* Multiple Choice Options (Single Correct) */}
               {editingQuestion.type === 'multiple_choice' && (
@@ -4211,6 +4606,70 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   )}
                 </div>
 
+                {/* Kurikulum Merdeka Dropdown: Capaian Pembelajaran, Elemen & TP */}
+                <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                      <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                      <span>Pilih dari Capaian Pembelajaran (CP) & Elemen Tersimpan:</span>
+                    </span>
+                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400">
+                      {curriculumList.length} CP Tersedia
+                    </span>
+                  </div>
+
+                  <select
+                    onChange={(e) => {
+                      const curId = e.target.value;
+                      if (!curId) return;
+                      const cur = curriculumList.find(c => c.id === curId);
+                      if (cur) {
+                        setEditingQuestion({
+                          ...editingQuestion,
+                          basicCompetency: cur.learningOutcome,
+                          element: cur.element,
+                          learningOutcome: cur.learningOutcome,
+                          learningObjective: cur.learningObjectives?.[0] || editingQuestion.learningObjective || ''
+                        });
+                      }
+                    }}
+                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
+                  >
+                    <option value="">-- Pilih Elemen & Capaian Pembelajaran (CP) --</option>
+                    {curriculumList.map((cur) => (
+                      <option key={cur.id} value={cur.id}>
+                        [{cur.subject}] {cur.element} - {cur.learningOutcome.length > 65 ? cur.learningOutcome.slice(0, 65) + '...' : cur.learningOutcome}
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Dropdown specific TP */}
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                      Pilih Tujuan Pembelajaran (TP) Spesifik:
+                    </label>
+                    <select
+                      value={editingQuestion.learningObjective || ''}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setEditingQuestion({
+                            ...editingQuestion,
+                            learningObjective: e.target.value
+                          });
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                    >
+                      <option value="">-- Pilih Tujuan Pembelajaran (TP) dari Database --</option>
+                      {curriculumList.flatMap(c => c.learningObjectives.map((tp, idx) => ({ key: `${c.id}-${idx}`, label: `[${c.subject} - ${c.element}] ${tp}`, text: tp }))).map(item => (
+                        <option key={item.key} value={item.text}>
+                          {item.label.length > 85 ? item.label.slice(0, 85) + '...' : item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
@@ -4218,9 +4677,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </label>
                     <input
                       type="text"
-                      placeholder="Contoh: 3.2 Menjelaskan proses metabolisme..."
+                      placeholder="Contoh: Peserta didik mampu menganalisis keanekaragaman hayati..."
                       value={editingQuestion.basicCompetency || ''}
-                      onChange={(e) => setEditingQuestion({ ...editingQuestion, basicCompetency: e.target.value })}
+                      onChange={(e) => setEditingQuestion({ ...editingQuestion, basicCompetency: e.target.value, learningOutcome: e.target.value })}
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                     />
                   </div>
@@ -4322,14 +4781,25 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   title="Simpan butir soal ini sebagai draft sementara tanpa validasi ketat"
                 >
                   <Bookmark className="w-3.5 h-3.5" />
-                  <span>Simpan Draft Soal</span>
+                  <span>Simpan Draft</span>
                 </button>
                 <button
-                  type="submit"
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+                  type="button"
+                  onClick={(e) => handleSaveQuestion(e, false)}
+                  className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+                  title="Simpan soal ini dan langsung buka form kosong untuk butir soal berikutnya"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Simpan & Tambah Baru</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => handleSaveQuestion(e, true)}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+                  title="Simpan soal ke bank soal dan langsung tutup menu pembuatan soal"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>Simpan Soal</span>
+                  <span>Simpan dan Tutup</span>
                 </button>
               </div>
             </form>
@@ -5143,6 +5613,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           <span>{draftToast}</span>
         </div>
       )}
+
+      {/* Media Zoom Modal */}
+      <MediaViewer
+        isOpen={Boolean(zoomImageUrl)}
+        imageUrl={zoomImageUrl || ''}
+        title="Pratinjau Gambar / Media Soal"
+        onClose={() => setZoomImageUrl(null)}
+      />
     </div>
   );
 };

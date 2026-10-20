@@ -6,8 +6,10 @@ import {
   Submission, 
   UserAccount, 
   AppLog, 
-  AppSettings 
+  AppSettings,
+  CurriculumItem
 } from '../types';
+import { detectMediaType } from './mediaHelper';
 
 const STORAGE_KEYS = {
   PROFILE: 'examflow_profile_v1',
@@ -16,6 +18,7 @@ const STORAGE_KEYS = {
   STUDENTS: 'examflow_students_v1',
   SUBMISSIONS: 'examflow_submissions_v1',
   USERS: 'examflow_users_v1',
+  CURRICULUM: 'examflow_curriculum_v1',
   LOGS: 'examflow_logs_v1',
   SETTINGS: 'examflow_settings_v1',
   CURRENT_USER: 'examflow_current_user_v1',
@@ -148,6 +151,68 @@ const DEFAULT_USERS: UserAccount[] = [
   }
 ];
 
+const DEFAULT_CURRICULUM: CurriculumItem[] = [
+  {
+    id: 'CUR-BIO-001',
+    subject: 'Biologi',
+    grade: 'Fase E (Kelas X)',
+    element: 'Pemahaman Sains',
+    learningOutcome: 'Peserta didik memiliki kemampuan memahami keanekaragaman hayati, virus dan peranannya, inovasi bioteknologi, komponen ekosistem dan interaksi antar komponen serta perubahan lingkungan.',
+    learningObjectives: [
+      'Mengidentifikasi tingkatan keanekaragaman hayati gen, jenis, dan ekosistem di Indonesia',
+      'Menganalisis peranan virus dalam kehidupan sehari-hari dan cara penularannya',
+      'Menjelaskan prinsip bioteknologi konvensional dan modern beserta produknya',
+      'Menganalisis interaksi antar komponen biotik dan abiotik dalam suatu ekosistem',
+      'Mengevaluasi dampak aktivitas manusia terhadap perubahan lingkungan dan upaya pelestariannya'
+    ],
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'CUR-FIS-001',
+    subject: 'Fisika',
+    grade: 'Fase F (Kelas XI)',
+    element: 'Pemahaman Fisika',
+    learningOutcome: 'Peserta didik mampu menerapkan konsep gelombang mekanik, optik fisis, dan termodinamika dalam menyelesaikan permasalahan sains dan teknologi terapan.',
+    learningObjectives: [
+      'Mendeskripsikan karakteristik dan besaran-besaran gelombang transversal dan longitudinal',
+      'Menganalisis fenomena interferensi dan difraksi cahaya dalam teknologi optik',
+      'Menerapkan hukum Termodinamika I dan II pada mesin kalor sederhana',
+      'Menghitung efisiensi siklus Carnot dan perpindahan kalor',
+      'Merancang solusi efisiensi energi berdasarkan prinsip fisika'
+    ],
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'CUR-MAT-001',
+    subject: 'Matematika',
+    grade: 'Fase E (Kelas X)',
+    element: 'Bilangan & Aljabar',
+    learningOutcome: 'Peserta didik dapat menggeneralisasi sifat-sifat bilangan berpangkat (eksponen) dan logaritma, serta menyelesaikan sistem persamaan linear tiga variabel dan sistem pertidaksamaan linear dua variabel.',
+    learningObjectives: [
+      'Menerapkan sifat-sifat eksponen untuk menyederhanakan bentuk aljabar',
+      'Menyelesaikan persamaan dan pertidaksamaan eksponensial sederhana',
+      'Menggunakan konsep logaritma untuk memodelkan fenomena pertumbuhan dan peluruhan',
+      'Menyelesaikan masalah kontekstual dengan sistem persamaan linear tiga variabel (SPLTV)',
+      'Menginterpretasikan daerah penyelesaian sistem pertidaksamaan linear dua variabel'
+    ],
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'CUR-IND-001',
+    subject: 'Bahasa Indonesia',
+    grade: 'Fase E (Kelas X)',
+    element: 'Membaca dan Memirsa',
+    learningOutcome: 'Peserta didik mengevaluasi gagasan, pandangan, dan akurasi informasi dalam teks laporan hasil observasi, eksposisi, dan negosiasi secara kritis dan reflektif.',
+    learningObjectives: [
+      'Mengidentifikasi struktur dan kaidah kebahasaan teks laporan hasil observasi',
+      'Menilai akurasi dan validitas fakta serta opini dalam teks eksposisi',
+      'Menganalisis argumen dan strategi persuasi dalam teks negosiasi',
+      'Menyusun ringkasan informasi faktual berdasarkan teks multimoda'
+    ],
+    updatedAt: new Date().toISOString()
+  }
+];
+
 export class StorageService {
   private static getItem<T>(key: string, defaultValue: T): T {
     try {
@@ -245,7 +310,17 @@ export class StorageService {
   }
 
   static saveQuestions(questions: Question[]): void {
-    const cleanList = questions.filter(q => !this.isDummyQuestion(q.id));
+    const cleanList = questions
+      .filter(q => !this.isDummyQuestion(q.id))
+      .map(q => {
+        if (q.mediaUrl && q.mediaUrl.trim() !== '' && (!q.mediaType || q.mediaType === 'none')) {
+          return {
+            ...q,
+            mediaType: detectMediaType(q.mediaUrl, 'image')
+          };
+        }
+        return q;
+      });
     this.setItem(STORAGE_KEYS.QUESTIONS, cleanList);
     localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
   }
@@ -560,6 +635,62 @@ export class StorageService {
 
   static setCurrentUser(user: UserAccount | null): void {
     this.setItem(STORAGE_KEYS.CURRENT_USER, user);
+  }
+
+  // Capaian Pembelajaran, Elemen & Tujuan Pembelajaran (Kurikulum Merdeka)
+  static getCurriculum(): CurriculumItem[] {
+    const list = this.getItem<CurriculumItem[]>(STORAGE_KEYS.CURRICULUM, DEFAULT_CURRICULUM);
+    if (!Array.isArray(list) || list.length === 0) {
+      this.setItem(STORAGE_KEYS.CURRICULUM, DEFAULT_CURRICULUM);
+      return DEFAULT_CURRICULUM;
+    }
+    return list;
+  }
+
+  static saveCurriculum(items: CurriculumItem[]): void {
+    this.setItem(STORAGE_KEYS.CURRICULUM, items);
+  }
+
+  static addCurriculumItem(item: CurriculumItem): void {
+    const list = this.getCurriculum();
+    const newItem: CurriculumItem = {
+      ...item,
+      id: item.id || `CUR-${Date.now()}`,
+      updatedAt: new Date().toISOString()
+    };
+    list.push(newItem);
+    this.saveCurriculum(list);
+    this.addLog('SYNC', `Data CP/TP baru ditambahkan: ${newItem.subject} - Elemen ${newItem.element}`, undefined, 'info');
+  }
+
+  static updateCurriculumItem(id: string, updatedFields: Partial<CurriculumItem>): void {
+    const list = this.getCurriculum();
+    const idx = list.findIndex(c => c.id === id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...updatedFields, updatedAt: new Date().toISOString() };
+      this.saveCurriculum(list);
+      this.addLog('SYNC', `Data CP/TP diperbarui: ${list[idx].subject} - Elemen ${list[idx].element}`, undefined, 'info');
+    }
+  }
+
+  static deleteCurriculumItem(id: string): void {
+    const list = this.getCurriculum();
+    const target = list.find(c => c.id === id);
+    const filtered = list.filter(c => c.id !== id);
+    this.saveCurriculum(filtered);
+    if (target) {
+      this.addLog('SYNC', `Data CP/TP dihapus: ${target.subject} - Elemen ${target.element}`, undefined, 'warn');
+    }
+  }
+
+  static getCurriculumBySubject(subject: string): CurriculumItem[] {
+    const list = this.getCurriculum();
+    if (!subject) return list;
+    const clean = subject.trim().toLowerCase();
+    const exact = list.filter(c => c.subject.toLowerCase() === clean);
+    if (exact.length > 0) return exact;
+    // Fallback: partial match
+    return list.filter(c => c.subject.toLowerCase().includes(clean) || clean.includes(c.subject.toLowerCase()));
   }
 
   // Settings

@@ -4,6 +4,7 @@ import { StorageService } from '../services/storage';
 import { GasClient } from '../services/gasClient';
 import { MediaViewer } from './MediaViewer';
 import { QuestionMedia, QuestionPromptRenderer } from './QuestionMedia';
+import { MathRenderer } from '../services/mathRenderer';
 import confetti from 'canvas-confetti';
 import { 
   Clock, 
@@ -715,7 +716,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                             <span className="font-bold text-slate-900 dark:text-white mr-2">
                               {letter}.
                             </span>
-                            {opt.text}
+                            <span dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(opt.text) }} />
                           </div>
                         </label>
                       );
@@ -754,7 +755,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                             <span className="font-bold text-slate-900 dark:text-white mr-2">
                               {letter}.
                             </span>
-                            {opt.text}
+                            <span dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(opt.text) }} />
                           </div>
                         </label>
                       );

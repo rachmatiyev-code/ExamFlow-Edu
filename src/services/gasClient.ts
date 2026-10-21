@@ -472,8 +472,8 @@ export class GasClient {
     const url = this.getWebAppUrl();
     if (!url) {
       return {
-        success: true,
-        message: 'Ujian berhasil disimpan secara lokal (Web App URL belum disetel).'
+        success: false,
+        message: 'Web App URL Google Sheets belum disetel di menu Pengaturan. Ujian tersimpan di penyimpanan lokal.'
       };
     }
 
@@ -488,8 +488,68 @@ export class GasClient {
       StorageService.addLog('SYNC', `Ujian "${updatedExam.title}" (${questions.length} butir soal) berhasil disinkronkan ke Google Sheets!`, undefined, 'success');
       return { success: true, message: `Ujian dan ${questions.length} butir soal berhasil disinkronkan ke Google Sheets!` };
     } catch (err: any) {
-      StorageService.addLog('SYNC', `Gagal push ujian ke Google Sheets: ${err?.message}. Data tetap aman di lokal.`, undefined, 'warn');
-      return { success: true, message: 'Ujian tersimpan di lokal. Sinkronkan ke Google Sheets nanti setelah koneksi siap.' };
+      const errMsg = err?.message || String(err);
+      StorageService.addLog('SYNC', `Gagal push ujian ke Google Sheets: ${errMsg}. Data tetap aman di lokal.`, undefined, 'warn');
+      return { success: false, message: `Gagal sinkron ke Sheets: ${errMsg}. Data tersimpan di lokal.` };
+    }
+  }
+
+  /**
+   * Menyimpan butir soal ujian secara langsung & spesifik ke Google Sheets
+   */
+  static async pushQuestions(examId: string, questions: Question[]): Promise<{ success: boolean; message: string; count?: number }> {
+    // 1. Simpan selalu ke memori lokal terlebih dahulu
+    StorageService.saveQuestionsForExam(examId, questions);
+    
+    // Perbarui totalQuestions pada exam objek
+    const exam = StorageService.getExamById(examId);
+    if (exam) {
+      exam.totalQuestions = questions.length;
+      StorageService.upsertExam(exam);
+    }
+
+    const url = this.getWebAppUrl();
+    if (!url) {
+      return {
+        success: false,
+        message: 'URL Google Apps Script belum disetel di menu Pengaturan. Butir soal tetap aman di penyimpanan lokal.'
+      };
+    }
+
+    try {
+      // Coba kirim via saveQuestions
+      let res = await this.postToGas({
+        action: 'saveQuestions',
+        examId,
+        questions
+      });
+
+      // Fallback ke saveExam jika action saveQuestions belum tersedia pada script GAS lawas
+      if (!res.success && exam) {
+        res = await this.postToGas({
+          action: 'saveExam',
+          exam: { ...exam, totalQuestions: questions.length },
+          questions
+        });
+      }
+
+      if (!res.success) {
+        throw new Error(res.message);
+      }
+
+      StorageService.addLog('SYNC', `Berhasil menyimpan ${questions.length} butir soal ujian ke Google Sheets!`, undefined, 'success');
+      return {
+        success: true,
+        count: questions.length,
+        message: `${questions.length} butir soal berhasil disinkronkan ke Google Sheets!`
+      };
+    } catch (err: any) {
+      const errMsg = err?.message || String(err);
+      StorageService.addLog('SYNC', `Gagal menyimpan soal ke Google Sheets: ${errMsg}. Soal tetap tersimpan di lokal.`, undefined, 'error');
+      return {
+        success: false,
+        message: `Gagal sinkron ke Google Sheets: ${errMsg}. Butir soal tetap aman di lokal.`
+      };
     }
   }
 

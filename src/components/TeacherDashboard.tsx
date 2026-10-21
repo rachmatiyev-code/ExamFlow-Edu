@@ -19,9 +19,13 @@ import { MediaViewer } from './MediaViewer';
 import { QuestionMedia, QuestionPromptRenderer } from './QuestionMedia';
 import { MediaUploaderInput } from './MediaUploaderInput';
 import { CurriculumManagement } from './CurriculumManagement';
+import { AiQuestionModal } from './AiQuestionModal';
+import { RichTextEditor } from './RichTextEditor';
+import { MathRenderer } from '../services/mathRenderer';
 import { detectMediaType } from '../services/mediaHelper';
 import { 
   Plus, 
+  CloudUpload,
   Trash2, 
   Edit3, 
   Sparkles, 
@@ -140,6 +144,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [manualTaxonomyMode, setManualTaxonomyMode] = useState<'bloom' | 'solo' | 'both'>('both');
   const [draftToast, setDraftToast] = useState<string | null>(null);
   const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
+  const [isSyncingQuestionsToSheets, setIsSyncingQuestionsToSheets] = useState(false);
 
   // AI Generator Modal State
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -199,6 +204,33 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [isSavingUsersToSheets, setIsSavingUsersToSheets] = useState(false);
   const [userSyncMsg, setUserSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [userDeleteConfirm, setUserDeleteConfirm] = useState<{ id: string; username: string; fullName: string } | null>(null);
+
+  // Global listener: Tutup modal (AI Generator, Buat Soal, Ujian, Bulk Student, User, Zoom Image) dengan tombol "Esc"
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+        if (zoomImageUrl) {
+          setZoomImageUrl(null);
+        } else if (isAiModalOpen) {
+          setIsAiModalOpen(false);
+        } else if (isQuestionModalOpen) {
+          setIsQuestionModalOpen(false);
+        } else if (isExamModalOpen) {
+          setIsExamModalOpen(false);
+        } else if (isBulkStudentModalOpen) {
+          setIsBulkStudentModalOpen(false);
+        } else if (isUserModalOpen) {
+          setIsUserModalOpen(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [zoomImageUrl, isAiModalOpen, isQuestionModalOpen, isExamModalOpen, isBulkStudentModalOpen, isUserModalOpen]);
 
   // Submission Detail, Selection & Editing States
   const [viewingSubmission, setViewingSubmission] = useState<Submission | null>(null);
@@ -332,10 +364,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     onRefreshData();
   };
 
-  // Question Save / Delete
-  const handleSaveQuestion = async (e?: React.FormEvent, shouldClose = true) => {
+  // Question Save / Delete / Sync to Sheets
+  const handleSaveQuestion = async (e?: React.FormEvent, shouldClose = true, syncToSheets = false) => {
     if (e) e.preventDefault();
-    if (!selectedExamId || !editingQuestion?.prompt) return;
+    if (!selectedExamId || !editingQuestion?.prompt?.trim()) return;
 
     const currentQs = StorageService.getQuestionsByExamId(selectedExamId);
     const isNew = !editingQuestion.id;
@@ -379,16 +411,39 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       updatedList = currentQs.map(q => q.id === qId ? newQuestion : q);
     }
 
+    // 1. Simpan selalu ke memori lokal
     StorageService.saveQuestionsForExam(selectedExamId, updatedList);
-    const exam = StorageService.getExamById(selectedExamId);
-    if (exam) {
-      await GasClient.pushExam(exam, updatedList);
+
+    // 2. Jika tombol "Simpan ke Sheets" diklik, sinkronkan langsung dengan visual feedback
+    if (syncToSheets) {
+      setIsSyncingQuestionsToSheets(true);
+      setDraftToast(`Menyimpan & menyinkronkan seluruh butir soal (${updatedList.length} soal) ke Google Sheets...`);
+      try {
+        const syncRes = await GasClient.pushQuestions(selectedExamId, updatedList);
+        if (syncRes.success) {
+          setDraftToast(`Sukses! Butir soal No. ${newQuestion.order} dan total ${updatedList.length} soal berhasil disimpan ke Google Sheets!`);
+        } else {
+          alert(`Peringatan: ${syncRes.message}`);
+        }
+      } catch (err: any) {
+        alert(`Gagal sinkron ke Sheets: ${err?.message || err}`);
+      } finally {
+        setIsSyncingQuestionsToSheets(false);
+      }
+    } else {
+      // Background push ujian & soal agar data tersinkron
+      const exam = StorageService.getExamById(selectedExamId);
+      if (exam) {
+        GasClient.pushExam(exam, updatedList).catch(() => {});
+      }
     }
 
     if (shouldClose) {
       setIsQuestionModalOpen(false);
       setEditingQuestion(null);
-      setDraftToast(`Butir soal No. ${newQuestion.order} berhasil disimpan & ditutup.`);
+      if (!syncToSheets) {
+        setDraftToast(`Butir soal No. ${newQuestion.order} berhasil disimpan & ditutup.`);
+      }
     } else {
       // Siapkan form butir soal berikutnya
       const nextOrder = updatedList.length + 1;
@@ -415,11 +470,38 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         learningOutcome: newQuestion.learningOutcome,
         learningObjective: newQuestion.learningObjective
       });
-      setDraftToast(`Soal No. ${newQuestion.order} tersimpan. Siap memasukkan Soal No. ${nextOrder}.`);
+      if (!syncToSheets) {
+        setDraftToast(`Soal No. ${newQuestion.order} tersimpan. Siap memasukkan Soal No. ${nextOrder}.`);
+      }
     }
 
     onRefreshData();
-    setTimeout(() => setDraftToast(null), 3000);
+    setTimeout(() => setDraftToast(null), 3500);
+  };
+
+  // Sinkronkan seluruh butir soal ujian aktif ke Google Sheets
+  const handleSyncQuestionsToSheets = async () => {
+    if (!selectedExamId) return;
+    const exam = StorageService.getExamById(selectedExamId);
+    if (!exam) return;
+    const qs = StorageService.getQuestionsByExamId(selectedExamId);
+
+    setIsSyncingQuestionsToSheets(true);
+    setDraftToast(`Menyinkronkan ${qs.length} butir soal ujian "${exam.title}" ke Google Sheets...`);
+    try {
+      const res = await GasClient.pushQuestions(selectedExamId, qs);
+      if (res.success) {
+        setDraftToast(`Sukses! ${qs.length} butir soal ujian "${exam.title}" berhasil disimpan di Google Sheets.`);
+      } else {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      alert(`Gagal menyimpan soal ke Google Sheets: ${err?.message || err}`);
+    } finally {
+      setIsSyncingQuestionsToSheets(false);
+      onRefreshData();
+      setTimeout(() => setDraftToast(null), 4000);
+    }
   };
 
   // -------------------------------------------------------------
@@ -1708,6 +1790,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 <Plus className="w-3.5 h-3.5" />
                 <span>Tambah Soal Manual</span>
               </button>
+
+              <button
+                disabled={isSyncingQuestionsToSheets || currentQuestions.length === 0}
+                onClick={handleSyncQuestionsToSheets}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                title="Simpan seluruh butir soal ujian ini langsung ke Google Sheets"
+              >
+                {isSyncingQuestionsToSheets ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CloudUpload className="w-3.5 h-3.5" />
+                )}
+                <span>{isSyncingQuestionsToSheets ? 'Menyimpan ke Sheets...' : `Simpan ke Sheets (${currentQuestions.length} Soal)`}</span>
+              </button>
             </div>
           </div>
 
@@ -1793,7 +1889,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           }`}
                         >
                           <span className="w-4 text-center font-bold">{isCorrect ? '✓' : '•'}</span>
-                          <span className="truncate">{opt.text}</span>
+                          <span className="truncate" dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(opt.text) }} />
                         </div>
                       );
                     })}
@@ -3633,392 +3729,35 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       )}
 
       {/* ---------------------------------------------------------
-          MODAL: AI QUESTION GENERATOR
+          MODAL: AI QUESTION GENERATOR (Wider 2-Column Responsive Layout)
          --------------------------------------------------------- */}
       {isAiModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-amber-500" />
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Generator Soal Otomatis (Gemini AI)
-                </h3>
-              </div>
-              <button onClick={() => setIsAiModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                ✕
-              </button>
-            </div>
-
-            {aiMessage && (
-              <div className="mb-4 p-3 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300">
-                {aiMessage}
-              </div>
-            )}
-
-            <div className="space-y-4">
-              {/* Mata Pelajaran & Kelas Tujuan (Menggantikan label Target Ujian) */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Mata Pelajaran & Kelas Tujuan
-                </label>
-                <select
-                  value={selectedExamId || exams[0]?.id || ''}
-                  onChange={(e) => setSelectedExamId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-semibold"
-                >
-                  {exams.map(e => (
-                    <option key={e.id} value={e.id}>
-                      {e.subject} — Kelas {e.grade} (Ujian: {e.title})
-                    </option>
-                  ))}
-                </select>
-
-                {/* Info Card Mata Pelajaran & Kelas */}
-                {(() => {
-                  const targetExamObj = exams.find(e => e.id === (selectedExamId || exams[0]?.id)) || exams[0];
-                  if (!targetExamObj) return null;
-                  const currentCount = StorageService.getQuestionsByExamId(targetExamObj.id).length;
-                  return (
-                    <div className="mt-2 p-2.5 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[11px] text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-bold text-indigo-600 dark:text-indigo-400">{targetExamObj.subject}</span>
-                        <span>·</span>
-                        <span className="font-semibold">Kelas {targetExamObj.grade}</span>
-                        <span>·</span>
-                        <span className="text-slate-500 truncate max-w-[150px]">{targetExamObj.title}</span>
-                      </div>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                        {currentCount} Soal Ada
-                      </span>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Topic / Materi */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Topik / Materi Soal
-                </label>
-                <input
-                  type="text"
-                  value={aiTopic}
-                  onChange={(e) => setAiTopic(e.target.value)}
-                  placeholder="Contoh: Hukum Archimedes & Tekanan Zat Cair"
-                  className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
-                />
-              </div>
-
-              {/* Dropdown Capaian Pembelajaran, Elemen & TP (Kurikulum Merdeka) */}
-              <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
-                    <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    <span>Pilih Capaian Pembelajaran & Elemen (Kurikulum Merdeka)</span>
-                  </label>
-                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
-                    {curriculumList.length} CP Tersimpan
-                  </span>
-                </div>
-
-                <select
-                  onChange={(e) => {
-                    const selectedId = e.target.value;
-                    if (!selectedId) return;
-                    const cur = curriculumList.find(c => c.id === selectedId);
-                    if (cur) {
-                      setAiTopic(`${cur.subject}: ${cur.element}`);
-                      if (cur.learningObjectives && cur.learningObjectives.length > 0) {
-                        setAiLearningObjectives(cur.learningObjectives.slice(0, 15));
-                      }
-                    }
-                  }}
-                  className="w-full px-3 py-1.5 text-xs rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
-                >
-                  <option value="">-- Pilih Capaian Pembelajaran / Elemen Kurikulum --</option>
-                  {curriculumList.map((cur) => (
-                    <option key={cur.id} value={cur.id}>
-                      [{cur.subject}] {cur.element} — {cur.learningOutcome.length > 60 ? cur.learningOutcome.slice(0, 60) + '...' : cur.learningOutcome}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="flex items-center gap-2">
-                  <select
-                    onChange={(e) => {
-                      const tpVal = e.target.value;
-                      if (tpVal && !aiLearningObjectives.includes(tpVal) && aiLearningObjectives.length < 15) {
-                        setAiLearningObjectives(prev => [...prev, tpVal]);
-                      }
-                    }}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                  >
-                    <option value="">-- Tambah Tujuan Pembelajaran (TP) Spesifik ke Daftar --</option>
-                    {curriculumList.flatMap(c => c.learningObjectives.map((tp, idx) => ({ key: `${c.id}-${idx}`, label: `[${c.subject}] ${tp}`, text: tp }))).map(item => (
-                      <option key={item.key} value={item.text} disabled={aiLearningObjectives.includes(item.text)}>
-                        {item.label.length > 80 ? item.label.slice(0, 80) + '...' : item.label} {aiLearningObjectives.includes(item.text) ? '(Sudah Ada)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Tujuan Pembelajaran (TP) — Mendukung hingga 15 TP */}
-              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                    <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    <span>Tujuan Pembelajaran (TP) — Dukung Hingga 15 TP</span>
-                  </label>
-                  <div className="flex items-center gap-2">
-                    {(() => {
-                      const targetExamObj = exams.find(e => e.id === (selectedExamId || exams[0]?.id)) || exams[0];
-                      if (targetExamObj?.learningObjectives && targetExamObj.learningObjectives.length > 0) {
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAiLearningObjectives(targetExamObj.learningObjectives!.slice(0, 15));
-                            }}
-                            className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-                            title="Ambil daftar TP dari konfigurasi data ujian ini"
-                          >
-                            <Download className="w-3 h-3" />
-                            <span>Muat dari Ujian</span>
-                          </button>
-                        );
-                      }
-                      return null;
-                    })()}
-                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold">
-                      {aiLearningObjectives.length}/15 TP
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={newAiTpInput}
-                    onChange={(e) => setNewAiTpInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (newAiTpInput.trim() && aiLearningObjectives.length < 15) {
-                          setAiLearningObjectives(prev => [...prev, newAiTpInput.trim()]);
-                          setNewAiTpInput('');
-                        }
-                      }
-                    }}
-                    placeholder="Ketik Tujuan Pembelajaran lalu tekan Enter atau Tambah"
-                    disabled={aiLearningObjectives.length >= 15}
-                    className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (newAiTpInput.trim() && aiLearningObjectives.length < 15) {
-                        setAiLearningObjectives(prev => [...prev, newAiTpInput.trim()]);
-                        setNewAiTpInput('');
-                      }
-                    }}
-                    disabled={aiLearningObjectives.length >= 15 || !newAiTpInput.trim()}
-                    className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1 shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Tambah TP</span>
-                  </button>
-                </div>
-
-                {/* TP list chips */}
-                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                  {aiLearningObjectives.map((tp, idx) => (
-                    <div key={idx} className="flex items-start justify-between gap-2 p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs shadow-2xs">
-                      <span className="font-mono text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded shrink-0">
-                        TP {idx + 1}
-                      </span>
-                      <span className="flex-1 text-[11px] text-slate-800 dark:text-slate-200 leading-tight">
-                        {tp}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAiLearningObjectives(prev => prev.filter((_, i) => i !== idx));
-                        }}
-                        className="text-slate-400 hover:text-rose-500 p-0.5 transition-colors"
-                        title="Hapus TP ini"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {aiLearningObjectives.length === 0 && (
-                    <p className="text-[11px] text-slate-400 italic">
-                      Belum ada Tujuan Pembelajaran. Tambahkan minimal 1 TP agar butir soal yang digenerate AI lebih presisi dan sesuai kurikulum.
-                    </p>
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  AI akan mendistribusikan pembuatan soal secara akurat dan merata ke seluruh Tujuan Pembelajaran yang Anda cantumkan di atas.
-                </p>
-              </div>
-
-              {/* Bentuk Soal Selector */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Bentuk Soal
-                </label>
-                <select
-                  value={aiQuestionType}
-                  onChange={(e: any) => setAiQuestionType(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-medium"
-                >
-                  <option value="multiple_choice">Pilihan Ganda Biasa (1 Jawaban Benar)</option>
-                  <option value="checkbox">Pilihan Ganda Kompleks (Multi Jawaban Benar)</option>
-                  <option value="true_false">Benar / Salah (2 Opsi)</option>
-                  <option value="essay">Uraian / Isian Singkat</option>
-                  <option value="mixed">Campuran / Variatif (PG, PG Kompleks & Uraian)</option>
-                </select>
-              </div>
-
-              {/* Jumlah Soal (Up to 50 Butir Soal) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Jumlah Soal (Mendukung hingga 50 Butir)
-                  </label>
-                  <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                    {aiCount} Butir
-                  </span>
-                </div>
-                
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={aiCount}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setAiCount(Math.min(50, Math.max(1, isNaN(val) ? 1 : val)));
-                      }}
-                      className="w-24 px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
-                    />
-                    <span className="text-xs text-slate-400">Pilih cepat:</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[5, 10, 15, 20, 25, 30, 40, 50].map(cnt => (
-                      <button
-                        key={cnt}
-                        type="button"
-                        onClick={() => setAiCount(cnt)}
-                        className={`px-2.5 py-1 text-xs font-mono rounded-lg border transition-colors ${
-                          aiCount === cnt
-                            ? 'bg-indigo-600 text-white border-indigo-600 font-bold shadow-xs'
-                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400'
-                        }`}
-                      >
-                        {cnt} Soal
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Tingkat Kesulitan & Kerangka Taksonomi */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Tingkat Kesulitan
-                  </label>
-                  <select
-                    value={aiDifficulty}
-                    onChange={(e: any) => setAiDifficulty(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
-                  >
-                    <option value="Mudah">Mudah</option>
-                    <option value="Sedang">Sedang</option>
-                    <option value="Sukar">Sukar (HOTS)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Kerangka Taksonomi
-                  </label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setAiTaxonomy('bloom')}
-                      className={`p-2 text-[11px] font-semibold rounded-lg border text-center transition-all ${
-                        aiTaxonomy === 'bloom'
-                          ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-600 text-indigo-700 dark:text-indigo-300'
-                          : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      Bloom-Anderson
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAiTaxonomy('solo')}
-                      className={`p-2 text-[11px] font-semibold rounded-lg border text-center transition-all ${
-                        aiTaxonomy === 'solo'
-                          ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-600 text-indigo-700 dark:text-indigo-300'
-                          : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      Taksonomi SOLO
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Warning if API key is missing */}
-              {!StorageService.getSettings().geminiApiKey?.trim() && (
-                <div className="p-3 bg-amber-50 dark:bg-amber-950/60 rounded-xl border border-amber-300 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="font-semibold">Kunci API Gemini belum diatur.</p>
-                    <p className="text-[11px] mt-0.5 opacity-90">Masukkan kunci API Gemini Anda di menu Pengaturan agar AI dapat memproses pembuatan soal.</p>
-                    {onOpenSettings && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsAiModalOpen(false);
-                          onOpenSettings();
-                        }}
-                        className="mt-2 px-3 py-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors"
-                      >
-                        Buka Menu Pengaturan
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-3 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAiModalOpen(false)}
-                  className="px-4 py-2 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
-                >
-                  Batal
-                </button>
-                <button
-                  type="button"
-                  disabled={isGeneratingAi}
-                  onClick={handleGenerateAiQuestions}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm disabled:opacity-50 transition-colors"
-                >
-                  {isGeneratingAi ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  <span>{isGeneratingAi ? 'Menghasilkan & Menyimpan Soal...' : `Generate, Simpan & Tutup (${aiCount} Soal AI)`}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AiQuestionModal
+          isOpen={isAiModalOpen}
+          onClose={() => setIsAiModalOpen(false)}
+          exams={exams}
+          selectedExamId={selectedExamId}
+          onSelectExamId={setSelectedExamId}
+          curriculumList={curriculumList}
+          aiTopic={aiTopic}
+          setAiTopic={setAiTopic}
+          aiLearningObjectives={aiLearningObjectives}
+          setAiLearningObjectives={setAiLearningObjectives}
+          newAiTpInput={newAiTpInput}
+          setNewAiTpInput={setNewAiTpInput}
+          aiQuestionType={aiQuestionType}
+          setAiQuestionType={setAiQuestionType}
+          aiCount={aiCount}
+          setAiCount={setAiCount}
+          aiDifficulty={aiDifficulty}
+          setAiDifficulty={setAiDifficulty}
+          aiTaxonomy={aiTaxonomy}
+          setAiTaxonomy={setAiTaxonomy}
+          isGeneratingAi={isGeneratingAi}
+          aiMessage={aiMessage}
+          onGenerate={handleGenerateAiQuestions}
+          onOpenSettings={onOpenSettings}
+        />
       )}
 
       {/* ---------------------------------------------------------
@@ -4277,11 +4016,32 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           MODAL: CREATE / EDIT QUESTION (Manual with Media)
          --------------------------------------------------------- */}
       {isQuestionModalOpen && editingQuestion && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn max-h-[90vh] overflow-y-auto">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">
-              {editingQuestion.id ? 'Edit Butir Soal' : 'Tambah Butir Soal Baru'}
-            </h3>
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setIsQuestionModalOpen(false); }}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl xl:max-w-5xl w-full p-5 sm:p-7 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn max-h-[92vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {editingQuestion.id ? 'Edit Butir Soal' : 'Tambah Butir Soal Baru'}
+              </h3>
+              <div className="flex items-center gap-2">
+                <span className="hidden sm:inline-block text-[10px] text-slate-400 bg-slate-200/60 dark:bg-slate-800 px-2 py-0.5 rounded font-mono">
+                  ESC untuk menutup
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsQuestionModalOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  title="Tutup (Esc)"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
 
             <form onSubmit={handleSaveQuestion} className="space-y-4">
               {/* Bentuk Soal Selector */}
@@ -4345,17 +4105,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 </select>
               </div>
 
+              {/* Teks Pertanyaan Soal dengan RichTextEditor */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Teks Pertanyaan Soal
-                </label>
-                <textarea
-                  rows={4}
-                  required
-                  placeholder="Ketik pertanyaan lengkap di sini..."
+                <RichTextEditor
                   value={editingQuestion.prompt || ''}
-                  onChange={(e) => setEditingQuestion({ ...editingQuestion, prompt: e.target.value })}
-                  className="w-full p-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white leading-relaxed"
+                  onChange={(val) => setEditingQuestion({ ...editingQuestion, prompt: val })}
+                  placeholder="Ketik pertanyaan lengkap di sini (gunakan toolbar di atas untuk format font, ukuran, warna, tabel, simbol & rumus)..."
+                  rows={5}
+                  label="Teks Pertanyaan Soal (Dilengkapi Toolbar Format, Tabel, Simbol & Rumus Matematika)"
                 />
               </div>
 
@@ -4791,6 +4548,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Simpan & Tambah Baru</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isSyncingQuestionsToSheets}
+                  onClick={(e) => handleSaveQuestion(e, false, true)}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="Simpan butir soal ini dan langsung sinkronkan seluruh bank soal ujian ini ke Google Sheets"
+                >
+                  {isSyncingQuestionsToSheets ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CloudUpload className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isSyncingQuestionsToSheets ? 'Menyimpan...' : 'Simpan ke Sheets'}</span>
                 </button>
                 <button
                   type="button"

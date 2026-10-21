@@ -367,35 +367,115 @@ function doPost(e) {
         exam.redeployCount || 0
       ]);
 
-      // Hapus soal lama dari ujian ini lalu masukkan ulang secara instan (Batch setValues)
-      deleteRowsByColumnValue(shQu, 'examId', exam.id);
-      if (questions.length > 0) {
-        const qRows = questions.map(function(q, i) {
-          return [
-            String(q.id || ('Q-' + exam.id + '-' + (i + 1))),
-            String(exam.id),
-            i + 1,
-            String(q.prompt || ''),
-            String(q.type || 'multiple_choice'),
-            String(q.mediaType || 'none'),
-            String(q.mediaUrl || ''),
-            typeof q.options === 'string' ? q.options : JSON.stringify(q.options || []),
-            typeof q.correctKey === 'string' ? q.correctKey : JSON.stringify(q.correctKey || ''),
-            Number(q.points || 10),
-            String(q.explanation || ''),
-            String(q.bloomLevel || ''),
-            String(q.soloLevel || ''),
-            String(q.basicCompetency || ''),
-            String(q.indicator || ''),
-            String(q.learningObjective || '')
-          ];
-        });
-        const startRow = shQu.getLastRow() + 1;
-        shQu.getRange(startRow, 1, qRows.length, qRows[0].length).setValues(qRows);
+      // Simpan butir soal secara atomik (tanpa resiko row hilang atau salah indeks)
+      const targetExamId = String(exam.id || '').trim().toLowerCase();
+      const existingQuData = shQu.getDataRange().getValues();
+      const quHeaders = existingQuData[0] || ['id', 'examId', 'order', 'prompt', 'type', 'mediaType', 'mediaUrl', 'optionsJson', 'correctKeyJson', 'points', 'explanation', 'bloomLevel', 'soloLevel', 'basicCompetency', 'indicator', 'learningObjective'];
+      const examIdColIdx = quHeaders.indexOf('examId') !== -1 ? quHeaders.indexOf('examId') : 1;
+      
+      const retainedQuRows = [];
+      for (let i = 1; i < existingQuData.length; i++) {
+        const rowExamId = String(existingQuData[i][examIdColIdx] || '').trim().toLowerCase();
+        if (rowExamId !== targetExamId) {
+          retainedQuRows.push(existingQuData[i]);
+        }
       }
+
+      const qRows = questions.map(function(q, i) {
+        return [
+          String(q.id || ('Q-' + exam.id + '-' + (i + 1))),
+          String(exam.id),
+          i + 1,
+          String(q.prompt || ''),
+          String(q.type || 'multiple_choice'),
+          String(q.mediaType || 'none'),
+          String(q.mediaUrl || ''),
+          typeof q.options === 'string' ? q.options : JSON.stringify(q.options || []),
+          typeof q.correctKey === 'string' ? q.correctKey : JSON.stringify(q.correctKey || ''),
+          Number(q.points || 10),
+          String(q.explanation || ''),
+          String(q.bloomLevel || ''),
+          String(q.soloLevel || ''),
+          String(q.basicCompetency || ''),
+          String(q.indicator || ''),
+          String(q.learningObjective || '')
+        ];
+      });
+
+      const finalQuRows = [quHeaders].concat(retainedQuRows).concat(qRows);
+      shQu.clearContents();
+      SpreadsheetApp.flush();
+      shQu.getRange(1, 1, finalQuRows.length, quHeaders.length).setValues(finalQuRows);
+      SpreadsheetApp.flush();
 
       logAction('EXAM', 'Ujian disimpan: ' + exam.title + ' (' + questions.length + ' soal)');
       return jsonResponse({ status: 'success', message: 'Ujian dan ' + questions.length + ' soal berhasil diperbarui' });
+    }
+
+    if (action === 'saveQuestions' || action === 'syncQuestions') {
+      const examId = String(payload.examId || '').trim();
+      const questions = payload.questions || [];
+      const shQu = ss.getSheetByName(SHEETS.QUESTIONS);
+      const shEx = ss.getSheetByName(SHEETS.EXAMS);
+      
+      const targetExamId = examId.toLowerCase();
+      const existingQuData = shQu.getDataRange().getValues();
+      const quHeaders = existingQuData[0] || ['id', 'examId', 'order', 'prompt', 'type', 'mediaType', 'mediaUrl', 'optionsJson', 'correctKeyJson', 'points', 'explanation', 'bloomLevel', 'soloLevel', 'basicCompetency', 'indicator', 'learningObjective'];
+      const examIdColIdx = quHeaders.indexOf('examId') !== -1 ? quHeaders.indexOf('examId') : 1;
+      
+      const retainedQuRows = [];
+      for (let i = 1; i < existingQuData.length; i++) {
+        const rowExamId = String(existingQuData[i][examIdColIdx] || '').trim().toLowerCase();
+        if (rowExamId !== targetExamId) {
+          retainedQuRows.push(existingQuData[i]);
+        }
+      }
+
+      const qRows = questions.map(function(q, i) {
+        return [
+          String(q.id || ('Q-' + examId + '-' + (i + 1))),
+          String(examId),
+          i + 1,
+          String(q.prompt || ''),
+          String(q.type || 'multiple_choice'),
+          String(q.mediaType || 'none'),
+          String(q.mediaUrl || ''),
+          typeof q.options === 'string' ? q.options : JSON.stringify(q.options || []),
+          typeof q.correctKey === 'string' ? q.correctKey : JSON.stringify(q.correctKey || ''),
+          Number(q.points || 10),
+          String(q.explanation || ''),
+          String(q.bloomLevel || ''),
+          String(q.soloLevel || ''),
+          String(q.basicCompetency || ''),
+          String(q.indicator || ''),
+          String(q.learningObjective || '')
+        ];
+      });
+
+      const finalQuRows = [quHeaders].concat(retainedQuRows).concat(qRows);
+      shQu.clearContents();
+      SpreadsheetApp.flush();
+      shQu.getRange(1, 1, finalQuRows.length, quHeaders.length).setValues(finalQuRows);
+      SpreadsheetApp.flush();
+
+      // Perbarui totalQuestions pada sheet EXAMS jika ada
+      if (shEx) {
+        const exData = shEx.getDataRange().getValues();
+        const exHeaders = exData[0];
+        const idCol = exHeaders.indexOf('id');
+        const totalQCol = exHeaders.indexOf('totalQuestions');
+        if (idCol !== -1 && totalQCol !== -1) {
+          for (let e = 1; e < exData.length; e++) {
+            if (String(exData[e][idCol] || '').trim().toLowerCase() === targetExamId) {
+              shEx.getRange(e + 1, totalQCol + 1).setValue(questions.length);
+              break;
+            }
+          }
+        }
+      }
+
+      logAction('EXAM', 'Soal diperbarui untuk ujian ' + examId + ' (' + questions.length + ' butir soal)');
+      return jsonResponse({ status: 'success', message: questions.length + ' butir soal berhasil disimpan ke Google Sheets!', count: questions.length });
     }
 
     if (action === 'deleteExam') {

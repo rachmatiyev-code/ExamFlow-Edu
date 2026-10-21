@@ -16,6 +16,7 @@ import {
   ProcessedMedia, 
   parsePromptSegments 
 } from '../services/mediaHelper';
+import { MathRenderer } from '../services/mathRenderer';
 
 interface QuestionMediaProps {
   mediaUrl?: string;
@@ -248,10 +249,12 @@ export const QuestionPromptRenderer: React.FC<QuestionPromptRendererProps> = ({
   const hasEmbeddedMedia = segments.some(s => s.type !== 'text');
 
   if (!hasEmbeddedMedia) {
+    const renderedHtml = MathRenderer.renderMixedText(prompt);
     return (
-      <div className={`whitespace-pre-line leading-relaxed ${className}`}>
-        {prompt}
-      </div>
+      <div 
+        className={`leading-relaxed space-y-2 select-text ${className}`}
+        dangerouslySetInnerHTML={{ __html: renderedHtml }}
+      />
     );
   }
 
@@ -260,10 +263,13 @@ export const QuestionPromptRenderer: React.FC<QuestionPromptRendererProps> = ({
       {segments.map((seg, idx) => {
         if (seg.type === 'text') {
           if (!seg.content) return <div key={idx} className="h-2" />;
+          const renderedHtml = MathRenderer.renderMixedText(seg.content);
           return (
-            <div key={idx} className="whitespace-pre-line">
-              {seg.content}
-            </div>
+            <div 
+              key={idx} 
+              className="leading-relaxed select-text"
+              dangerouslySetInnerHTML={{ __html: renderedHtml }}
+            />
           );
         }
 

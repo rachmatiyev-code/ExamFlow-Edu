@@ -14,12 +14,16 @@
 }
 
 @media print {
-  body {
+  html, body {
     background: white !important;
     color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
   
-  .no-print {
+  .no-print, header, footer, nav {
     display: none !important;
   }
   
@@ -28,17 +32,23 @@
   }
 
   .print-break-inside-avoid {
-    break-inside: avoid;
-    page-break-inside: avoid;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   .print-page-break-after {
-    page-break-after: always;
+    break-after: page !important;
+    page-break-after: always !important;
+  }
+
+  .katex {
+    color: black !important;
+    font-size: 1.05em !important;
   }
 
   @page {
     size: A4 portrait;
-    margin: 1.5cm;
+    margin: 1.2cm 1.5cm;
   }
 }
 

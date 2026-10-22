@@ -10,6 +10,7 @@ export interface GenerateParams {
   subject: string;
   grade: string;
   learningObjectives?: string[]; // Hingga 15 Tujuan Pembelajaran (TP)
+  customPrompt?: string; // Prompt / instruksi khusus dari guru
 }
 
 export class AiGeneratorService {
@@ -239,6 +240,10 @@ export class AiGeneratorService {
         ? `\n- TUJUAN PEMBELAJARAN (TP) - DUKUNG HINGGA 15 TP:\n${validObjectives.map((tp, i) => `  TP ${i + 1}: ${tp}`).join('\n')}\nDistribusikan butir soal secara berimbang ke seluruh Tujuan Pembelajaran di atas. Setiap butir soal HARUS menyertakan atribut "learningObjective" sesuai dengan teks Tujuan Pembelajaran yang diukurnya.\n`
         : '';
 
+      const customPromptSection = params.customPrompt && params.customPrompt.trim().length > 0
+        ? `\n- INSTRUKSI / PROMPT KHUSUS DARI GURU:\n"${params.customPrompt.trim()}"\nWajib ikuti instruksi spesifik di atas dalam perumusan konteks, stimulus, atau karakteristik soal.\n`
+        : '';
+
       const promptText = `
 Anda adalah seorang ahli pembuat asesmen kurikulum nasional (Kurikulum Merdeka / K13).
 Tugas Anda adalah menghasilkan persis ${batchCount} butir soal berkualitas tinggi (bagian ${bIdx + 1} dari ${batchSizes.length}) untuk:
@@ -247,7 +252,14 @@ Tugas Anda adalah menghasilkan persis ${batchCount} butir soal berkualitas tingg
 - Jenjang Kelas: ${params.grade}
 - Tingkat Kesulitan: ${params.difficulty}
 - Kerangka Taksonomi: ${params.taxonomy === 'solo' ? 'SOLO (Prestructural, Unistructural, Multistructural, Relational, Extended Abstract)' : 'Bloom-Anderson (C1 Mengingat, C2 Memahami, C3 Menerapkan, C4 Menganalisis, C5 Mengevaluasi, C6 Mencipta)'}
-- Bentuk Soal: ${typeInstruction}${tpSection}
+- Bentuk Soal: ${typeInstruction}${tpSection}${customPromptSection}
+
+ATURAN WAJIB DISTRIBUSI KUNCI JAWABAN (SANGAT PENTING - ANTI MONOTON):
+1. DILARANG KERAS menetapkan kunci jawaban pada opsi yang sama secara berurutan!
+2. Setiap nomor soal HARUS memiliki kunci jawaban dengan opsi yang berbeda dari nomor soal sebelumnya.
+   Contoh: Jika nomor 1 kuncinya opsi A ("opt_a"), maka nomor 2 HARUS opsi yang lain ("opt_b", "opt_c", atau "opt_d"), nomor 3 berbeda lagi, dst.
+3. Sebar kunci jawaban secara merata di antara opsi A, B, C, dan D (jangan semuanya A atau semuanya B).
+4. Untuk Pilihan Ganda Kompleks (checkbox), variasikan kombinasi kunci di setiap nomor (misal nomor 1 ["opt_a", "opt_c"], nomor 2 ["opt_b", "opt_d"]).
 
 Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
 [
@@ -262,7 +274,7 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
       { "id": "opt_c", "text": "Pilihan C" },
       { "id": "opt_d", "text": "Pilihan D" }
     ],
-    "correctKey": "${qType === 'checkbox' ? '["opt_a", "opt_b"]' : 'opt_a'}",
+    "correctKey": "${qType === 'checkbox' ? '["opt_a", "opt_c"]' : 'opt_b'}",
     "points": 20,
     "explanation": "Pembahasan ilmiah dan alasan mengapa kunci tersebut benar",
     "bloomLevel": "C3 - Menerapkan",
@@ -301,7 +313,8 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
             subject: params.subject,
             grade: params.grade,
             customApiKey,
-            learningObjectives: params.learningObjectives
+            learningObjectives: params.learningObjectives,
+            customPrompt: params.customPrompt
           })
         });
 
@@ -410,8 +423,81 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
     };
   }
 
+  /**
+   * Algoritma deterministik untuk memastikan tidak ada kunci jawaban yang sama berturut-turut
+   */
+  private static diversifyAnswerKeys(questions: Question[]): Question[] {
+    if (!Array.isArray(questions) || questions.length <= 1) return questions;
+
+    let lastSingleKey = '';
+    let lastCheckboxSignature = '';
+
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      if (!q || !Array.isArray(q.options) || q.options.length < 2) continue;
+
+      const optIds: string[] = q.options.map(o => o.id);
+
+      if (q.type === 'multiple_choice' || !q.type) {
+        let currentKey = typeof q.correctKey === 'string' ? q.correctKey : (Array.isArray(q.correctKey) && q.correctKey[0] ? q.correctKey[0] : optIds[0]);
+        if (!optIds.includes(currentKey)) {
+          currentKey = optIds[0];
+          q.correctKey = currentKey;
+        }
+
+        // Jika kunci sama dengan nomor sebelumnya, tukar teks opsi dengan opsi lain
+        if (lastSingleKey && currentKey === lastSingleKey) {
+          const availableTargets = optIds.filter(id => id !== lastSingleKey);
+          if (availableTargets.length > 0) {
+            const targetKey = availableTargets[i % availableTargets.length];
+            const optCurrent = q.options.find(o => o.id === currentKey);
+            const optTarget = q.options.find(o => o.id === targetKey);
+            if (optCurrent && optTarget) {
+              const temp = optCurrent.text;
+              optCurrent.text = optTarget.text;
+              optTarget.text = temp;
+              q.correctKey = targetKey;
+              currentKey = targetKey;
+            }
+          }
+        }
+
+        lastSingleKey = currentKey;
+      } else if (q.type === 'checkbox') {
+        let currentKeys: string[] = Array.isArray(q.correctKey) ? [...q.correctKey] : [String(q.correctKey || optIds[0])];
+        currentKeys = currentKeys.filter(k => optIds.includes(k));
+        if (currentKeys.length === 0) {
+          currentKeys = [optIds[0], optIds[1] || optIds[0]];
+        }
+
+        let currentSig = [...currentKeys].sort().join(',');
+        if (lastCheckboxSignature && currentSig === lastCheckboxSignature) {
+          const unselected = optIds.find(id => !currentKeys.includes(id));
+          const selected = currentKeys[0];
+          if (unselected && selected) {
+            const optSel = q.options.find(o => o.id === selected);
+            const optUnsel = q.options.find(o => o.id === unselected);
+            if (optSel && optUnsel) {
+              const temp = optSel.text;
+              optSel.text = optUnsel.text;
+              optUnsel.text = temp;
+              currentKeys = currentKeys.map(k => k === selected ? unselected : k);
+              q.correctKey = currentKeys;
+              currentSig = [...currentKeys].sort().join(',');
+            }
+          }
+        }
+
+        q.correctKey = currentKeys;
+        lastCheckboxSignature = currentSig;
+      }
+    }
+
+    return questions;
+  }
+
   private static formatGeneratedQuestions(examId: string, list: any[], params: GenerateParams) {
-    const formatted: Question[] = list.map((item: any, idx: number) => {
+    let formatted: Question[] = list.map((item: any, idx: number) => {
       const id = `Q-AI-${Date.now()}-${idx + 1}`;
       return {
         id,
@@ -435,13 +521,17 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
         bloomLevel: item.bloomLevel || 'C3 - Menerapkan',
         soloLevel: item.soloLevel || 'Multistructural',
         basicCompetency: item.basicCompetency || `Materi: ${params.topic}`,
-        indicator: item.indicator || `Siswa dapat menyelesaikan permasalahan terkait ${params.topic}`
+        indicator: item.indicator || `Siswa dapat menyelesaikan permasalahan terkait ${params.topic}`,
+        learningObjective: item.learningObjective || ''
       };
     });
 
+    // Jalankan algoritma anti-kunci-monoton agar kunci terdistribusi variatif
+    formatted = this.diversifyAnswerKeys(formatted);
+
     StorageService.addLog(
       'AI_GEMINI',
-      `Berhasil membuat ${formatted.length} butir soal dengan taksonomi ${params.taxonomy.toUpperCase()}!`,
+      `Berhasil membuat ${formatted.length} butir soal dengan variasi kunci merata dan taksonomi ${params.taxonomy.toUpperCase()}!`,
       undefined,
       'success'
     );
@@ -449,7 +539,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
     return {
       success: true,
       questions: formatted,
-      message: `Berhasil membuat ${formatted.length} butir soal AI!`
+      message: `Berhasil membuat ${formatted.length} butir soal AI dengan sebaran kunci bervariasi!`
     };
   }
 }

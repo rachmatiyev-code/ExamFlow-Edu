@@ -3,11 +3,11 @@ import { SchoolProfile, AppSettings } from '../types';
 import { Sun, Moon, RefreshCw, CheckCircle2, AlertCircle, CloudOff } from 'lucide-react';
 
 interface NavbarProps {
-  currentTab: 'student' | 'teacher' | 'kisi-kisi' | 'logs';
-  onSelectTab: (tab: 'student' | 'teacher' | 'kisi-kisi' | 'logs') => void;
-  onOpenSettings: () => void;
+  currentTab: 'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'logs';
+  onSelectTab: (tab: 'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'logs') => void;
   profile: SchoolProfile;
   settings: AppSettings;
+  onOpenSettings: () => void;
   onToggleTheme: () => void;
   onManualSync: () => void;
   isSyncing: boolean;
@@ -105,6 +105,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             Cetak Kisi-Kisi
+          </button>
+
+          <button
+            onClick={() => onSelectTab('naskah-soal')}
+            className={`whitespace-nowrap transition-colors pb-0.5 ${
+              currentTab === 'naskah-soal'
+                ? 'text-indigo-600 dark:text-indigo-400 font-semibold border-b-2 border-indigo-600 dark:border-indigo-400'
+                : 'hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            Cetak Naskah Soal
           </button>
 
           <button

@@ -24,6 +24,8 @@ interface AiQuestionModalProps {
   curriculumList: CurriculumItem[];
   aiTopic: string;
   setAiTopic: (topic: string) => void;
+  aiCustomPrompt: string;
+  setAiCustomPrompt: (prompt: string) => void;
   aiLearningObjectives: string[];
   setAiLearningObjectives: React.Dispatch<React.SetStateAction<string[]>>;
   newAiTpInput: string;
@@ -51,6 +53,8 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
   curriculumList,
   aiTopic,
   setAiTopic,
+  aiCustomPrompt,
+  setAiCustomPrompt,
   aiLearningObjectives,
   setAiLearningObjectives,
   newAiTpInput,
@@ -257,6 +261,29 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
 
                 <p className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80 leading-relaxed">
                   Memilih CP otomatis mengisi topik dan menyalin butir Tujuan Pembelajaran yang sesuai.
+                </p>
+              </div>
+
+              {/* Input Prompt / Instruksi Khusus Guru */}
+              <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Instruksi / Prompt Tambahan Guru</span>
+                  </label>
+                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold font-mono">
+                    Opsional
+                  </span>
+                </div>
+                <textarea
+                  rows={3}
+                  value={aiCustomPrompt}
+                  onChange={(e) => setAiCustomPrompt(e.target.value)}
+                  placeholder="Contoh: Fokuskan pada soal kontekstual kehidupan sehari-hari, sertakan rumus KaTeX $...$, buat narasi stimulus, hindari soal hafalan murni..."
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 leading-relaxed resize-none"
+                />
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+                  Gemini AI akan mematuhi prompt khusus ini saat merumuskan narasi soal, stimulus, dan tingkat berpikir kritis.
                 </p>
               </div>
             </div>
@@ -505,8 +532,8 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                 </div>
               </div>
 
-              {/* Standar Mutu AI */}
-              <div className="p-2.5 bg-slate-50 dark:bg-slate-950/70 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+              {/* Standar Mutu AI & Anti-Monoton */}
+              <div className="p-2.5 bg-slate-50 dark:bg-slate-950/70 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 space-y-1.5">
                 <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                   <span>Kaidah Penulisan Soal:</span>
@@ -514,6 +541,16 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                 <p className="text-slate-500 dark:text-slate-400 text-[10px] leading-relaxed">
                   Dilengkapi kunci jawaban terverifikasi, rubrik pembahasan, serta langsung tersimpan ke bank soal dan tersinkronisasi.
                 </p>
+                
+                <div className="pt-1.5 mt-1 border-t border-slate-200/80 dark:border-slate-800 text-indigo-700 dark:text-indigo-300">
+                  <div className="flex items-center gap-1 font-bold text-[10.5px]">
+                    <Sparkles className="w-3 h-3 text-indigo-500" />
+                    <span>Variasi Kunci Anti-Monoton Aktif:</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                    Kunci tiap nomor dijamin berbeda dari nomor sebelumnya (A, B, C, D tersebar seimbang, tidak ada kunci yang monoton berurutan).
+                  </p>
+                </div>
               </div>
 
               {/* Warning if API key is missing */}

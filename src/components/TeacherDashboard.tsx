@@ -90,7 +90,7 @@ interface TeacherDashboardProps {
   submissions: Submission[];
   onUpdateProfile: (p: SchoolProfile) => void;
   onRefreshData: () => void;
-  onSelectTab: (tab: any) => void;
+  onSelectTab: (tab: any, examId?: string) => void;
   onOpenSettings?: () => void;
 }
 
@@ -149,6 +149,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // AI Generator Modal State
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiTopic, setAiTopic] = useState('Sistem Ekskresi & Metabolisme');
+  const [aiCustomPrompt, setAiCustomPrompt] = useState('');
   const [aiCount, setAiCount] = useState(5);
   const [aiDifficulty, setAiDifficulty] = useState<'Mudah' | 'Sedang' | 'Sukar'>('Sedang');
   const [aiTaxonomy, setAiTaxonomy] = useState<'bloom' | 'solo'>('bloom');
@@ -695,7 +696,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           questionType: aiQuestionType,
           subject: currentExam.subject,
           grade: currentExam.grade,
-          learningObjectives: cleanObjectives
+          learningObjectives: cleanObjectives,
+          customPrompt: aiCustomPrompt
         },
         (_completed, _total, message) => {
           setAiMessage(message);
@@ -1619,25 +1621,25 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                         {/* Session Control Buttons */}
                         <div className="grid grid-cols-2 gap-1.5">
-                          {exam.sessionStatus !== 'active' ? (
+                          {exam.sessionStatus === 'active' ? (
                             <button
                               type="button"
-                              onClick={() => handleStartExamSession(exam)}
-                              className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs"
-                              title="Mulai sesi ujian sekarang (Siswa dapat langsung login)"
+                              onClick={() => handleEndExamSession(exam)}
+                              className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                              title="Hentikan dan tutup sesi ujian ini sekarang"
                             >
-                              <Play className="w-3 h-3 fill-current" />
-                              <span>Mulai Sesi</span>
+                              <StopCircle className="w-3.5 h-3.5" />
+                              <span>Hentikan Sesi Ujian</span>
                             </button>
                           ) : (
                             <button
                               type="button"
-                              onClick={() => handleEndExamSession(exam)}
-                              className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs"
-                              title="Tutup & akhiri sesi ujian ini"
+                              onClick={() => handleStartExamSession(exam)}
+                              className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                              title="Buka dan mulai sesi ujian sekarang (Siswa dapat login)"
                             >
-                              <StopCircle className="w-3 h-3" />
-                              <span>Akhiri Sesi</span>
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>Mulai Sesi Ujian</span>
                             </button>
                           )}
 
@@ -1655,64 +1657,147 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </div>
                   </div>
 
-                  {/* Action buttons */}
-                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-2">
+                  {/* 4 Tombol Pokok: Pilih, Edit, Hapus, Hentikan Sesi + Fitur Pendukung */}
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                    {/* Baris 1: Tombol Pokok (PILIH & EDIT) */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedExamId(exam.id);
+                          setSessionToast(`Paket ujian "${exam.title}" terpilih sebagai paket aktif.`);
+                        }}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                          selectedExamId === exam.id
+                            ? 'bg-indigo-600 text-white shadow-xs ring-2 ring-indigo-400'
+                            : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+                        }`}
+                        title="Pilih ujian ini sebagai paket aktif di sistem"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{selectedExamId === exam.id ? 'Ujian Terpilih' : 'Pilih Ujian'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingExam(exam);
+                          setIsExamModalOpen(true);
+                        }}
+                        className="px-3 py-1.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                        title="Edit pengaturan, durasi, KKM, atau token ujian ini"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit Ujian</span>
+                      </button>
+                    </div>
+
+                    {/* Baris 2: Tombol Pokok (HENTIKAN/KONTROL SESI & HAPUS) */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {exam.sessionStatus === 'active' ? (
+                        <button
+                          type="button"
+                          onClick={() => handleEndExamSession(exam)}
+                          className="px-3 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                          title="Hentikan sesi ujian ini seketika"
+                        >
+                          <StopCircle className="w-3.5 h-3.5" />
+                          <span>Hentikan Sesi Ujian</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleStartExamSession(exam)}
+                          className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                          title="Buka sesi ujian ini"
+                        >
+                          <Play className="w-3.5 h-3.5" />
+                          <span>Mulai Sesi Ujian</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteExam(exam.id)}
+                        className="px-3 py-1.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                        title="Hapus ujian dan seluruh butir soalnya"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Hapus</span>
+                      </button>
+                    </div>
+
+                    {/* Baris 3: Tombol Cetak Dokumen Resmi & Kisi-Kisi */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedExamId(exam.id);
+                          onSelectTab('naskah-soal', exam.id);
+                        }}
+                        className="px-3 py-1.5 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                        title="Cetak format naskah soal resmi berstandar sekolah"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Cetak Naskah Soal</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedExamId(exam.id);
+                          onSelectTab('kisi-kisi', exam.id);
+                        }}
+                        className="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                        title="Cetak kisi-kisi dan spesifikasi butir soal"
+                      >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span>Cetak Kisi-Kisi</span>
+                      </button>
+                    </div>
+
+                    {/* Baris 4: Kelola Butir Soal & Deploy Ulang */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedExamId(exam.id);
+                          setActiveTab('questions');
+                        }}
+                        className="px-3 py-1.5 text-xs font-semibold bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Kelola Soal</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRedeployExam(exam)}
+                        className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                        title="Perbarui jadwal aktif ujian untuk hari ini"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Deploy Ulang</span>
+                      </button>
+                    </div>
+
+                    {/* Baris 5: Bagikan ke Siswa */}
                     <button
                       type="button"
                       onClick={() => {
                         setSharingExam(exam);
                         setHasCopiedShareLink(false);
                         setHasCopiedShareMsg(false);
-                        // Otomatis pastikan paket ujian dan butir soal tersinkronisasi ke Google Sheets
                         const qs = StorageService.getQuestionsByExamId(exam.id);
                         if (qs.length > 0) {
                           GasClient.pushExam(exam, qs);
                         }
                       }}
-                      className="col-span-2 px-3 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-xs"
+                      className="w-full px-3 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-xs"
                       title="Dapatkan Link Langsung Siswa & QR Code ujian ini"
                     >
                       <Share2 className="w-3.5 h-3.5" />
                       <span>Bagikan ke Siswa (Link Langsung & QR Code)</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setSelectedExamId(exam.id);
-                        setActiveTab('questions');
-                      }}
-                      className="px-3 py-1.5 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 rounded-lg transition-colors flex items-center justify-center gap-1"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Kelola Soal</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setSelectedExamId(exam.id);
-                        onSelectTab('kisi-kisi');
-                      }}
-                      className="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1"
-                    >
-                      <Layers className="w-3.5 h-3.5" />
-                      <span>Cetak Kisi-Kisi</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleRedeployExam(exam)}
-                      className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded-lg transition-colors flex items-center justify-center gap-1"
-                      title="Perbarui jadwal aktif ujian untuk hari ini"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Deploy Ulang</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleDeleteExam(exam.id)}
-                      className="px-3 py-1.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 rounded-lg transition-colors flex items-center justify-center gap-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Hapus</span>
                     </button>
                   </div>
                 </div>
@@ -1803,6 +1888,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <CloudUpload className="w-3.5 h-3.5" />
                 )}
                 <span>{isSyncingQuestionsToSheets ? 'Menyimpan ke Sheets...' : `Simpan ke Sheets (${currentQuestions.length} Soal)`}</span>
+              </button>
+
+              <button
+                onClick={() => onSelectTab('naskah-soal', selectedExamId)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                title="Cetak Naskah Ujian Resmi Berstandar Sekolah"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Cetak Naskah</span>
               </button>
             </div>
           </div>
@@ -3741,6 +3835,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           curriculumList={curriculumList}
           aiTopic={aiTopic}
           setAiTopic={setAiTopic}
+          aiCustomPrompt={aiCustomPrompt}
+          setAiCustomPrompt={setAiCustomPrompt}
           aiLearningObjectives={aiLearningObjectives}
           setAiLearningObjectives={setAiLearningObjectives}
           newAiTpInput={newAiTpInput}

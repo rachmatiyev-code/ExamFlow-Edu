@@ -18,6 +18,7 @@ import { Navbar } from './components/Navbar';
 import { StudentPortal } from './components/StudentPortal';
 import { TeacherDashboard } from './components/TeacherDashboard';
 import { KisiKisiMatrix } from './components/KisiKisiMatrix';
+import { OfficialExamPrintView } from './components/OfficialExamPrintView';
 import { LogsView } from './components/LogsView';
 import { SettingsModal } from './components/SettingsModal';
 
@@ -31,7 +32,8 @@ export default function App() {
   const [logs, setLogs] = useState<AppLog[]>(() => StorageService.getLogs());
 
   // UI Navigation State
-  const [currentTab, setCurrentTab] = useState<'student' | 'teacher' | 'kisi-kisi' | 'logs'>('student');
+  const [currentTab, setCurrentTab] = useState<'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'logs'>('student');
+  const [printTargetExamId, setPrintTargetExamId] = useState<string | undefined>(undefined);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncSuccessBanner, setSyncSuccessBanner] = useState<string | null>(null);
@@ -262,7 +264,10 @@ export default function App() {
               refreshAllData();
             }}
             onRefreshData={refreshAllData}
-            onSelectTab={setCurrentTab}
+            onSelectTab={(tab, examId) => {
+              if (examId) setPrintTargetExamId(examId);
+              setCurrentTab(tab);
+            }}
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
         )}
@@ -271,6 +276,15 @@ export default function App() {
           <KisiKisiMatrix
             profile={profile}
             exams={exams}
+          />
+        )}
+
+        {currentTab === 'naskah-soal' && (
+          <OfficialExamPrintView
+            profile={profile}
+            exams={exams}
+            initialExamId={printTargetExamId}
+            onBack={() => setCurrentTab('teacher')}
           />
         )}
 

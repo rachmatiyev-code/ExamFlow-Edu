@@ -235,6 +235,81 @@ function parseQuestionsJson(rawText: string): any[] {
   return [];
 }
 
+// Helper untuk mendiversifikasi kunci jawaban agar tidak pernah sama secara berurutan
+function diversifyAnswerKeys(questions: any[]): any[] {
+  if (!Array.isArray(questions) || questions.length <= 1) return questions;
+
+  let lastSingleKey = '';
+  let lastCheckboxSignature = '';
+
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    if (!q || !Array.isArray(q.options) || q.options.length < 2) continue;
+
+    const optIds: string[] = q.options.map((o: any) => o.id);
+
+    // Kasus 1: Pilihan Ganda Tunggal / Benar-Salah
+    if (q.type === 'multiple_choice' || q.type === 'true_false' || !q.type) {
+      let currentKey = typeof q.correctKey === 'string' ? q.correctKey : (Array.isArray(q.correctKey) && q.correctKey[0] ? q.correctKey[0] : optIds[0]);
+      if (!optIds.includes(currentKey)) {
+        currentKey = optIds[0];
+        q.correctKey = currentKey;
+      }
+
+      // Jika kunci sama dengan nomor sebelumnya, tukar teks opsi dengan opsi lain
+      if (lastSingleKey && currentKey === lastSingleKey) {
+        const availableTargets = optIds.filter(id => id !== lastSingleKey);
+        if (availableTargets.length > 0) {
+          const targetKey = availableTargets[i % availableTargets.length];
+          const optCurrent = q.options.find((o: any) => o.id === currentKey);
+          const optTarget = q.options.find((o: any) => o.id === targetKey);
+          if (optCurrent && optTarget) {
+            const temp = optCurrent.text;
+            optCurrent.text = optTarget.text;
+            optTarget.text = temp;
+            q.correctKey = targetKey;
+            currentKey = targetKey;
+          }
+        }
+      }
+
+      lastSingleKey = currentKey;
+    } 
+    // Kasus 2: Pilihan Ganda Kompleks (Checkbox)
+    else if (q.type === 'checkbox') {
+      let currentKeys: string[] = Array.isArray(q.correctKey) ? [...q.correctKey] : [String(q.correctKey || optIds[0])];
+      currentKeys = currentKeys.filter(k => optIds.includes(k));
+      if (currentKeys.length === 0) {
+        currentKeys = [optIds[0], optIds[1] || optIds[0]];
+      }
+
+      let currentSig = [...currentKeys].sort().join(',');
+      if (lastCheckboxSignature && currentSig === lastCheckboxSignature) {
+        // Cari satu opsi yang terpilih dan satu opsi yang tidak terpilih, lalu tukar
+        const unselected = optIds.find(id => !currentKeys.includes(id));
+        const selected = currentKeys[0];
+        if (unselected && selected) {
+          const optSel = q.options.find((o: any) => o.id === selected);
+          const optUnsel = q.options.find((o: any) => o.id === unselected);
+          if (optSel && optUnsel) {
+            const temp = optSel.text;
+            optSel.text = optUnsel.text;
+            optUnsel.text = temp;
+            currentKeys = currentKeys.map(k => k === selected ? unselected : k);
+            q.correctKey = currentKeys;
+            currentSig = [...currentKeys].sort().join(',');
+          }
+        }
+      }
+
+      q.correctKey = currentKeys;
+      lastCheckboxSignature = currentSig;
+    }
+  }
+
+  return questions;
+}
+
 /**
  * Endpoint Generate Soal dengan Retry Backoff & Multimodel Fallback
  */
@@ -249,7 +324,8 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
       subject = 'Umum', 
       grade = 'SMA/SMK',
       customApiKey,
-      learningObjectives = []
+      learningObjectives = [],
+      customPrompt = ''
     } = req.body;
 
     const apiKey = (customApiKey || process.env.GEMINI_API_KEY || '').trim();
@@ -272,9 +348,13 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
       ? `\n- TUJUAN PEMBELAJARAN (TP) YANG HARUS DICAKUP (Total ${validObjectives.length} TP, dukung hingga 15 TP):\n${validObjectives.map((tp: string, idx: number) => `  TP ${idx + 1}: ${tp}`).join('\n')}\nDistribusikan butir soal secara berimbang ke seluruh Tujuan Pembelajaran di atas. Setiap butir soal HARUS mengisi atribut "learningObjective" sesuai dengan teks TP yang disasarnya.\n`
       : '';
 
+    const customPromptInstruction = customPrompt && typeof customPrompt === 'string' && customPrompt.trim().length > 0
+      ? `\n- INSTRUKSI / PROMPT KHUSUS DARI GURU:\n"${customPrompt.trim()}"\nWajib ikuti instruksi spesifik di atas dalam perumusan konteks, stimulus, atau karakteristik soal.\n`
+      : '';
+
     const typeInstruction = 
-      questionType === 'multiple_choice' ? 'Semua butir soal berbentuk Pilihan Ganda Tunggal ("type": "multiple_choice") dengan 4 atau 5 pilihan ("options") dan 1 kunci benar ("correctKey": "opt_a").' :
-      questionType === 'checkbox' ? 'Semua butir soal berbentuk Pilihan Ganda Kompleks ("type": "checkbox") dengan 4 atau 5 pilihan di mana terdapat 2 atau lebih jawaban yang benar ("correctKey": ["opt_a", "opt_c"]).' :
+      questionType === 'multiple_choice' ? 'Semua butir soal berbentuk Pilihan Ganda Tunggal ("type": "multiple_choice") dengan 4 pilihan ("opt_a", "opt_b", "opt_c", "opt_d") dan 1 kunci benar.' :
+      questionType === 'checkbox' ? 'Semua butir soal berbentuk Pilihan Ganda Kompleks ("type": "checkbox") dengan 4 pilihan di mana terdapat 2 atau lebih jawaban yang benar ("correctKey": ["opt_a", "opt_c"]).' :
       questionType === 'true_false' ? 'Semua butir soal berbentuk Benar/Salah ("type": "multiple_choice") dengan 2 opsi ("opt_a": "Benar", "opt_b": "Salah") dan "correctKey" berupa "opt_a" atau "opt_b".' :
       questionType === 'essay' ? 'Semua butir soal berbentuk Uraian / Isian Singkat ("type": "essay") dengan "options": [] dan "correctKey" berupa kata kunci / jawaban esai.' :
       'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), dan Uraian ("type": "essay").';
@@ -287,7 +367,14 @@ Tugas Anda adalah menghasilkan persis ${count} butir soal berkualitas tinggi unt
 - Jenjang Kelas: ${grade}
 - Tingkat Kesulitan: ${difficulty}
 - Kerangka Taksonomi: ${taxonomy === 'solo' ? 'SOLO (Prestructural, Unistructural, Multistructural, Relational, Extended Abstract)' : 'Bloom-Anderson (C1 Mengingat, C2 Memahami, C3 Menerapkan, C4 Menganalisis, C5 Mengevaluasi, C6 Mencipta)'}
-- Bentuk Soal: ${typeInstruction}${tpInstruction}
+- Bentuk Soal: ${typeInstruction}${tpInstruction}${customPromptInstruction}
+
+ATURAN WAJIB DISTRIBUSI KUNCI JAWABAN (SANGAT PENTING - ANTI MONOTON):
+1. DILARANG KERAS menetapkan kunci jawaban pada opsi yang sama secara berurutan!
+2. Setiap nomor soal HARUS memiliki kunci jawaban dengan opsi yang berbeda dari nomor soal sebelumnya.
+   Contoh: Jika soal nomor 1 kuncinya opsi A ("opt_a"), maka soal nomor 2 HARUS opsi yang lain ("opt_b", "opt_c", atau "opt_d"), soal nomor 3 harus berbeda lagi, dan seterusnya.
+3. Sebar kunci jawaban secara merata dan proporsional di antara pilihan A, B, C, dan D (jangan semuanya A atau semuanya B).
+4. Untuk Pilihan Ganda Kompleks (checkbox), variasikan kombinasi kunci di setiap nomor (misal nomor 1 ["opt_a", "opt_c"], nomor 2 ["opt_b", "opt_d"]).
 
 Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
 [
@@ -302,7 +389,7 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
       { "id": "opt_c", "text": "Pilihan C" },
       { "id": "opt_d", "text": "Pilihan D" }
     ],
-    "correctKey": "${questionType === 'checkbox' ? '["opt_a", "opt_b"]' : 'opt_a'}",
+    "correctKey": "${questionType === 'checkbox' ? '["opt_a", "opt_c"]' : 'opt_b'}",
     "points": 20,
     "explanation": "Pembahasan ilmiah dan alasan mengapa opsi tersebut benar",
     "bloomLevel": "C3 - Menerapkan",
@@ -331,7 +418,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
               responseMimeType: 'application/json',
               temperature: 0.7,
               maxOutputTokens: 16384,
-              systemInstruction: 'Anda adalah generator soal ujian berbasis kurikulum nasional. Anda selalu menghasilkan JSON murni berisi daftar array butir soal tanpa teks pembuka atau penutup.'
+              systemInstruction: 'Anda adalah generator soal ujian berbasis kurikulum nasional. Anda selalu menghasilkan JSON murni berisi daftar array butir soal tanpa teks pembuka atau penutup. Anda selalu mendistribusikan kunci jawaban secara bervariasi dan tidak pernah memakai opsi kunci yang sama berturut-turut.'
             }
           });
 
@@ -359,6 +446,9 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
     if (!questionsData || questionsData.length === 0) {
       throw lastError || new Error('Gagal menghasilkan soal setelah mencoba model alternatif.');
     }
+
+    // Terapkan perlindungan deterministik anti-kunci-monoton
+    questionsData = diversifyAnswerKeys(questionsData);
 
     return res.json({
       success: true,

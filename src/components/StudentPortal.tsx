@@ -30,6 +30,7 @@ import {
   Download,
   BarChart3,
   Search,
+  StopCircle,
   X
 } from 'lucide-react';
 
@@ -254,6 +255,39 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     if (!selectedExam) return;
 
+    // 1. Verifikasi Status Sesi Ujian (Hentikan Ujian)
+    if (selectedExam.sessionStatus === 'ended') {
+      setLoginError('Sesi ujian ini telah dihentikan oleh guru pengawas. Akses pengerjaan ujian telah ditutup.');
+      return;
+    }
+
+    // 2. Verifikasi Mode Pengerjaan ("Sekali" vs "Berulang")
+    const isSingleAttempt = (selectedExam.attemptMode || 'single') === 'single';
+    if (isSingleAttempt) {
+      const allSubmissions = StorageService.getSubmissions();
+      const studentPastSubs = allSubmissions.filter(sub =>
+        String(sub.examId).trim().toLowerCase() === String(selectedExam.id).trim().toLowerCase() &&
+        (
+          (studentNo.trim() && sub.studentNo?.trim().toLowerCase() === studentNo.trim().toLowerCase()) ||
+          (studentName.trim() && sub.studentName?.trim().toLowerCase() === studentName.trim().toLowerCase())
+        )
+      );
+
+      if (studentPastSubs.length > 0) {
+        // Cek apakah ada izin mengulang dari guru di dashboard
+        const hasRepeatPermission = studentPastSubs.some(
+          sub => sub.allowRepeat === true || sub.statusNote === 'Mengulang Ujian'
+        );
+
+        if (!hasRepeatPermission) {
+          setLoginError(
+            `Ujian ini diatur dalam mode "Sekali Pengerjaan" dan siswa atas nama "${studentName}" (${studentNo}) telah tercatat menyelesaikan sesi ujian sebelumnya. Akses telah ditutup oleh server. Jika ingin mengulang pengerjaan, silakan hubungi guru pengawas untuk mereset status nilai Anda di dasbor dengan keterangan "Mengulang Ujian".`
+          );
+          return;
+        }
+      }
+    }
+
     // Pastikan seluruh butir soal ujian telah termuat sebelum memulai
     let qs = StorageService.getQuestionsByExamId(selectedExam.id);
     if (qs.length === 0) {
@@ -367,6 +401,19 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     const passed = percentage >= selectedExam.passingScore;
     const timeSpent = (selectedExam.durationMinutes * 60) - timeRemainingSeconds;
 
+    // Bersihkan entri "Mengulang Ujian" sebelumnya jika ada agar data tidak duplikat
+    const allSubs = StorageService.getSubmissions();
+    const oldRepeatSub = allSubs.find(s =>
+      String(s.examId).trim().toLowerCase() === String(selectedExam.id).trim().toLowerCase() &&
+      (
+        (studentNo.trim() && s.studentNo?.trim().toLowerCase() === studentNo.trim().toLowerCase()) ||
+        (studentName.trim() && s.studentName?.trim().toLowerCase() === studentName.trim().toLowerCase())
+      ) && (s.allowRepeat === true || s.statusNote === 'Mengulang Ujian')
+    );
+    if (oldRepeatSub) {
+      StorageService.deleteSubmission(oldRepeatSub.id);
+    }
+
     const submission: Submission = {
       id: `SUB-${Date.now()}`,
       examId: selectedExam.id,
@@ -378,6 +425,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       maxScore,
       percentage,
       passed,
+      statusNote: 'Selesai',
+      allowRepeat: false,
       submittedAt: new Date().toISOString(),
       tabSwitchCount,
       timeSpentSeconds: timeSpent,
@@ -970,12 +1019,36 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               >
                 <div>
                   {/* Subject & Grade unboxed metadata */}
-                  <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
-                    <span className="font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">
-                      {exam.subject}
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span>Kelas {exam.grade}</span>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <span className="font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">
+                        {exam.subject}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>Kelas {exam.grade}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        exam.attemptMode === 'unlimited'
+                          ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                          : 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                      }`}>
+                        {exam.attemptMode === 'unlimited' ? 'Mode: Berulang' : 'Mode: Sekali (1x)'}
+                      </span>
+
+                      {exam.sessionStatus === 'ended' ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1">
+                          <StopCircle className="w-3 h-3 text-rose-500" />
+                          <span>Sesi Ditutup</span>
+                        </span>
+                      ) : exam.sessionStatus === 'active' ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                          <span>Aktif</span>
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-3 line-clamp-2">
@@ -1023,13 +1096,24 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 </div>
 
                 {/* Action button */}
-                <button
-                  onClick={() => handleStartExamClick(exam)}
-                  className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Mulai Kerjakan Ujian</span>
-                </button>
+                {exam.sessionStatus === 'ended' ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <StopCircle className="w-3.5 h-3.5" />
+                    <span>Sesi Ujian Telah Dihentikan</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleStartExamClick(exam)}
+                    className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Mulai Kerjakan Ujian</span>
+                  </button>
+                )}
               </div>
             );
           })}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Exam, 
   Question, 
@@ -80,6 +80,7 @@ import {
   FileCheck,
   Play,
   StopCircle,
+  RotateCcw,
   FastForward
 } from 'lucide-react';
 
@@ -90,7 +91,7 @@ interface TeacherDashboardProps {
   submissions: Submission[];
   onUpdateProfile: (p: SchoolProfile) => void;
   onRefreshData: () => void;
-  onSelectTab: (tab: any, examId?: string) => void;
+  onSelectTab: (tab: any, examId?: string, extra?: { reportMode?: 'klasikal' | 'individu'; studentNis?: string }) => void;
   onOpenSettings?: () => void;
 }
 
@@ -244,6 +245,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [analyticsSearchQuery, setAnalyticsSearchQuery] = useState<string>('');
   const [analyticsStatusFilter, setAnalyticsStatusFilter] = useState<'all' | 'passed' | 'remedial' | 'tab-switch'>('all');
   const [analyticsClassFilter, setAnalyticsClassFilter] = useState<string>('all');
+
+  // Report Mode (Opsi A: Laporan Klasikal vs Opsi B: Laporan Individu SDN Pisangcandi 1)
+  const [reportMode, setReportMode] = useState<'klasikal' | 'individu'>('klasikal');
+  const [selectedReportStudentNis, setSelectedReportStudentNis] = useState<string>('');
 
   // Share Exam Modal State
   const [sharingExam, setSharingExam] = useState<Exam | null>(null);
@@ -976,6 +981,83 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     setIsEditingSubmissionModalOpen(false);
     setEditingSubmission(null);
     onRefreshData();
+  };
+
+  // Daftar Siswa untuk Dropdown Opsi B (Laporan Individu SDN Pisangcandi 1)
+  const reportStudentsList = useMemo(() => {
+    const list: { nis: string; name: string; classGrade: string; hasSubmitted: boolean }[] = [];
+    const seenNis = new Set<string>();
+
+    const targetSubs = analyticsExamFilter === 'all'
+      ? (submissions || [])
+      : (submissions || []).filter(s => String(s.examId).trim().toLowerCase() === String(analyticsExamFilter).trim().toLowerCase());
+
+    targetSubs.forEach(sub => {
+      if (sub.studentNo && !seenNis.has(sub.studentNo.toLowerCase())) {
+        seenNis.add(sub.studentNo.toLowerCase());
+        list.push({
+          nis: sub.studentNo,
+          name: sub.studentName,
+          classGrade: sub.classGrade || '',
+          hasSubmitted: true
+        });
+      }
+    });
+
+    students.forEach(st => {
+      if (st.studentNo && !seenNis.has(st.studentNo.toLowerCase())) {
+        seenNis.add(st.studentNo.toLowerCase());
+        list.push({
+          nis: st.studentNo,
+          name: st.fullName,
+          classGrade: st.classGrade || '',
+          hasSubmitted: false
+        });
+      }
+    });
+
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }, [submissions, students, analyticsExamFilter]);
+
+  // Handler: Hapus Nilai & Beri Keterangan "Mengulang Ujian"
+  const handleAllowRetake = async (sub: Submission) => {
+    if (!window.confirm(`Izinkan siswa "${sub.studentName}" (${sub.studentNo}) mengulang ujian?\n\nSesuai prosedur, nilai ujian sebelumnya akan dihapus (direset) dan status diubah menjadi "Mengulang Ujian" agar siswa dapat login kembali.`)) {
+      return;
+    }
+
+    const updated: Submission = {
+      ...sub,
+      score: 0,
+      percentage: 0,
+      passed: false,
+      statusNote: 'Mengulang Ujian',
+      allowRepeat: true,
+      feedback: 'Status direset oleh guru: Mengulang Ujian'
+    };
+
+    StorageService.updateSubmission(sub.id, updated);
+
+    // Otomatis sinkronkan ke Google Sheets jika terhubung
+    const currentList = StorageService.getSubmissions();
+    await GasClient.pushSubmissions(currentList);
+
+    StorageService.addLog('EXAM', `Guru mengizinkan siswa ${sub.studentName} mengulang ujian (status: Mengulang Ujian, nilai dihapus)`, undefined, 'warn');
+    setDraftToast(`Siswa "${sub.studentName}" berhasil diatur ke status "Mengulang Ujian". Nilai direset dan siswa dapat login kembali.`);
+    onRefreshData();
+    setTimeout(() => setDraftToast(null), 4000);
+  };
+
+  // Handler: Cetak Laporan Resmi (Klasikal / Individu)
+  const handlePrintOfficialReport = () => {
+    if (reportMode === 'individu' && !selectedReportStudentNis) {
+      alert('Silakan pilih nama siswa terlebih dahulu dari dropdown!');
+      return;
+    }
+    const targetExamId = analyticsExamFilter !== 'all' ? analyticsExamFilter : (exams[0]?.id || undefined);
+    onSelectTab('laporan-cetak', targetExamId, {
+      reportMode,
+      studentNis: selectedReportStudentNis
+    });
   };
 
   // Save Question as Draft
@@ -2115,12 +2197,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
               <button
                 type="button"
-                onClick={() => window.print()}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors no-print"
-                title="Cetak lembar rekap nilai siswa"
+                onClick={handlePrintOfficialReport}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs no-print cursor-pointer"
+                title="Cetak lembar laporan resmi (SDN Pisangcandi 1) tanpa screenshot aplikasi"
               >
                 <Printer className="w-3.5 h-3.5" />
-                <span>Cetak Rekap</span>
+                <span>{reportMode === 'klasikal' ? 'Cetak Laporan Rekap' : 'Cetak Rapor Individu'}</span>
               </button>
 
               <button
@@ -2193,6 +2275,71 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           {/* Sub-tab 1: Rekapitulasi Nilai Siswa */}
           {analyticsViewMode === 'rekap' && (
             <div className="space-y-6 animate-fadeIn">
+              {/* PEMILIH JENIS LAPORAN (OPSI A: KLASIKAL vs OPSI B: INDIVIDU) */}
+              <div className="report-mode-selector bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 no-print">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      Pilih Jenis Laporan:
+                    </label>
+                    <select
+                      id="jenisLaporan"
+                      value={reportMode}
+                      onChange={(e) => setReportMode(e.target.value as 'klasikal' | 'individu')}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="klasikal">Opsi A: Laporan Hasil Ujian Klasikal (Rekap Kelas)</option>
+                      <option value="individu">Opsi B: Laporan Hasil Ujian Individu (Per Siswa)</option>
+                    </select>
+
+                    {/* Container Tambahan khusus untuk Opsi B (Pilih Nama Siswa) */}
+                    {reportMode === 'individu' && (
+                      <div id="containerPilihSiswa" className="flex items-center gap-2 animate-fadeIn">
+                        <label className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                          Pilih Siswa:
+                        </label>
+                        <select
+                          id="selectSiswa"
+                          value={selectedReportStudentNis}
+                          onChange={(e) => setSelectedReportStudentNis(e.target.value)}
+                          className="px-3 py-1.5 text-xs font-bold rounded-lg border border-indigo-400 bg-indigo-50/70 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="">-- Cari / Pilih Siswa --</option>
+                          {reportStudentsList.map((s: { nis: string; name: string; classGrade: string; hasSubmitted: boolean }) => (
+                            <option key={s.nis} value={s.nis}>
+                              {s.nis} - {s.name} ({s.classGrade}) {s.hasSubmitted ? '✓ Selesai' : '(Belum Kirim)'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handlePrintOfficialReport}
+                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                      title="Buka format cetak resmi berstandar sekolah"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>{reportMode === 'klasikal' ? 'Cetak Format Rekap Klasikal' : 'Cetak Lembar Rapor Individu'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
+                  <span>
+                    {reportMode === 'klasikal'
+                      ? 'Format Klasikal: Rekapitulasi kelas, formula rata-rata, KKM, serta tanda tangan Kepala Sekolah & Guru (Kop SDN Pisangcandi 1).'
+                      : 'Format Individu: Lembar rapor hasil asesmen per siswa, capaian Tujuan Pembelajaran (TP), dan kolom tanda tangan Wali Murid & Guru.'}
+                  </span>
+                  <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                    Standar A4 Sekolah (Tanpa Screenshot)
+                  </span>
+                </div>
+              </div>
+
               {/* Interactive Filter & Search Controls */}
               <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 no-print">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -2493,16 +2640,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           {examObj?.title || sub.examId}
                         </td>
                         <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm">
-                          {Number(sub.percentage) || 0}%
+                          {sub.statusNote === 'Mengulang Ujian' ? (
+                            <span className="text-amber-600 dark:text-amber-400 font-sans text-xs">Reset</span>
+                          ) : (
+                            `${Number(sub.percentage) || 0}%`
+                          )}
                         </td>
                         <td className="p-3 text-center">
-                          <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
-                            sub.passed
-                              ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-                              : 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
-                          }`}>
-                            {sub.passed ? 'LULUS' : 'REMEDIAL'}
-                          </span>
+                          {sub.statusNote === 'Mengulang Ujian' ? (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 animate-pulse">
+                              MENGULANG UJIAN
+                            </span>
+                          ) : (
+                            <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-semibold ${
+                              sub.passed
+                                ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                            }`}>
+                              {sub.passed ? 'LULUS' : 'REMEDIAL'}
+                            </span>
+                          )}
                         </td>
                         <td className="p-3 text-center font-mono">
                           {(Number(sub.tabSwitchCount) || 0) > 0 ? (
@@ -2528,6 +2685,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                               title="Lihat rincian lembar jawaban siswa"
                             >
                               Rincian
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAllowRetake(sub)}
+                              className="px-2 py-1 text-xs text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/60 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded transition-colors flex items-center gap-1 font-semibold"
+                              title="Hapus nilai siswa ini dan izinkan untuk mengulang ujian"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Mengulang Ujian</span>
                             </button>
                             <button
                               type="button"
@@ -4062,6 +4228,60 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 </div>
               </div>
 
+              {/* Opsi Pengerjaan Murid (Berulang vs Sekali) */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                  Opsi Pengerjaan Murid
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
+                    (editingExam.attemptMode || 'single') === 'single'
+                      ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/40 shadow-xs'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="attemptMode"
+                      value="single"
+                      checked={(editingExam.attemptMode || 'single') === 'single'}
+                      onChange={() => setEditingExam({ ...editingExam, attemptMode: 'single' })}
+                      className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                        Sekali (1x Pengerjaan)
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 block leading-tight">
+                        Murid hanya bisa mengerjakan 1 kali. Akses selanjutnya ditutup server berdasarkan nama/NIS.
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
+                    editingExam.attemptMode === 'unlimited'
+                      ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/40 shadow-xs'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="attemptMode"
+                      value="unlimited"
+                      checked={editingExam.attemptMode === 'unlimited'}
+                      onChange={() => setEditingExam({ ...editingExam, attemptMode: 'unlimited' })}
+                      className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                        Berulang (Bisa Mengulang)
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 block leading-tight">
+                        Murid dapat mengerjakan sesi ujian berkali-kali untuk latihan atau remedial mandiri.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
               <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -5260,6 +5480,76 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     onChange={(e) => setEditingSubmission({ ...editingSubmission, tabSwitchCount: Number(e.target.value) || 0 })}
                     className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                   />
+                </div>
+              </div>
+
+              {/* Status Pengerjaan & Opsi Mengulang Ujian */}
+              <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-800/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                    Status Pengerjaan Murid:
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingSubmission({
+                        ...editingSubmission,
+                        score: 0,
+                        percentage: 0,
+                        passed: false,
+                        statusNote: 'Mengulang Ujian',
+                        allowRepeat: true,
+                        feedback: 'Nilai direset oleh guru: Mengulang Ujian'
+                      });
+                    }}
+                    className="px-2.5 py-1 text-[11px] font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors flex items-center gap-1 shadow-2xs"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Hapus Nilai & Set "Mengulang Ujian"</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label className={`p-2 rounded-lg border cursor-pointer flex items-center gap-2 ${
+                    editingSubmission.statusNote !== 'Mengulang Ujian'
+                      ? 'border-indigo-500 bg-white dark:bg-slate-900 font-bold text-indigo-700 dark:text-indigo-300'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="statusNote"
+                      checked={editingSubmission.statusNote !== 'Mengulang Ujian'}
+                      onChange={() => setEditingSubmission({
+                        ...editingSubmission,
+                        statusNote: 'Selesai',
+                        allowRepeat: false
+                      })}
+                      className="text-indigo-600"
+                    />
+                    <span>Selesai (Nilai Sah)</span>
+                  </label>
+
+                  <label className={`p-2 rounded-lg border cursor-pointer flex items-center gap-2 ${
+                    editingSubmission.statusNote === 'Mengulang Ujian'
+                      ? 'border-amber-500 bg-white dark:bg-slate-900 font-bold text-amber-700 dark:text-amber-300'
+                      : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="statusNote"
+                      checked={editingSubmission.statusNote === 'Mengulang Ujian'}
+                      onChange={() => setEditingSubmission({
+                        ...editingSubmission,
+                        score: 0,
+                        percentage: 0,
+                        passed: false,
+                        statusNote: 'Mengulang Ujian',
+                        allowRepeat: true
+                      })}
+                      className="text-amber-600"
+                    />
+                    <span>Mengulang Ujian (Reset)</span>
+                  </label>
                 </div>
               </div>
 

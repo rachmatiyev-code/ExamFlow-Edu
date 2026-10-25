@@ -73,29 +73,37 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
   onOpenSettings
 }) => {
   const modalContainerRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // Tutup menu dengan tombol "Esc" (dukung keydown capture phase agar selalu tertangkap)
   useEffect(() => {
     if (!isOpen) return;
 
-    // Auto focus container saat modal terbuka
-    modalContainerRef.current?.focus();
+    // Hanya fokuskan container sekali saat modal pertama kali terbuka jika tidak sedang mengetik
+    const timer = setTimeout(() => {
+      const activeEl = document.activeElement;
+      if (!activeEl || (activeEl.tagName !== 'INPUT' && activeEl.tagName !== 'TEXTAREA')) {
+        modalContainerRef.current?.focus();
+      }
+    }, 50);
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
         e.preventDefault();
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown, true);
     document.addEventListener('keydown', handleKeyDown, true);
     return () => {
+      clearTimeout(timer);
       window.removeEventListener('keydown', handleKeyDown, true);
       document.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

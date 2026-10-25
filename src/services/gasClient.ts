@@ -640,6 +640,34 @@ export class GasClient {
   }
 
   /**
+   * Menyimpan dan menyinkronkan seluruh rekaman nilai siswa ke Google Sheets
+   */
+  static async pushSubmissions(submissions: Submission[]): Promise<{ success: boolean; message: string; count?: number }> {
+    StorageService.saveSubmissions(submissions);
+    const url = this.getWebAppUrl();
+    if (!url) {
+      return { success: true, message: 'Rekaman nilai tersimpan di lokal.', count: submissions.length };
+    }
+
+    try {
+      const res = await this.postToGas({
+        action: 'syncSubmissions',
+        submissions: submissions.map(s => ({
+          ...s,
+          syncStatus: 'synced'
+        }))
+      });
+      return {
+        success: true,
+        message: res.message || `${submissions.length} rekaman nilai berhasil disinkronkan ke Google Sheets!`,
+        count: submissions.length
+      };
+    } catch (err: any) {
+      return { success: true, message: 'Rekaman nilai tersimpan di lokal.' };
+    }
+  }
+
+  /**
    * Menyimpan dan menyinkronkan daftar akun pengguna / guru / admin ke Google Sheets
    */
   static async pushUsers(users: UserAccount[]): Promise<{ success: boolean; message: string; count?: number }> {

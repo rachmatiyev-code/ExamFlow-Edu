@@ -31,6 +31,9 @@ const SHEETS = {
   QUESTIONS: 'Questions',
   STUDENTS: 'Students',
   SUBMISSIONS: 'Submissions',
+  DATA_MENTAH: 'Data_Mentah',
+  LAPORAN_KLASIKAL: 'Laporan_Klasikal',
+  LAPORAN_INDIVIDU: 'Laporan_Individu',
   USERS: 'Users',
   CURRICULUM: 'Curriculum',
   LOGS: 'Logs'
@@ -49,9 +52,9 @@ function initDatabase() {
     shProfile = ss.insertSheet(SHEETS.PROFILE);
     shProfile.appendRow(['name', 'npsn', 'address', 'logoUrl', 'academicYear', 'semester', 'principalName', 'principalNip', 'teacherName', 'teacherNip', 'teacherSubject', 'teacherEmail', 'teacherTitle', 'updatedAt']);
     shProfile.appendRow([
-      'SMA Negeri 1 Nusantara',
-      '20104050',
-      'Jl. Pendidikan No. 45, Jakarta Pusat',
+      'SD NEGERI PISANGCANDI 1 MALANG',
+      '20533857',
+      'Jl. Raya Pisang Candi No. 1, Kec. Sukun, Kota Malang, Jawa Timur 65146',
       'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=200&auto=format&fit=crop&q=80',
       '2026/2027',
       'Ganjil',
@@ -59,19 +62,19 @@ function initDatabase() {
       '19750812 200003 1 002',
       'Siti Rahmawati, S.Pd.',
       '19820514 200801 2 009',
-      'Biologi & Sains Terapan',
-      'siti.rahmawati@sekolah.sch.id',
-      'Koordinator Kurikulum & Guru Mata Pelajaran',
+      'Pendidikan Pancasila & Tematik',
+      'siti.rahmawati@sdnpisangcandi1.sch.id',
+      'Guru Kelas & Koordinator Asesmen',
       new Date().toISOString()
     ]);
     formatHeaderRow(shProfile);
   }
 
-  // 2. Exams (Didukung Sesi Ujian & Hingga 15 Tujuan Pembelajaran)
+  // 2. Exams (Didukung attemptMode: 'single' | 'unlimited')
   let shExams = ss.getSheetByName(SHEETS.EXAMS);
   if (!shExams) {
     shExams = ss.insertSheet(SHEETS.EXAMS);
-    shExams.appendRow(['id', 'title', 'subject', 'grade', 'durationMinutes', 'passingScore', 'isStrict', 'allowReview', 'startsAt', 'endsAt', 'status', 'totalQuestions', 'token', 'instructions', 'sessionStatus', 'sessionStartedAt', 'sessionEndedAt', 'allowLateSubmission', 'lateExtensionMinutes', 'learningObjectives', 'createdAt', 'redeployCount']);
+    shExams.appendRow(['id', 'title', 'subject', 'grade', 'durationMinutes', 'passingScore', 'isStrict', 'allowReview', 'startsAt', 'endsAt', 'status', 'totalQuestions', 'token', 'instructions', 'sessionStatus', 'sessionStartedAt', 'sessionEndedAt', 'allowLateSubmission', 'lateExtensionMinutes', 'learningObjectives', 'attemptMode', 'createdAt', 'redeployCount']);
     formatHeaderRow(shExams);
   }
 
@@ -91,12 +94,54 @@ function initDatabase() {
     formatHeaderRow(shStudents);
   }
 
-  // 5. Submissions
+  // 5. Submissions (Mendukung statusNote & allowRepeat untuk Mengulang Ujian)
   let shSubmissions = ss.getSheetByName(SHEETS.SUBMISSIONS);
   if (!shSubmissions) {
     shSubmissions = ss.insertSheet(SHEETS.SUBMISSIONS);
-    shSubmissions.appendRow(['id', 'examId', 'studentNo', 'studentName', 'classGrade', 'answersJson', 'score', 'maxScore', 'percentage', 'passed', 'submittedAt', 'tabSwitchCount', 'timeSpentSeconds', 'feedback']);
+    shSubmissions.appendRow(['id', 'examId', 'studentNo', 'studentName', 'classGrade', 'answersJson', 'score', 'maxScore', 'percentage', 'passed', 'submittedAt', 'tabSwitchCount', 'timeSpentSeconds', 'feedback', 'statusNote', 'allowRepeat']);
     formatHeaderRow(shSubmissions);
+  }
+
+  // 5A. Tab 1: Data_Mentah (Sumber Data Sinkronisasi & Rumus Rekapitulasi)
+  let shDataMentah = ss.getSheetByName(SHEETS.DATA_MENTAH);
+  if (!shDataMentah) {
+    shDataMentah = ss.insertSheet(SHEETS.DATA_MENTAH);
+    shDataMentah.appendRow(['NIS', 'Nama Siswa', 'Kelas', 'Paket Ujian', 'Nilai (%)', 'Status', 'Pindah Tab', 'Durasi (Detik)', 'Status Note', 'Waktu Kirim']);
+    formatHeaderRow(shDataMentah);
+  }
+
+  // 5B. Tab 2: Laporan_Klasikal (Rekapitulasi Kelas dengan Formula Google Sheets)
+  let shLaporanKlasikal = ss.getSheetByName(SHEETS.LAPORAN_KLASIKAL);
+  if (!shLaporanKlasikal) {
+    shLaporanKlasikal = ss.insertSheet(SHEETS.LAPORAN_KLASIKAL);
+    shLaporanKlasikal.appendRow(['PEMERINTAH KOTA MALANG - SD NEGERI PISANGCANDI 1 MALANG']);
+    shLaporanKlasikal.appendRow(['REKAPITULASI HASIL ASESMEN KLASIKAL KELAS - TA 2026/2027']);
+    shLaporanKlasikal.appendRow([]);
+    shLaporanKlasikal.appendRow(['Ringkasan Statistik Kelas:', 'Nilai Formula']);
+    shLaporanKlasikal.appendRow(['Total Peserta Ujian', '=COUNTA(Data_Mentah!A2:A)']);
+    shLaporanKlasikal.appendRow(['Rata-rata Nilai Kelas', '=IFERROR(AVERAGE(Data_Mentah!E2:E), 0)']);
+    shLaporanKlasikal.appendRow(['Persentase Ketuntasan KKM', '=IFERROR(COUNTIF(Data_Mentah!F2:F, "Lulus") / COUNTA(Data_Mentah!A2:A), 0)']);
+    shLaporanKlasikal.appendRow(['Catatan Pelanggaran Pindah Tab', '=IFERROR(SUM(Data_Mentah!G2:G), 0)']);
+    shLaporanKlasikal.appendRow([]);
+    shLaporanKlasikal.appendRow(['No.', 'NIS', 'Nama Siswa', 'Nilai Akhir (%)', 'Predikat', 'Status Kelulusan', 'Keterangan']);
+  }
+
+  // 5C. Tab 3: Laporan_Individu (Raport / Lembar Hasil Siswa dengan VLOOKUP Dinamis)
+  let shLaporanIndividu = ss.getSheetByName(SHEETS.LAPORAN_INDIVIDU);
+  if (!shLaporanIndividu) {
+    shLaporanIndividu = ss.insertSheet(SHEETS.LAPORAN_INDIVIDU);
+    shLaporanIndividu.appendRow(['SD NEGERI PISANGCANDI 1 MALANG - LEMBAR RAPOR HASIL BELAJAR PESERTA DIDIK']);
+    shLaporanIndividu.appendRow([]);
+    shLaporanIndividu.appendRow(['Pilih NIS Siswa (Sel B3):', '1001']);
+    shLaporanIndividu.appendRow(['Nama Siswa:', '=IFERROR(VLOOKUP(B3, Data_Mentah!A2:J, 2, FALSE), "-")']);
+    shLaporanIndividu.appendRow(['Kelas / Rombel:', '=IFERROR(VLOOKUP(B3, Data_Mentah!A2:J, 3, FALSE), "-")']);
+    shLaporanIndividu.appendRow(['Paket Ujian:', '=IFERROR(VLOOKUP(B3, Data_Mentah!A2:J, 4, FALSE), "-")']);
+    shLaporanIndividu.appendRow(['Perolehan Nilai (%):', '=IFERROR(VLOOKUP(B3, Data_Mentah!A2:J, 5, FALSE), 0)']);
+    shLaporanIndividu.appendRow(['Status Ketuntasan:', '=IFERROR(VLOOKUP(B3, Data_Mentah!A2:J, 6, FALSE), "-")']);
+    shLaporanIndividu.appendRow(['Catatan Integritas (Pindah Tab):', '=IFERROR(VLOOKUP(B3, Data_Mentah!A2:J, 7, FALSE), 0)']);
+    shLaporanIndividu.appendRow(['Durasi Pengerjaan (Detik):', '=IFERROR(VLOOKUP(B3, Data_Mentah!A2:J, 8, FALSE), 0)']);
+    shLaporanIndividu.appendRow([]);
+    shLaporanIndividu.appendRow(['Tanda Tangan Guru Pengampu', '', 'Tanda Tangan Orang Tua / Wali']);
   }
 
   // 6. Users
@@ -246,8 +291,11 @@ function doPost(e) {
 
     if (action === 'saveSubmission') {
       const sub = payload.submission;
-      const sh = ss.getSheetByName(SHEETS.SUBMISSIONS);
-      if (!sh) initDatabase();
+      let sh = ss.getSheetByName(SHEETS.SUBMISSIONS);
+      if (!sh) {
+        initDatabase();
+        sh = ss.getSheetByName(SHEETS.SUBMISSIONS);
+      }
       
       sh.appendRow([
         sub.id,
@@ -263,11 +311,30 @@ function doPost(e) {
         sub.submittedAt || new Date().toISOString(),
         sub.tabSwitchCount || 0,
         sub.timeSpentSeconds || 0,
-        sub.feedback || ''
+        sub.feedback || '',
+        sub.statusNote || 'Selesai',
+        sub.allowRepeat ? true : false
       ]);
+
+      // Mirror ke Tab 1: Data_Mentah (Sumber Data Sinkronisasi & Rumus Rekapitulasi)
+      let shDataMentah = ss.getSheetByName(SHEETS.DATA_MENTAH);
+      if (shDataMentah) {
+        shDataMentah.appendRow([
+          sub.studentNo,
+          sub.studentName,
+          sub.classGrade || '',
+          sub.examId || '',
+          sub.percentage,
+          sub.passed ? 'Lulus' : 'Remedial',
+          sub.tabSwitchCount || 0,
+          sub.timeSpentSeconds || 0,
+          sub.statusNote || 'Selesai',
+          sub.submittedAt || new Date().toISOString()
+        ]);
+      }
       
-      logAction('SYNC', 'Jawaban ujian disimpan: ' + sub.studentName + ' (Nilai: ' + sub.percentage + '%)');
-      return jsonResponse({ status: 'success', message: 'Jawaban tersimpan di Google Sheets', submissionId: sub.id });
+      logAction('SYNC', 'Jawaban ujian disimpan: ' + sub.studentName + ' (Nilai: ' + sub.percentage + '%, Status: ' + (sub.statusNote || 'Selesai') + ')');
+      return jsonResponse({ status: 'success', message: 'Jawaban tersimpan di Google Sheets (Submissions & Data_Mentah)', submissionId: sub.id });
     }
 
     if (action === 'saveStudents' || action === 'saveStudentList' || action === 'syncStudents') {

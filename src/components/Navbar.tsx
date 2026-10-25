@@ -3,8 +3,8 @@ import { SchoolProfile, AppSettings } from '../types';
 import { Sun, Moon, RefreshCw, CheckCircle2, AlertCircle, CloudOff } from 'lucide-react';
 
 interface NavbarProps {
-  currentTab: 'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'logs';
-  onSelectTab: (tab: 'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'logs') => void;
+  currentTab: 'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'laporan-cetak' | 'logs';
+  onSelectTab: (tab: 'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'laporan-cetak' | 'logs') => void;
   profile: SchoolProfile;
   settings: AppSettings;
   onOpenSettings: () => void;

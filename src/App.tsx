@@ -19,6 +19,7 @@ import { StudentPortal } from './components/StudentPortal';
 import { TeacherDashboard } from './components/TeacherDashboard';
 import { KisiKisiMatrix } from './components/KisiKisiMatrix';
 import { OfficialExamPrintView } from './components/OfficialExamPrintView';
+import { OfficialReportPrintView } from './components/OfficialReportPrintView';
 import { LogsView } from './components/LogsView';
 import { SettingsModal } from './components/SettingsModal';
 
@@ -32,8 +33,10 @@ export default function App() {
   const [logs, setLogs] = useState<AppLog[]>(() => StorageService.getLogs());
 
   // UI Navigation State
-  const [currentTab, setCurrentTab] = useState<'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'logs'>('student');
+  const [currentTab, setCurrentTab] = useState<'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'laporan-cetak' | 'logs'>('student');
   const [printTargetExamId, setPrintTargetExamId] = useState<string | undefined>(undefined);
+  const [reportPrintMode, setReportPrintMode] = useState<'klasikal' | 'individu'>('klasikal');
+  const [reportPrintStudentNis, setReportPrintStudentNis] = useState<string>('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncSuccessBanner, setSyncSuccessBanner] = useState<string | null>(null);
@@ -264,8 +267,10 @@ export default function App() {
               refreshAllData();
             }}
             onRefreshData={refreshAllData}
-            onSelectTab={(tab, examId) => {
+            onSelectTab={(tab, examId, extra) => {
               if (examId) setPrintTargetExamId(examId);
+              if (extra?.reportMode) setReportPrintMode(extra.reportMode);
+              if (extra?.studentNis) setReportPrintStudentNis(extra.studentNis);
               setCurrentTab(tab);
             }}
             onOpenSettings={() => setIsSettingsOpen(true)}
@@ -284,6 +289,19 @@ export default function App() {
             profile={profile}
             exams={exams}
             initialExamId={printTargetExamId}
+            onBack={() => setCurrentTab('teacher')}
+          />
+        )}
+
+        {currentTab === 'laporan-cetak' && (
+          <OfficialReportPrintView
+            profile={profile}
+            exams={exams}
+            submissions={submissions}
+            students={students}
+            initialExamId={printTargetExamId}
+            initialReportMode={reportPrintMode}
+            initialStudentNis={reportPrintStudentNis}
             onBack={() => setCurrentTab('teacher')}
           />
         )}

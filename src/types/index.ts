@@ -85,6 +85,7 @@ export interface Exam {
   sessionStatus?: 'scheduled' | 'active' | 'ended'; // Kontrol sesi langsung: dijadwalkan, aktif, atau ditutup
   sessionStartedAt?: string;
   sessionEndedAt?: string;
+  attemptMode?: 'unlimited' | 'single'; // 'unlimited' (berulang) atau 'single' (sekali saja)
   allowLateSubmission?: boolean; // Izinkan siswa terlambat melanjutkan sesi
   lateExtensionMinutes?: number; // Menit perpanjangan sesi untuk siswa terlambat
   totalQuestions: number;
@@ -121,6 +122,8 @@ export interface Submission {
   timeSpentSeconds: number;
   syncStatus: 'synced' | 'pending' | 'failed';
   feedback?: string;
+  statusNote?: string; // 'Selesai' | 'Mengulang Ujian'
+  allowRepeat?: boolean; // Izin mengulang dari guru
 }
 
 export interface UserAccount {

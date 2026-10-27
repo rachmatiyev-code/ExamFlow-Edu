@@ -488,9 +488,16 @@ export class GasClient {
       StorageService.addLog('SYNC', `Ujian "${updatedExam.title}" (${questions.length} butir soal) berhasil disinkronkan ke Google Sheets!`, undefined, 'success');
       return { success: true, message: `Ujian dan ${questions.length} butir soal berhasil disinkronkan ke Google Sheets!` };
     } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      StorageService.addLog('SYNC', `Gagal push ujian ke Google Sheets: ${errMsg}. Data tetap aman di lokal.`, undefined, 'warn');
-      return { success: false, message: `Gagal sinkron ke Sheets: ${errMsg}. Data tersimpan di lokal.` };
+      const rawErrMsg = err?.message || String(err);
+      const isColMismatch = rawErrMsg.includes('number of columns in the data does not match') ||
+                            rawErrMsg.includes('range has 15') ||
+                            rawErrMsg.includes('The data has 16');
+      const errMsg = isColMismatch
+        ? `Pembaruan Kode Google Apps Script Diperlukan: Google Sheets Anda saat ini memiliki 15 kolom, sedangkan versi terbaru butir soal membutuhkan 16 kolom (Tujuan Pembelajaran). Silakan salin script terbaru dari tab "Kode Google Apps Script", simpan (Ctrl+S) di Apps Script spreadsheet Anda, dan deploy ulang.`
+        : `Gagal sinkron ke Sheets: ${rawErrMsg}. Data tersimpan di lokal.`;
+
+      StorageService.addLog('SYNC', errMsg, undefined, 'warn');
+      return { success: false, message: errMsg };
     }
   }
 
@@ -524,13 +531,32 @@ export class GasClient {
         questions
       });
 
-      // Fallback ke saveExam jika action saveQuestions belum tersedia pada script GAS lawas
-      if (!res.success && exam) {
-        res = await this.postToGas({
-          action: 'saveExam',
-          exam: { ...exam, totalQuestions: questions.length },
-          questions
-        });
+      // Jika gagal, cek apakah error column mismatch
+      if (!res.success) {
+        const rawMsg = res.message || '';
+        const isColMismatch = rawMsg.includes('number of columns in the data does not match') ||
+                              rawMsg.includes('range has 15') ||
+                              rawMsg.includes('The data has 16');
+        if (isColMismatch) {
+          // Coba panggil repairDatabase untuk auto-upgrade kolom
+          try {
+            await this.postToGas({ action: 'repairDatabase' });
+            res = await this.postToGas({
+              action: 'saveQuestions',
+              examId,
+              questions
+            });
+          } catch {}
+        }
+
+        // Fallback ke saveExam jika action saveQuestions belum tersedia pada script GAS lawas
+        if (!res.success && exam) {
+          res = await this.postToGas({
+            action: 'saveExam',
+            exam: { ...exam, totalQuestions: questions.length },
+            questions
+          });
+        }
       }
 
       if (!res.success) {
@@ -544,11 +570,19 @@ export class GasClient {
         message: `${questions.length} butir soal berhasil disinkronkan ke Google Sheets!`
       };
     } catch (err: any) {
-      const errMsg = err?.message || String(err);
-      StorageService.addLog('SYNC', `Gagal menyimpan soal ke Google Sheets: ${errMsg}. Soal tetap tersimpan di lokal.`, undefined, 'error');
+      const rawErrMsg = err?.message || String(err);
+      const isColMismatch = rawErrMsg.includes('number of columns in the data does not match') ||
+                            rawErrMsg.includes('range has 15') ||
+                            rawErrMsg.includes('The data has 16');
+      
+      const errMsg = isColMismatch
+        ? `Pembaruan Kode Google Apps Script Diperlukan: Google Sheets Anda saat ini memiliki 15 kolom, sedangkan versi terbaru butir soal membutuhkan 16 kolom (penambahan Tujuan Pembelajaran). Silakan salin script terbaru dari tab "Kode Google Apps Script", simpan (Ctrl+S) di Apps Script spreadsheet Anda, dan deploy ulang.`
+        : `Gagal sinkron ke Google Sheets: ${rawErrMsg}. Butir soal tetap aman di lokal.`;
+
+      StorageService.addLog('SYNC', errMsg, undefined, 'error');
       return {
         success: false,
-        message: `Gagal sinkron ke Google Sheets: ${errMsg}. Butir soal tetap aman di lokal.`
+        message: errMsg
       };
     }
   }

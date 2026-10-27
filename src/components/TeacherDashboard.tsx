@@ -146,6 +146,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [draftToast, setDraftToast] = useState<string | null>(null);
   const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
   const [isSyncingQuestionsToSheets, setIsSyncingQuestionsToSheets] = useState(false);
+  const [gasUpgradeModalOpen, setGasUpgradeModalOpen] = useState(false);
+  const [gasUpgradeModalMsg, setGasUpgradeModalMsg] = useState<string>('');
 
   // AI Generator Modal State
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -499,10 +501,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       if (res.success) {
         setDraftToast(`Sukses! ${qs.length} butir soal ujian "${exam.title}" berhasil disimpan di Google Sheets.`);
       } else {
-        alert(res.message);
+        if (res.message && (res.message.includes('Pembaruan Kode') || res.message.includes('15 kolom') || res.message.includes('16 kolom') || res.message.includes('match the number of columns'))) {
+          setGasUpgradeModalMsg(res.message);
+          setGasUpgradeModalOpen(true);
+        } else {
+          alert(res.message);
+        }
       }
     } catch (err: any) {
-      alert(`Gagal menyimpan soal ke Google Sheets: ${err?.message || err}`);
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes('Pembaruan Kode') || errMsg.includes('15 kolom') || errMsg.includes('16 kolom') || errMsg.includes('match the number of columns')) {
+        setGasUpgradeModalMsg(errMsg);
+        setGasUpgradeModalOpen(true);
+      } else {
+        alert(`Gagal menyimpan soal ke Google Sheets: ${errMsg}`);
+      }
     } finally {
       setIsSyncingQuestionsToSheets(false);
       onRefreshData();
@@ -5319,6 +5332,85 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors"
               >
                 Selesai
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          MODAL: PERINGATAN PEMBARUAN KODE APPS SCRIPT (COLUMN MISMATCH 15 vs 16)
+         --------------------------------------------------------- */}
+      {gasUpgradeModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-amber-300 dark:border-amber-700 animate-fadeIn space-y-4">
+            <div className="flex items-start gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Pembaruan Kode Apps Script Diperlukan
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Spreadsheet Anda membutuhkan pembaruan kode agar mendukung 16 kolom butir soal (Tujuan Pembelajaran).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGasUpgradeModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 space-y-2">
+              <p className="font-semibold text-amber-950 dark:text-amber-100">
+                Penyebab:
+              </p>
+              <p className="leading-relaxed text-[11px]">
+                Google Sheets Anda saat ini memiliki 15 kolom pada sheet <strong>Questions</strong>, sedangkan format terbaru telah disempurnakan menjadi 16 kolom untuk memuat <strong>Tujuan Pembelajaran (TP)</strong>. Script Google Apps Script terbaru telah dilengkapi auto-healing untuk mengatasi hal ini secara otomatis.
+              </p>
+              <p className="font-semibold text-amber-950 dark:text-amber-100 pt-1">
+                Langkah Pembaruan (1 Menit):
+              </p>
+              <ol className="list-decimal list-inside space-y-1 text-[11px] leading-relaxed">
+                <li>Klik tombol <strong>"Salin Kode Script Terbaru"</strong> di bawah.</li>
+                <li>Buka Spreadsheet Google Anda &rarr; menu <strong>Ekstensi</strong> &rarr; <strong>Apps Script</strong>.</li>
+                <li>Ganti seluruh isi <code>Code.gs</code> dengan kode yang disalin, lalu simpan (<strong>Ctrl + S</strong>).</li>
+                <li>Klik <strong>Deploy (Terapkan)</strong> &rarr; <strong>Kelola Penerapan</strong> &rarr; Edit (ikon pensil) &rarr; Versi Baru &rarr; <strong>Terapkan</strong>.</li>
+                <li>Kembali ke sini dan klik tombol <strong>"Sinkronkan ke Sheets"</strong>.</li>
+              </ol>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setGasUpgradeModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl transition-colors"
+              >
+                Tutup
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleCopyGasCode();
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>{hasCopiedGas ? 'Tersalin ke Clipboard!' : 'Salin Kode Script Terbaru'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setGasUpgradeModalOpen(false);
+                  setActiveTab('gas');
+                }}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors"
+              >
+                Buka Tab Script
               </button>
             </div>
           </div>

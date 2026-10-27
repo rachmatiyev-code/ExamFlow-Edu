@@ -39,6 +39,45 @@ const SHEETS = {
   LOGS: 'Logs'
 };
 
+// Canonical Headers untuk integritas & auto-healing kolom antar versi
+const CANONICAL_QU_HEADERS = [
+  'id', 'examId', 'order', 'prompt', 'type', 'mediaType', 'mediaUrl', 
+  'optionsJson', 'correctKeyJson', 'points', 'explanation', 'bloomLevel', 
+  'soloLevel', 'basicCompetency', 'indicator', 'learningObjective'
+];
+
+const CANONICAL_EX_HEADERS = [
+  'id', 'title', 'subject', 'grade', 'durationMinutes', 'passingScore', 
+  'isStrict', 'allowReview', 'startsAt', 'endsAt', 'status', 'totalQuestions', 
+  'token', 'instructions', 'sessionStatus', 'sessionStartedAt', 'sessionEndedAt', 
+  'allowLateSubmission', 'lateExtensionMinutes', 'learningObjectives', 'attemptMode', 
+  'createdAt', 'redeployCount'
+];
+
+/**
+ * Memastikan sheet memiliki jumlah kolom fisik yang mencukupi tanpa memicu exception batas kolom
+ */
+function ensureMinColumns(sheet, minCols) {
+  if (!sheet) return;
+  const currentMax = sheet.getMaxColumns();
+  if (currentMax < minCols) {
+    sheet.insertColumnsAfter(currentMax, minCols - currentMax);
+  }
+}
+
+/**
+ * Menormalkan array baris 2D agar semua baris memiliki panjang kolom seragam (targetCols)
+ */
+function normalize2DArray(rows, targetCols) {
+  return rows.map(function(row) {
+    const r = Array.isArray(row) ? row.slice(0, targetCols) : [];
+    while (r.length < targetCols) {
+      r.push('');
+    }
+    return r;
+  });
+}
+
 /**
  * Inisialisasi struktur sheet dan header kolom otomatis
  * Jalankan fungsi ini sekali setelah menempelkan script.
@@ -74,15 +113,25 @@ function initDatabase() {
   let shExams = ss.getSheetByName(SHEETS.EXAMS);
   if (!shExams) {
     shExams = ss.insertSheet(SHEETS.EXAMS);
-    shExams.appendRow(['id', 'title', 'subject', 'grade', 'durationMinutes', 'passingScore', 'isStrict', 'allowReview', 'startsAt', 'endsAt', 'status', 'totalQuestions', 'token', 'instructions', 'sessionStatus', 'sessionStartedAt', 'sessionEndedAt', 'allowLateSubmission', 'lateExtensionMinutes', 'learningObjectives', 'attemptMode', 'createdAt', 'redeployCount']);
+    shExams.appendRow(CANONICAL_EX_HEADERS);
+    formatHeaderRow(shExams);
+  } else {
+    ensureMinColumns(shExams, CANONICAL_EX_HEADERS.length);
+    const exHeaderRange = shExams.getRange(1, 1, 1, CANONICAL_EX_HEADERS.length);
+    exHeaderRange.setValues([CANONICAL_EX_HEADERS]);
     formatHeaderRow(shExams);
   }
 
-  // 3. Questions
+  // 3. Questions (Auto-healing 16 kolom untuk Tujuan Pembelajaran)
   let shQuestions = ss.getSheetByName(SHEETS.QUESTIONS);
   if (!shQuestions) {
     shQuestions = ss.insertSheet(SHEETS.QUESTIONS);
-    shQuestions.appendRow(['id', 'examId', 'order', 'prompt', 'type', 'mediaType', 'mediaUrl', 'optionsJson', 'correctKeyJson', 'points', 'explanation', 'bloomLevel', 'soloLevel', 'basicCompetency', 'indicator', 'learningObjective']);
+    shQuestions.appendRow(CANONICAL_QU_HEADERS);
+    formatHeaderRow(shQuestions);
+  } else {
+    ensureMinColumns(shQuestions, CANONICAL_QU_HEADERS.length);
+    const quHeaderRange = shQuestions.getRange(1, 1, 1, CANONICAL_QU_HEADERS.length);
+    quHeaderRange.setValues([CANONICAL_QU_HEADERS]);
     formatHeaderRow(shQuestions);
   }
 
@@ -406,9 +455,15 @@ function doPost(e) {
     if (action === 'saveExam') {
       const exam = payload.exam;
       const questions = payload.questions || [];
-      const shEx = ss.getSheetByName(SHEETS.EXAMS);
-      const shQu = ss.getSheetByName(SHEETS.QUESTIONS);
+      let shEx = ss.getSheetByName(SHEETS.EXAMS);
+      let shQu = ss.getSheetByName(SHEETS.QUESTIONS);
+      if (!shEx || !shQu) {
+        initDatabase();
+        shEx = ss.getSheetByName(SHEETS.EXAMS);
+        shQu = ss.getSheetByName(SHEETS.QUESTIONS);
+      }
       
+      ensureMinColumns(shEx, CANONICAL_EX_HEADERS.length);
       upsertRow(shEx, 'id', exam.id, [
         exam.id,
         exam.title,
@@ -430,15 +485,16 @@ function doPost(e) {
         exam.allowLateSubmission || false,
         exam.lateExtensionMinutes || 0,
         typeof exam.learningObjectives === 'string' ? exam.learningObjectives : JSON.stringify(exam.learningObjectives || []),
+        exam.attemptMode || 'single',
         exam.createdAt || new Date().toISOString(),
         exam.redeployCount || 0
       ]);
 
-      // Simpan butir soal secara atomik (tanpa resiko row hilang atau salah indeks)
+      // Simpan butir soal secara atomik (tanpa resiko mismatch kolom)
+      ensureMinColumns(shQu, CANONICAL_QU_HEADERS.length);
       const targetExamId = String(exam.id || '').trim().toLowerCase();
       const existingQuData = shQu.getDataRange().getValues();
-      const quHeaders = existingQuData[0] || ['id', 'examId', 'order', 'prompt', 'type', 'mediaType', 'mediaUrl', 'optionsJson', 'correctKeyJson', 'points', 'explanation', 'bloomLevel', 'soloLevel', 'basicCompetency', 'indicator', 'learningObjective'];
-      const examIdColIdx = quHeaders.indexOf('examId') !== -1 ? quHeaders.indexOf('examId') : 1;
+      const examIdColIdx = (existingQuData.length > 0 && existingQuData[0].indexOf('examId') !== -1) ? existingQuData[0].indexOf('examId') : 1;
       
       const retainedQuRows = [];
       for (let i = 1; i < existingQuData.length; i++) {
@@ -469,10 +525,13 @@ function doPost(e) {
         ];
       });
 
-      const finalQuRows = [quHeaders].concat(retainedQuRows).concat(qRows);
+      const rawCombinedRows = [CANONICAL_QU_HEADERS].concat(retainedQuRows).concat(qRows);
+      const finalQuRows = normalize2DArray(rawCombinedRows, CANONICAL_QU_HEADERS.length);
+
       shQu.clearContents();
       SpreadsheetApp.flush();
-      shQu.getRange(1, 1, finalQuRows.length, quHeaders.length).setValues(finalQuRows);
+      shQu.getRange(1, 1, finalQuRows.length, CANONICAL_QU_HEADERS.length).setValues(finalQuRows);
+      formatHeaderRow(shQu);
       SpreadsheetApp.flush();
 
       logAction('EXAM', 'Ujian disimpan: ' + exam.title + ' (' + questions.length + ' soal)');
@@ -482,13 +541,17 @@ function doPost(e) {
     if (action === 'saveQuestions' || action === 'syncQuestions') {
       const examId = String(payload.examId || '').trim();
       const questions = payload.questions || [];
-      const shQu = ss.getSheetByName(SHEETS.QUESTIONS);
-      const shEx = ss.getSheetByName(SHEETS.EXAMS);
+      let shQu = ss.getSheetByName(SHEETS.QUESTIONS);
+      let shEx = ss.getSheetByName(SHEETS.EXAMS);
+      if (!shQu) {
+        initDatabase();
+        shQu = ss.getSheetByName(SHEETS.QUESTIONS);
+      }
       
+      ensureMinColumns(shQu, CANONICAL_QU_HEADERS.length);
       const targetExamId = examId.toLowerCase();
       const existingQuData = shQu.getDataRange().getValues();
-      const quHeaders = existingQuData[0] || ['id', 'examId', 'order', 'prompt', 'type', 'mediaType', 'mediaUrl', 'optionsJson', 'correctKeyJson', 'points', 'explanation', 'bloomLevel', 'soloLevel', 'basicCompetency', 'indicator', 'learningObjective'];
-      const examIdColIdx = quHeaders.indexOf('examId') !== -1 ? quHeaders.indexOf('examId') : 1;
+      const examIdColIdx = (existingQuData.length > 0 && existingQuData[0].indexOf('examId') !== -1) ? existingQuData[0].indexOf('examId') : 1;
       
       const retainedQuRows = [];
       for (let i = 1; i < existingQuData.length; i++) {
@@ -519,23 +582,28 @@ function doPost(e) {
         ];
       });
 
-      const finalQuRows = [quHeaders].concat(retainedQuRows).concat(qRows);
+      const rawCombinedRows = [CANONICAL_QU_HEADERS].concat(retainedQuRows).concat(qRows);
+      const finalQuRows = normalize2DArray(rawCombinedRows, CANONICAL_QU_HEADERS.length);
+
       shQu.clearContents();
       SpreadsheetApp.flush();
-      shQu.getRange(1, 1, finalQuRows.length, quHeaders.length).setValues(finalQuRows);
+      shQu.getRange(1, 1, finalQuRows.length, CANONICAL_QU_HEADERS.length).setValues(finalQuRows);
+      formatHeaderRow(shQu);
       SpreadsheetApp.flush();
 
       // Perbarui totalQuestions pada sheet EXAMS jika ada
       if (shEx) {
         const exData = shEx.getDataRange().getValues();
-        const exHeaders = exData[0];
-        const idCol = exHeaders.indexOf('id');
-        const totalQCol = exHeaders.indexOf('totalQuestions');
-        if (idCol !== -1 && totalQCol !== -1) {
-          for (let e = 1; e < exData.length; e++) {
-            if (String(exData[e][idCol] || '').trim().toLowerCase() === targetExamId) {
-              shEx.getRange(e + 1, totalQCol + 1).setValue(questions.length);
-              break;
+        if (exData.length > 0) {
+          const exHeaders = exData[0];
+          const idCol = exHeaders.indexOf('id');
+          const totalQCol = exHeaders.indexOf('totalQuestions');
+          if (idCol !== -1 && totalQCol !== -1) {
+            for (let e = 1; e < exData.length; e++) {
+              if (String(exData[e][idCol] || '').trim().toLowerCase() === targetExamId) {
+                shEx.getRange(e + 1, totalQCol + 1).setValue(questions.length);
+                break;
+              }
             }
           }
         }
@@ -696,6 +764,7 @@ function getSheetDataAsObjects(sheet) {
 
 function upsertRow(sheet, keyColumn, keyValue, rowValues) {
   if (!sheet) return;
+  ensureMinColumns(sheet, rowValues.length);
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) {
     sheet.appendRow(rowValues);
@@ -708,7 +777,7 @@ function upsertRow(sheet, keyColumn, keyValue, rowValues) {
     return;
   }
   for (let i = 1; i < data.length; i++) {
-    if (data[i][colIndex] === keyValue) {
+    if (String(data[i][colIndex] || '').trim() === String(keyValue || '').trim()) {
       sheet.getRange(i + 1, 1, 1, rowValues.length).setValues([rowValues]);
       return;
     }

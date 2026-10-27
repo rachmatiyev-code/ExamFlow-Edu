@@ -321,12 +321,12 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
       {/* -----------------------------------------------------------------
           A4 PAPER CONTAINER FOR REAL PRINTING
          ----------------------------------------------------------------- */}
-      <main className="max-w-[210mm] mx-auto mt-6 bg-white text-black shadow-lg border border-slate-200 p-8 sm:p-12 print:m-0 print:p-0 print:border-none print:shadow-none print:w-full print:max-w-none">
+      <main className="print-area max-w-[210mm] mx-auto mt-6 bg-white text-black shadow-lg border border-slate-200 p-8 sm:p-12 print:m-0 print:p-0 print:border-none print:shadow-none print:w-full print:max-w-none">
         
         {/* ==============================================================
             KOP SURAT RESMI SEKOLAH (SDN PISANGCANDI 1)
            ============================================================== */}
-        <div className="relative border-b-2 border-black pb-3 mb-6">
+        <div className="kop-surat relative border-b-2 border-black pb-3 mb-6 print-break-inside-avoid">
           <div className="flex items-center justify-between gap-4">
             {profile.logoUrl ? (
               <img
@@ -720,7 +720,7 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
             KOLOM TANDA TANGAN FORMAL (GURU, KEPALA SEKOLAH, ORANG TUA)
            ============================================================== */}
         {showSignatures && (
-          <div className="mt-10 pt-6 border-t border-slate-300 text-xs">
+          <div className="mt-10 pt-6 border-t border-slate-300 text-xs print-break-inside-avoid">
             <div className="text-right text-xs mb-4 text-slate-700">
               Kota Malang, {todayStr}
             </div>

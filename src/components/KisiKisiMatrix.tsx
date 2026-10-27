@@ -137,9 +137,9 @@ export const KisiKisiMatrix: React.FC<KisiKisiMatrixProps> = ({ profile, exams }
       </div>
 
       {/* PRINTABLE SHEET CONTAINER (Styled for A4 print and screen preview) */}
-      <div className="bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100 p-8 sm:p-12 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-md print:shadow-none print:border-none print:p-0 print:bg-white print:text-black">
+      <div className="print-area bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100 p-8 sm:p-12 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-md print:shadow-none print:border-none print:p-0 print:bg-white print:text-black">
         {/* Kop Surat Sekolah Standar Nasional */}
-        <div className="border-b-4 border-double border-slate-900 dark:border-slate-100 pb-4 mb-6 flex items-center justify-between gap-6 print:border-black">
+        <div className="kop-surat border-b-4 border-double border-slate-900 dark:border-slate-100 pb-4 mb-6 flex items-center justify-between gap-6 print:border-black print-break-inside-avoid">
           {profile.logoUrl && (
             <img
               src={profile.logoUrl}

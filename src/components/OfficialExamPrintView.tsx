@@ -139,10 +139,10 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
       {/* ==============================================================
           LEMBAR DOKUMEN CETAK RESMI (A4 FORMAL STANDAR SEKOLAH)
          ============================================================== */}
-      <div className="max-w-[210mm] mx-auto bg-white text-black shadow-xl print:shadow-none print:max-w-none print:w-full print:m-0 p-8 sm:p-12 border border-slate-200 print:border-none rounded-xl print:rounded-none">
+      <div className="print-area max-w-[210mm] mx-auto bg-white text-black shadow-xl print:shadow-none print:max-w-none print:w-full print:m-0 p-8 sm:p-12 border border-slate-200 print:border-none rounded-xl print:rounded-none">
         
         {/* 1. KOP SURAT RESMI SEKOLAH */}
-        <div className="relative pb-3 mb-4">
+        <div className="kop-surat relative pb-3 mb-4 print-break-inside-avoid">
           <div className="flex items-center gap-5">
             {profile.logoUrl && (
               <img

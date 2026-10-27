@@ -14,17 +14,36 @@
 }
 
 @media print {
+  /* Atur ukuran kertas ke A4 standar */
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+
+  /* Sembunyikan semua elemen UI, tombol, dan navigasi aplikasi */
+  .no-print, header, nav, footer, button {
+    display: none !important;
+  }
+
+  /* Pastikan area cetak memenuhi halaman tanpa latar belakang web */
   html, body {
-    background: white !important;
+    background-color: white !important;
     color: black !important;
     margin: 0 !important;
     padding: 0 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  
-  .no-print, header, footer, nav {
-    display: none !important;
+
+  /* Area Dokumen Resmi Cetak */
+  .print-area {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background-color: white !important;
+    color: black !important;
   }
   
   .print-only {
@@ -44,11 +63,6 @@
   .katex {
     color: black !important;
     font-size: 1.05em !important;
-  }
-
-  @page {
-    size: A4 portrait;
-    margin: 1.2cm 1.5cm;
   }
 }
 

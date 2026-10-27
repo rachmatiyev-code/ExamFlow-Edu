@@ -257,7 +257,7 @@ export class GasClient {
           await this.pushStudents(localStudents);
         }
       }
-      if (Array.isArray(submissions) && submissions.length > 0) {
+      if (Array.isArray(submissions)) {
         const normalizedSubmissions: Submission[] = submissions.map((s: any) => {
           let ans: any = s.answers;
           if (!ans && s.answersJson) {
@@ -285,15 +285,20 @@ export class GasClient {
             tabSwitchCount: Number(s.tabSwitchCount) || 0,
             timeSpentSeconds: Number(s.timeSpentSeconds) || 0,
             syncStatus: 'synced',
-            feedback: String(s.feedback || '')
+            feedback: String(s.feedback || ''),
+            statusNote: String(s.statusNote || 'Selesai'),
+            allowRepeat: s.allowRepeat === true || s.allowRepeat === 'true' || s.statusNote === 'Mengulang Ujian'
           };
         });
         // Selalu bersihkan submission dummy dari hasil sync
         const cleanRemoteSubs = normalizedSubmissions.filter(s => !StorageService.isDummySubmission(s.id));
-        const existingSubs = StorageService.getSubmissions().filter(s => !StorageService.isDummySubmission(s.id));
+        // Pertahankan entri lokal yang masih pending antrean sync
+        const pendingLocal = StorageService.getSubmissions().filter(s => s.syncStatus === 'pending');
         const subMap = new Map<string, Submission>();
-        existingSubs.forEach(sub => subMap.set(sub.id, sub));
         cleanRemoteSubs.forEach(sub => subMap.set(sub.id, sub));
+        pendingLocal.forEach(sub => {
+          if (!subMap.has(sub.id)) subMap.set(sub.id, sub);
+        });
         StorageService.saveSubmissions(Array.from(subMap.values()));
       }
       if (Array.isArray(users)) {
@@ -698,6 +703,69 @@ export class GasClient {
       };
     } catch (err: any) {
       return { success: true, message: 'Rekaman nilai tersimpan di lokal.' };
+    }
+  }
+
+  /**
+   * Menghapus submission rekaman nilai dari Google Sheets & memori lokal
+   */
+  static async deleteSubmission(subId: string, studentNo?: string, examId?: string): Promise<{ success: boolean; message: string }> {
+    StorageService.deleteSubmission(subId);
+    const url = this.getWebAppUrl();
+    if (!url) return { success: true, message: 'Nilai dihapus dari lokal.' };
+
+    try {
+      const res = await this.postToGas({
+        action: 'deleteSubmission',
+        submissionId: subId,
+        id: subId,
+        studentNo: studentNo || '',
+        examId: examId || ''
+      });
+      StorageService.addLog('SYNC', `Rekaman nilai ${subId} dihapus dari Google Sheets`, undefined, 'info');
+      return { success: true, message: res.message || 'Nilai berhasil dihapus dari Google Sheets.' };
+    } catch {
+      return { success: true, message: 'Nilai dihapus dari penyimpanan lokal.' };
+    }
+  }
+
+  /**
+   * Mengizinkan siswa mengulang ujian (mereset status nilai ke Mengulang Ujian di Google Sheets)
+   */
+  static async allowRetake(sub: Submission): Promise<{ success: boolean; message: string }> {
+    const updated: Submission = {
+      ...sub,
+      score: 0,
+      percentage: 0,
+      passed: false,
+      statusNote: 'Mengulang Ujian',
+      allowRepeat: true,
+      feedback: 'Status direset oleh guru: Mengulang Ujian'
+    };
+    StorageService.updateSubmission(sub.id, updated);
+
+    const url = this.getWebAppUrl();
+    if (!url) return { success: true, message: 'Status diubah di lokal (Sheets belum terhubung).' };
+
+    try {
+      // Kirim action spesifik allowRetakeSubmission
+      const res = await this.postToGas({
+        action: 'allowRetakeSubmission',
+        submissionId: sub.id,
+        id: sub.id,
+        studentNo: sub.studentNo,
+        examId: sub.examId
+      });
+
+      // Sinkronkan seluruh data submissions agar kedua tab Submissions & Data_Mentah sinkron penuh
+      const allSubs = StorageService.getSubmissions();
+      await this.pushSubmissions(allSubs);
+
+      StorageService.addLog('SYNC', `Izin mengulang ujian untuk ${sub.studentName} (${sub.studentNo}) berhasil disinkronkan ke Google Sheets!`, undefined, 'success');
+      return { success: true, message: res.message || 'Izin mengulang ujian berhasil disimpan di Google Sheets!' };
+    } catch (err: any) {
+      StorageService.addLog('SYNC', `Gagal mengirim izin mengulang ke Google Sheets: ${err?.message}`, undefined, 'warn');
+      return { success: true, message: 'Izin mengulang tersimpan di lokal.' };
     }
   }
 

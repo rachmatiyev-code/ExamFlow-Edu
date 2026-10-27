@@ -955,12 +955,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     document.body.removeChild(link);
   };
 
-  // Delete individual submission (e.g. test dummy data)
-  const handleDeleteSubmission = (subId: string) => {
-    if (!window.confirm('Hapus rekaman nilai submission ini?')) return;
+  // Delete individual submission (e.g. test dummy data or reset student score)
+  const handleDeleteSubmission = async (subId: string) => {
+    const sub = (submissions || []).find(s => s.id === subId);
+    if (!window.confirm(`Hapus rekaman nilai ${sub ? `siswa "${sub.studentName}" (${sub.studentNo})` : 'ini'}?\n\nNilai akan dihapus dari sistem dan Google Sheets, sehingga akses ujian terbuka kembali untuk siswa.`)) return;
+    
     StorageService.deleteSubmission(subId);
     setSelectedSubmissionIds(prev => prev.filter(id => id !== subId));
     onRefreshData();
+
+    // Hapus juga dari Google Sheets secara real-time
+    if (sub) {
+      await GasClient.deleteSubmission(subId, sub.studentNo, sub.examId);
+    } else {
+      await GasClient.deleteSubmission(subId);
+    }
+    const currentList = StorageService.getSubmissions();
+    await GasClient.pushSubmissions(currentList);
+
+    setDraftToast(`Rekaman nilai berhasil dihapus dari sistem & Google Sheets. Akses ujian dibuka kembali untuk siswa.`);
+    setTimeout(() => setDraftToast(null), 3500);
   };
 
   // Bulk delete selected submissions
@@ -1034,7 +1048,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // Handler: Hapus Nilai & Beri Keterangan "Mengulang Ujian"
   const handleAllowRetake = async (sub: Submission) => {
-    if (!window.confirm(`Izinkan siswa "${sub.studentName}" (${sub.studentNo}) mengulang ujian?\n\nSesuai prosedur, nilai ujian sebelumnya akan dihapus (direset) dan status diubah menjadi "Mengulang Ujian" agar siswa dapat login kembali.`)) {
+    if (!window.confirm(`Izinkan siswa "${sub.studentName}" (${sub.studentNo}) mengulang ujian?\n\nSesuai prosedur, nilai ujian sebelumnya akan dihapus (direset ke 0) dan status diubah menjadi "Mengulang Ujian" agar siswa dapat login kembali.`)) {
       return;
     }
 
@@ -1049,10 +1063,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     };
 
     StorageService.updateSubmission(sub.id, updated);
+    onRefreshData();
 
-    // Otomatis sinkronkan ke Google Sheets jika terhubung
-    const currentList = StorageService.getSubmissions();
-    await GasClient.pushSubmissions(currentList);
+    // Otomatis sinkronkan status izin mengulang ke Google Sheets
+    await GasClient.allowRetake(sub);
 
     StorageService.addLog('EXAM', `Guru mengizinkan siswa ${sub.studentName} mengulang ujian (status: Mengulang Ujian, nilai dihapus)`, undefined, 'warn');
     setDraftToast(`Siswa "${sub.studentName}" berhasil diatur ke status "Mengulang Ujian". Nilai direset dan siswa dapat login kembali.`);

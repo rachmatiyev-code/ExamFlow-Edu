@@ -236,7 +236,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     StorageService.addLog('EXAM', `Siswa ${studentName} (${studentNo}) memulai ujian "${selectedExam?.title}" (${qs.length} butir soal)`);
   };
 
-  const handleConfirmLogin = (e: React.FormEvent) => {
+  const handleConfirmLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentNo.trim()) {
       setLoginError('Nomor Induk Siswa (NIS) wajib diisi.');
@@ -264,8 +264,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     // 2. Verifikasi Mode Pengerjaan ("Sekali" vs "Berulang")
     const isSingleAttempt = (selectedExam.attemptMode || 'single') === 'single';
     if (isSingleAttempt) {
-      const allSubmissions = StorageService.getSubmissions();
-      const studentPastSubs = allSubmissions.filter(sub =>
+      let allSubmissions = StorageService.getSubmissions();
+      let studentPastSubs = allSubmissions.filter(sub =>
         String(sub.examId).trim().toLowerCase() === String(selectedExam.id).trim().toLowerCase() &&
         (
           (studentNo.trim() && sub.studentNo?.trim().toLowerCase() === studentNo.trim().toLowerCase()) ||
@@ -273,17 +273,50 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         )
       );
 
+      // Cek apakah ada submission lama yang memblokir pengerjaan
+      const hasBlockingSubmission = studentPastSubs.some(
+        sub => sub.allowRepeat !== true && sub.statusNote !== 'Mengulang Ujian'
+      );
+
+      // Jika ada submission yang memblokir, selalu periksa status server Google Sheets terbaru!
+      // Karena guru mungkin baru saja menekan tombol "Mengulang Ujian" atau menghapus nilai siswa di dashboard.
+      if (hasBlockingSubmission) {
+        const gasUrl = StorageService.getSettings().gasWebAppUrl;
+        if (gasUrl && gasUrl.trim().startsWith('http')) {
+          try {
+            await GasClient.fetchAllFromSheets();
+            // Baca ulang submissions setelah sinkronisasi segar dari server Google Sheets
+            allSubmissions = StorageService.getSubmissions();
+            studentPastSubs = allSubmissions.filter(sub =>
+              String(sub.examId).trim().toLowerCase() === String(selectedExam.id).trim().toLowerCase() &&
+              (
+                (studentNo.trim() && sub.studentNo?.trim().toLowerCase() === studentNo.trim().toLowerCase()) ||
+                (studentName.trim() && sub.studentName?.trim().toLowerCase() === studentName.trim().toLowerCase())
+              )
+            );
+          } catch {}
+        }
+      }
+
       if (studentPastSubs.length > 0) {
-        // Cek apakah ada izin mengulang dari guru di dashboard
+        // Cek apakah ada izin mengulang dari guru (allowRepeat === true atau statusNote === 'Mengulang Ujian')
         const hasRepeatPermission = studentPastSubs.some(
           sub => sub.allowRepeat === true || sub.statusNote === 'Mengulang Ujian'
         );
 
         if (!hasRepeatPermission) {
           setLoginError(
-            `Ujian ini diatur dalam mode "Sekali Pengerjaan" dan siswa atas nama "${studentName}" (${studentNo}) telah tercatat menyelesaikan sesi ujian sebelumnya. Akses telah ditutup oleh server. Jika ingin mengulang pengerjaan, silakan hubungi guru pengawas untuk mereset status nilai Anda di dasbor dengan keterangan "Mengulang Ujian".`
+            `Ujian ini diatur dalam mode "Sekali Pengerjaan" dan siswa atas nama "${studentName}" (${studentNo}) telah tercatat menyelesaikan sesi ujian sebelumnya. Akses telah ditutup oleh server. Jika ingin mengulang pengerjaan, silakan hubungi guru pengawas untuk mereset status nilai Anda di dasbor dengan keterangan "Mengulang Ujian" atau menghapus nilai sebelumnya.`
           );
           return;
+        } else {
+          // Guru telah mengizinkan siswa mengulang ujian!
+          // Bersihkan submission lama dan draft jawaban agar pengerjaan ulang dimulai dengan lembar bersih
+          studentPastSubs.forEach(s => {
+            StorageService.deleteSubmission(s.id);
+          });
+          setUserAnswers({});
+          setFlaggedQuestions({});
         }
       }
     }
@@ -301,7 +334,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     if (qs.length === 0 || isUnderloaded) {
       setLoginError(`Mengunduh seluruh butir soal (${expectedCount > 0 ? expectedCount : 'lengkap'} butir soal) dari server Google Sheets...`);
       setIsDownloadingQuestions(true);
-      GasClient.fetchAllFromSheets().then(() => {
+      try {
+        await GasClient.fetchAllFromSheets();
         setIsDownloadingQuestions(false);
         const downloaded = StorageService.getQuestionsByExamId(selectedExam.id);
         if (downloaded.length > 0) {
@@ -311,7 +345,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         } else {
           setLoginError('Soal belum ditemukan untuk ujian ini di server Google Sheets. Pastikan guru telah menekan tombol "Sinkronkan Sekarang" pada menu guru.');
         }
-      }).catch(() => {
+      } catch {
         setIsDownloadingQuestions(false);
         if (qs.length > 0) {
           // Lanjutkan dengan soal lokal yang ada jika offline
@@ -321,7 +355,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         } else {
           setLoginError('Gagal mengunduh soal dari Google Sheets. Periksa koneksi internet Anda.');
         }
-      });
+      }
       return;
     }
 

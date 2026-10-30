@@ -81,7 +81,8 @@ import {
   Play,
   StopCircle,
   RotateCcw,
-  FastForward
+  FastForward,
+  ImageIcon
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -151,6 +152,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // AI Generator Modal State
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [aiGrade, setAiGrade] = useState<string>('Semua');
   const [aiTopic, setAiTopic] = useState('Sistem Ekskresi & Metabolisme');
   const [aiCustomPrompt, setAiCustomPrompt] = useState('');
   const [aiCount, setAiCount] = useState(5);
@@ -713,7 +715,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           taxonomy: aiTaxonomy,
           questionType: aiQuestionType,
           subject: currentExam.subject,
-          grade: currentExam.grade,
+          grade: (aiGrade && aiGrade !== 'Semua') ? aiGrade : currentExam.grade,
           learningObjectives: cleanObjectives,
           customPrompt: aiCustomPrompt
         },
@@ -782,6 +784,19 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       reader.onloadend = () => {
         const base64 = reader.result as string;
         setProfileForm(prev => ({ ...prev, logoUrl: base64 }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Regional Government Logo file upload -> base64 (Logo Pemda Kiri Kop)
+  const handleRegionalGovLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setProfileForm(prev => ({ ...prev, regionalGovLogoUrl: base64 }));
       };
       reader.readAsDataURL(file);
     }
@@ -3366,68 +3381,245 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           )}
 
           <form onSubmit={handleSaveProfile} className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-5">
-            {/* Logo Section */}
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 space-y-4">
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
-                Logo Sekolah
-              </label>
+            {/* SECTION 1: LOGO KOP SURAT (LOGO PEMDA KIRI & LOGO SEKOLAH KANAN) */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide flex items-center gap-1.5">
+                  <ImageIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <span>1. Konfigurasi Logo Kop Surat Resmi (Standar Tata Naskah Dinas)</span>
+                </label>
+                <span className="text-[11px] text-slate-500 font-medium">Logo Pemda (Kiri) & Logo Sekolah (Kanan)</span>
+              </div>
 
-              <div className="flex flex-col sm:flex-row items-center gap-5">
-                {profileForm.logoUrl ? (
-                  <img
-                    src={profileForm.logoUrl}
-                    alt="Logo Sekolah"
-                    referrerPolicy="no-referrer"
-                    className="w-20 h-20 rounded-xl object-contain bg-white border border-slate-300 dark:border-slate-700 shadow-xs p-1"
-                  />
-                ) : (
-                  <div className="w-20 h-20 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-xs text-slate-400 font-bold">
-                    Tanpa Logo
-                  </div>
-                )}
-
-                <div className="flex-1 space-y-2 w-full">
-                  <div>
-                    <label className="text-xs text-slate-500 block mb-1">
-                      URL Gambar Logo (atau upload file di bawah):
-                    </label>
-                    <input
-                      type="url"
-                      placeholder="https://domain.sch.id/logo.png"
-                      value={profileForm.logoUrl}
-                      onChange={(e) => setProfileForm({ ...profileForm, logoUrl: e.target.value })}
-                      className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                    />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* A. LOGO PEMERINTAH KOTA / DAERAH (SEBELAH KIRI KOP SURAT) */}
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1">
+                      <span>Logo Pemda / Kota</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-mono font-bold">KIRI KOP</span>
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg cursor-pointer transition-colors">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>Unggah Logo dari Perangkat (Base64)</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleLogoFileUpload}
-                        className="hidden"
+                  <div className="flex items-center gap-4">
+                    {profileForm.regionalGovLogoUrl ? (
+                      <img
+                        src={profileForm.regionalGovLogoUrl}
+                        alt="Logo Pemda"
+                        referrerPolicy="no-referrer"
+                        className="w-16 h-16 rounded-xl object-contain bg-white border border-slate-300 dark:border-slate-700 shadow-2xs p-1 shrink-0"
                       />
-                    </label>
+                    ) : (
+                      <div className="w-16 h-16 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-dashed border-amber-300 dark:border-amber-700 flex flex-col items-center justify-center text-[10px] text-amber-700 dark:text-amber-300 font-bold shrink-0 text-center p-1 leading-tight">
+                        <span>Logo Pemda</span>
+                        <span className="text-[9px] font-normal opacity-80">(Kiri)</span>
+                      </div>
+                    )}
+
+                    <div className="flex-1 space-y-2 text-xs">
+                      <input
+                        type="url"
+                        placeholder="URL Logo Pemda (https://...)"
+                        value={profileForm.regionalGovLogoUrl || ''}
+                        onChange={(e) => setProfileForm({ ...profileForm, regionalGovLogoUrl: e.target.value })}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors shadow-2xs">
+                          <Upload className="w-3 h-3" />
+                          <span>Unggah Logo Pemda (Kiri)</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleRegionalGovLogoUpload}
+                            className="hidden"
+                          />
+                        </label>
+                        {profileForm.regionalGovLogoUrl && (
+                          <button
+                            type="button"
+                            onClick={() => setProfileForm({ ...profileForm, regionalGovLogoUrl: '' })}
+                            className="text-[11px] text-rose-500 hover:underline"
+                          >
+                            Hapus
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* B. LOGO SEKOLAH / SATUAN PENDIDIKAN (SEBELAH KANAN KOP SURAT) */}
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1">
+                      <span>Logo Sekolah / Lembaga</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold">KANAN KOP</span>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    {profileForm.logoUrl ? (
+                      <img
+                        src={profileForm.logoUrl}
+                        alt="Logo Sekolah"
+                        referrerPolicy="no-referrer"
+                        className="w-16 h-16 rounded-xl object-contain bg-white border border-slate-300 dark:border-slate-700 shadow-2xs p-1 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-dashed border-indigo-300 dark:border-indigo-700 flex flex-col items-center justify-center text-[10px] text-indigo-700 dark:text-indigo-300 font-bold shrink-0 text-center p-1 leading-tight">
+                        <span>Logo Sekolah</span>
+                        <span className="text-[9px] font-normal opacity-80">(Kanan)</span>
+                      </div>
+                    )}
+
+                    <div className="flex-1 space-y-2 text-xs">
+                      <input
+                        type="url"
+                        placeholder="URL Logo Sekolah (https://...)"
+                        value={profileForm.logoUrl || ''}
+                        onChange={(e) => setProfileForm({ ...profileForm, logoUrl: e.target.value })}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      />
+
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors shadow-2xs">
+                          <Upload className="w-3 h-3" />
+                          <span>Unggah Logo Sekolah (Kanan)</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleLogoFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+                        {profileForm.logoUrl && (
+                          <button
+                            type="button"
+                            onClick={() => setProfileForm({ ...profileForm, logoUrl: '' })}
+                            className="text-[11px] text-rose-500 hover:underline"
+                          >
+                            Hapus
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* General Profile Fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
+            {/* LIVE PREVIEW KOP SURAT STANDAR KEDINASAN */}
+            <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 shadow-xs space-y-2">
+              <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Pratinjau Kop Surat Resmi (Dokumen Cetak & PDF)</span>
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">Format Tata Naskah Dinas Resmi</span>
+              </div>
+
+              <div className="bg-white text-black p-4 rounded-lg border border-slate-200 shadow-2xs">
+                <div className="flex items-center justify-between gap-3">
+                  {/* Logo Pemda (Kiri) */}
+                  <div className="w-16 h-16 flex items-center justify-center shrink-0">
+                    {profileForm.regionalGovLogoUrl ? (
+                      <img
+                        src={profileForm.regionalGovLogoUrl}
+                        alt="Logo Pemda Kiri"
+                        className="max-h-16 max-w-16 object-contain"
+                      />
+                    ) : (
+                      <div className="w-14 h-14 rounded border border-black/30 flex items-center justify-center text-[9px] font-bold text-center text-slate-500">
+                        LOGO PEMDA
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Header Teks Kedinasan */}
+                  <div className="flex-1 text-center font-serif leading-tight">
+                    <h4 className="text-xs uppercase tracking-widest font-bold text-slate-800">
+                      {profileForm.regionalGovName || 'PEMERINTAH KOTA MALANG'}
+                    </h4>
+                    <h4 className="text-xs uppercase tracking-wider font-bold text-slate-800 mt-0.5">
+                      {profileForm.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'}
+                    </h4>
+                    <h2 className="text-sm sm:text-base uppercase font-extrabold tracking-wide text-black mt-1">
+                      {profileForm.name || 'SD NEGERI PISANGCANDI 1 MALANG'}
+                    </h2>
+                    <p className="text-[10px] text-slate-700 mt-0.5 font-sans">
+                      {profileForm.address || 'Jl. Raya Pisang Candi No. 1, Kec. Sukun, Kota Malang, Jawa Timur'}
+                    </p>
+                    <p className="text-[9px] text-slate-600 font-mono mt-0.5">
+                      NPSN: {profileForm.npsn || '20533857'} · TA: {profileForm.academicYear || '2026/2027'}
+                    </p>
+                  </div>
+
+                  {/* Logo Sekolah (Kanan) */}
+                  <div className="w-16 h-16 flex items-center justify-center shrink-0">
+                    {profileForm.logoUrl ? (
+                      <img
+                        src={profileForm.logoUrl}
+                        alt="Logo Sekolah Kanan"
+                        className="max-h-16 max-w-16 object-contain"
+                      />
+                    ) : (
+                      <div className="w-14 h-14 rounded border border-black/30 flex items-center justify-center text-[9px] font-bold text-center text-slate-500">
+                        LOGO SEKOLAH
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Double Border Divider */}
+                <div className="border-b-2 border-black mt-2"></div>
+                <div className="border-b-4 border-black mt-[1.5px]"></div>
+              </div>
+            </div>
+
+            {/* SECTION 2: HIRARKI KEDINASAN PEMERINTAH DAERAH & OPD (Requirement 8) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama Resmi Sekolah / Lembaga
+                  Nama Pemerintah Daerah (Baris 1 Kop) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
+                  placeholder="Contoh: PEMERINTAH KOTA MALANG"
+                  value={profileForm.regionalGovName || ''}
+                  onChange={(e) => setProfileForm({ ...profileForm, regionalGovName: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs font-bold uppercase rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+                <span className="text-[10px] text-slate-400 mt-0.5 block">Posisi baris teratas pada kop surat resmi</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nama Organisasi Perangkat Daerah / OPD (Baris 2 Kop) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: DINAS PENDIDIKAN DAN KEBUDAYAAN"
+                  value={profileForm.regionalGovDepartment || ''}
+                  onChange={(e) => setProfileForm({ ...profileForm, regionalGovDepartment: e.target.value })}
+                  className="w-full px-3.5 py-2 text-xs font-bold uppercase rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                />
+                <span className="text-[10px] text-slate-400 mt-0.5 block">Posisi langsung berada di bawah nama pemerintah daerah</span>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nama Resmi Satuan Pendidikan / Sekolah (Baris 3 Kop) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: SD NEGERI PISANGCANDI 1 MALANG"
                   value={profileForm.name}
                   onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
-                  className="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  className="w-full px-3.5 py-2 text-sm font-bold uppercase rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
               </div>
 
@@ -4046,6 +4238,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           aiMessage={aiMessage}
           onGenerate={handleGenerateAiQuestions}
           onOpenSettings={onOpenSettings}
+          aiGrade={aiGrade}
+          setAiGrade={setAiGrade}
         />
       )}
 

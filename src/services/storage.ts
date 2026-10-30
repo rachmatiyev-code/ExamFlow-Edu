@@ -19,6 +19,7 @@ const STORAGE_KEYS = {
   SUBMISSIONS: 'examflow_submissions_v1',
   USERS: 'examflow_users_v1',
   CURRICULUM: 'examflow_curriculum_v1',
+  CUSTOM_SUBJECTS: 'examflow_custom_subjects_v1',
   LOGS: 'examflow_logs_v1',
   SETTINGS: 'examflow_settings_v1',
   CURRENT_USER: 'examflow_current_user_v1',
@@ -27,19 +28,22 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_PROFILE: SchoolProfile = {
-  name: 'SMA Negeri 1 Prestasi Nusantara',
-  npsn: '20108922',
-  address: 'Jl. Merdeka Ilmu No. 12, Senayan, Jakarta Pusat',
+  name: 'SD NEGERI PISANGCANDI 1 MALANG',
+  npsn: '20533857',
+  address: 'Jl. Raya Pisang Candi No. 1, Kec. Sukun, Kota Malang, Jawa Timur 65146',
   logoUrl: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=160&auto=format&fit=crop&q=80',
+  regionalGovLogoUrl: '', // Logo Pemerintah Daerah / Kota di sebelah kiri kop
+  regionalGovName: 'PEMERINTAH KOTA MALANG',
+  regionalGovDepartment: 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
   academicYear: '2026/2027',
   semester: 'Ganjil',
-  principalName: 'Drs. H. Mulyadi, M.Pd.',
-  principalNip: '19710315 199702 1 003',
+  principalName: 'Dr. H. Sulaiman, M.Pd.',
+  principalNip: '19750812 200003 1 002',
   teacherName: 'Siti Rahmawati, S.Pd.',
   teacherNip: '19820514 200801 2 009',
-  teacherSubject: 'Biologi & Sains Terapan',
-  teacherEmail: 'siti.rahmawati@sekolah.sch.id',
-  teacherTitle: 'Koordinator Kurikulum & Guru Mata Pelajaran'
+  teacherSubject: 'Pendidikan Pancasila & Tematik',
+  teacherEmail: 'siti.rahmawati@sdnpisangcandi1.sch.id',
+  teacherTitle: 'Guru Kelas & Koordinator Asesmen'
 };
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -153,6 +157,89 @@ const DEFAULT_USERS: UserAccount[] = [
 
 const DEFAULT_CURRICULUM: CurriculumItem[] = [
   {
+    id: 'CUR-SD4-PAN-001',
+    subject: 'Pendidikan Pancasila',
+    grade: 'Fase B (Kelas 4)',
+    element: 'Pancasila Sebagai Nilai Kehidupan',
+    learningOutcome: 'Peserta didik mampu memahami dan menerapkan nilai-nilai Pancasila dalam kehidupan sehari-hari di lingkungan keluarga, sekolah, dan masyarakat.',
+    learningObjectives: [
+      'Menjelaskan makna sila-sila Pancasila dan simbol lambang negara Garuda Pancasila',
+      'Menceritakan contoh penerapan nilai Pancasila dalam interaksi bersama teman di sekolah',
+      'Menerapkan sikap gotong royong dan toleransi dalam kehidupan bermasyarakat',
+      'Menganalisis perilaku yang mencerminkan pengamalan sila-sila Pancasila'
+    ],
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'CUR-SD4-IND-001',
+    subject: 'Bahasa Indonesia',
+    grade: 'Fase B (Kelas 4)',
+    element: 'Membaca dan Memirsa',
+    learningOutcome: 'Peserta didik mampu memahami pesan dan informasi tentang kehidupan sehari-hari, teks narasi, dan puisi anak dalam bentuk cetak atau elektronik.',
+    learningObjectives: [
+      'Menemukan ide pokok dan ide pendukung pada teks narasi kontekstual',
+      'Mengidentifikasi makna kata baru berdasarkan konteks bacaan',
+      'Menilai kesesuaian antara ilustrasi visual dan isi bacaan secara teliti',
+      'Menyimpulkan isi pesan moral dan karakter tokoh dalam cerita anak'
+    ],
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'CUR-SD4-IPA-001',
+    subject: 'IPAS (Ilmu Pengetahuan Alam dan Sosial)',
+    grade: 'Fase B (Kelas 4)',
+    element: 'Tumbuhan, Hewan & Lingkungan',
+    learningOutcome: 'Peserta didik menganalisis hubungan antara bentuk serta fungsi bagian tubuh pada tumbuhan dan hewan serta siklus hidupnya.',
+    learningObjectives: [
+      'Mengidentifikasi bagian-bagian tubuh tumbuhan (akar, batang, daun, bunga) dan fungsinya',
+      'Menganalisis proses fotosintesis dan pentingnya bagi makhluk hidup di bumi',
+      'Membandingkan siklus hidup hewan dengan metamorfosis sempurna dan tidak sempurna',
+      'Merumuskan upaya pelestarian lingkungan alam di sekitar sekolah'
+    ],
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'CUR-SD4-MAT-001',
+    subject: 'Matematika',
+    grade: 'Fase B (Kelas 4)',
+    element: 'Bilangan Cacah & Pengukuran',
+    learningOutcome: 'Peserta didik dapat membaca, menulis, menentukan nilai tempat, membandingkan, dan mengurutkan bilangan cacah sampai 10.000 serta menyelesaikan masalah pecahan.',
+    learningObjectives: [
+      'Membaca dan menuliskan bilangan cacah sampai dengan 10.000 secara tepat',
+      'Menentukan nilai tempat bilangan cacah (ribuan, ratusan, puluhan, satuan)',
+      'Menyelesaikan operasi hitung perkalian dan pembagian dalam masalah kontekstual',
+      'Membandingkan dan menyederhanakan pecahan biasa dalam kehidupan nyata'
+    ],
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'CUR-SD5-PAN-001',
+    subject: 'Pendidikan Pancasila',
+    grade: 'Fase C (Kelas 5)',
+    element: 'Undang-Undang Dasar 1945 & Norma',
+    learningOutcome: 'Peserta didik memahami norma, hak, dan kewajiban sebagai anggota keluarga, warga sekolah, dan warga negara.',
+    learningObjectives: [
+      'Mengidentifikasi macam-macam norma (agama, kesusilaan, kesopanan, hukum) dalam masyarakat',
+      'Membedakan hak dan kewajiban peserta didik di lingkungan sekolah dan rumah',
+      'Menganalisis musyawarah mufakat sebagai bentuk pengambilan keputusan bersama',
+      'Menerapkan kepatuhan terhadap tata tertib sekolah dalam kehidupan sehari-hari'
+    ],
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'CUR-SD5-IPA-001',
+    subject: 'IPAS (Ilmu Pengetahuan Alam dan Sosial)',
+    grade: 'Fase C (Kelas 5)',
+    element: 'Cahaya dan Sifat-sifatnya',
+    learningOutcome: 'Peserta didik menerapkan sifat-sifat cahaya dan keterkaitannya dengan indra penglihatan manusia.',
+    learningObjectives: [
+      'Menyelidiki sifat-sifat cahaya (merambat lurus, menembus benda bening, dipantulkan, dibiaskan)',
+      'Menjelaskan cara kerja organ mata manusia dalam melihat benda',
+      'Menganalisis pemanfaatan sifat cahaya pada cermin, lensa, dan periskop'
+    ],
+    updatedAt: new Date().toISOString()
+  },
+  {
     id: 'CUR-BIO-001',
     subject: 'Biologi',
     grade: 'Fase E (Kelas X)',
@@ -179,35 +266,6 @@ const DEFAULT_CURRICULUM: CurriculumItem[] = [
       'Menerapkan hukum Termodinamika I dan II pada mesin kalor sederhana',
       'Menghitung efisiensi siklus Carnot dan perpindahan kalor',
       'Merancang solusi efisiensi energi berdasarkan prinsip fisika'
-    ],
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'CUR-MAT-001',
-    subject: 'Matematika',
-    grade: 'Fase E (Kelas X)',
-    element: 'Bilangan & Aljabar',
-    learningOutcome: 'Peserta didik dapat menggeneralisasi sifat-sifat bilangan berpangkat (eksponen) dan logaritma, serta menyelesaikan sistem persamaan linear tiga variabel dan sistem pertidaksamaan linear dua variabel.',
-    learningObjectives: [
-      'Menerapkan sifat-sifat eksponen untuk menyederhanakan bentuk aljabar',
-      'Menyelesaikan persamaan dan pertidaksamaan eksponensial sederhana',
-      'Menggunakan konsep logaritma untuk memodelkan fenomena pertumbuhan dan peluruhan',
-      'Menyelesaikan masalah kontekstual dengan sistem persamaan linear tiga variabel (SPLTV)',
-      'Menginterpretasikan daerah penyelesaian sistem pertidaksamaan linear dua variabel'
-    ],
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: 'CUR-IND-001',
-    subject: 'Bahasa Indonesia',
-    grade: 'Fase E (Kelas X)',
-    element: 'Membaca dan Memirsa',
-    learningOutcome: 'Peserta didik mengevaluasi gagasan, pandangan, dan akurasi informasi dalam teks laporan hasil observasi, eksposisi, dan negosiasi secara kritis dan reflektif.',
-    learningObjectives: [
-      'Mengidentifikasi struktur dan kaidah kebahasaan teks laporan hasil observasi',
-      'Menilai akurasi dan validitas fakta serta opini dalam teks eksposisi',
-      'Menganalisis argumen dan strategi persuasi dalam teks negosiasi',
-      'Menyusun ringkasan informasi faktual berdasarkan teks multimoda'
     ],
     updatedAt: new Date().toISOString()
   }
@@ -683,14 +741,60 @@ export class StorageService {
     }
   }
 
-  static getCurriculumBySubject(subject: string): CurriculumItem[] {
-    const list = this.getCurriculum();
-    if (!subject) return list;
-    const clean = subject.trim().toLowerCase();
-    const exact = list.filter(c => c.subject.toLowerCase() === clean);
-    if (exact.length > 0) return exact;
-    // Fallback: partial match
-    return list.filter(c => c.subject.toLowerCase().includes(clean) || clean.includes(c.subject.toLowerCase()));
+  static isDummyCurriculum(id: string): boolean {
+    const clean = String(id || '').trim().toLowerCase();
+    return ['cur-bio-001', 'cur-fis-001'].includes(clean);
+  }
+
+  static clearDummyCurriculum(): void {
+    const list = this.getCurriculum().filter(c => !this.isDummyCurriculum(c.id));
+    this.saveCurriculum(list);
+  }
+
+  // Custom Subjects Management (Tersimpan permanen untuk CP/TP, Ujian & AI Generator)
+  static getCustomSubjects(): string[] {
+    return this.getItem<string[]>(STORAGE_KEYS.CUSTOM_SUBJECTS, [
+      'Pendidikan Pancasila',
+      'Bahasa Indonesia',
+      'Matematika',
+      'IPAS (Ilmu Pengetahuan Alam dan Sosial)',
+      'Pendidikan Agama & Budi Pekerti',
+      'PJOK',
+      'Seni Rupa',
+      'Seni Musik',
+      'Seni Tari',
+      'Bahasa Inggris',
+      'Bahasa Jawa (Mulok)',
+      'Informatika'
+    ]);
+  }
+
+  static saveCustomSubjects(subjects: string[]): void {
+    const unique = Array.from(new Set(subjects.map(s => s.trim()).filter(Boolean)));
+    this.setItem(STORAGE_KEYS.CUSTOM_SUBJECTS, unique);
+  }
+
+  static addCustomSubject(subject: string): void {
+    const trimmed = (subject || '').trim();
+    if (!trimmed) return;
+    const existing = this.getCustomSubjects();
+    if (!existing.some(s => s.toLowerCase() === trimmed.toLowerCase())) {
+      existing.push(trimmed);
+      this.saveCustomSubjects(existing);
+      this.addLog('SYNC', `Mata pelajaran baru ditambahkan ke daftar: ${trimmed}`, undefined, 'info');
+    }
+  }
+
+  static getAllSubjects(): string[] {
+    const baseList = this.getCustomSubjects();
+    const currList = this.getCurriculum().map(c => c.subject).filter(Boolean);
+    const examList = this.getExams().map(e => e.subject).filter(Boolean);
+    const set = new Set<string>();
+    [...baseList, ...currList, ...examList].forEach(s => {
+      const clean = s.trim();
+      if (clean) set.add(clean);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
   }
 
   // Settings

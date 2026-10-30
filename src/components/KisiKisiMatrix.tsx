@@ -140,31 +140,57 @@ export const KisiKisiMatrix: React.FC<KisiKisiMatrixProps> = ({ profile, exams }
       <div className="print-area bg-white text-slate-900 dark:bg-slate-900 dark:text-slate-100 p-8 sm:p-12 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-md print:shadow-none print:border-none print:p-0 print:bg-white print:text-black">
         {/* Kop Surat Sekolah Standar Nasional */}
         <div className="kop-surat border-b-4 border-double border-slate-900 dark:border-slate-100 pb-4 mb-6 flex items-center justify-between gap-6 print:border-black print-break-inside-avoid">
-          {profile.logoUrl && (
-            <img
-              src={profile.logoUrl}
-              alt="Logo Sekolah"
-              referrerPolicy="no-referrer"
-              className="w-20 h-20 sm:w-24 sm:h-24 object-contain shrink-0"
-            />
-          )}
+          {/* Logo Pemda (Kiri) */}
+          <div className="w-20 h-20 flex items-center justify-center shrink-0">
+            {profile.regionalGovLogoUrl ? (
+              <img
+                src={profile.regionalGovLogoUrl}
+                alt="Logo Pemda Kiri"
+                referrerPolicy="no-referrer"
+                className="w-20 h-20 object-contain shrink-0"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
+                <span>PEMDA</span>
+                <span className="text-[8px] font-normal">KIRI</span>
+              </div>
+            )}
+          </div>
 
-          <div className="text-center flex-1">
-            <h4 className="text-xs uppercase tracking-widest font-bold text-slate-600 dark:text-slate-400 print:text-black">
-              PEMERINTAH DAERAH PROVINSI / KEMENTERIAN PENDIDIKAN
+          <div className="text-center flex-1 leading-tight">
+            <h4 className="text-xs uppercase tracking-widest font-bold text-slate-700 dark:text-slate-300 print:text-black">
+              {profile.regionalGovName || 'PEMERINTAH KOTA MALANG'}
             </h4>
-            <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-white print:text-black">
-              {profile.name}
+            <h4 className="text-xs uppercase tracking-wider font-bold text-slate-700 dark:text-slate-300 print:text-black mt-0.5">
+              {profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'}
+            </h4>
+            <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900 dark:text-white print:text-black mt-1">
+              {profile.name || 'SD NEGERI PISANGCANDI 1 MALANG'}
             </h1>
             <p className="text-xs text-slate-600 dark:text-slate-400 print:text-black mt-0.5">
               {profile.address} · NPSN: {profile.npsn}
             </p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 print:text-black">
-              Website / Portal Ujian Online: ExamFlow Edu
+              Website / Portal Ujian Online: ExamFlow Edu (SDN Pisangcandi 1)
             </p>
           </div>
 
-          <div className="w-20 shrink-0 hidden sm:block" />
+          {/* Logo Sekolah (Kanan) */}
+          <div className="w-20 h-20 flex items-center justify-center shrink-0">
+            {profile.logoUrl ? (
+              <img
+                src={profile.logoUrl}
+                alt="Logo Sekolah"
+                referrerPolicy="no-referrer"
+                className="w-20 h-20 object-contain shrink-0"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
+                <span>SEKOLAH</span>
+                <span className="text-[8px] font-normal">KANAN</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Title of Document */}

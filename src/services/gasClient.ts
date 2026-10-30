@@ -179,7 +179,12 @@ export class GasClient {
       let count = 0;
 
       if (profile && profile.name) {
-        StorageService.saveProfile(profile);
+        StorageService.saveProfile({
+          ...profile,
+          regionalGovLogoUrl: profile.regionalGovLogoUrl || '',
+          regionalGovName: profile.regionalGovName || 'PEMERINTAH KOTA MALANG',
+          regionalGovDepartment: profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'
+        });
       }
       if (Array.isArray(exams) && exams.length > 0) {
         StorageService.saveExams(exams);
@@ -330,27 +335,73 @@ export class GasClient {
         }
       }
 
-      if (Array.isArray(curriculum) && curriculum.length > 0) {
+      if (Array.isArray(curriculum)) {
         const parsedCurriculum: CurriculumItem[] = curriculum.map((c: any) => {
-          let tps = c.learningObjectives;
-          if ((!tps || !Array.isArray(tps)) && c.learningObjectivesJson) {
-            try {
-              tps = typeof c.learningObjectivesJson === 'string' ? JSON.parse(c.learningObjectivesJson) : c.learningObjectivesJson;
-            } catch {
-              tps = [];
+          let tps: string[] = [];
+          
+          // 1. Coba dari property langsung jika sudah array
+          if (Array.isArray(c.learningObjectives)) {
+            tps = c.learningObjectives;
+          } else if (Array.isArray(c.learningObjectivesJson)) {
+            tps = c.learningObjectivesJson;
+          } else {
+            // 2. Parse dari JSON string atau format baris baru/titik koma
+            const rawTpStr = c.learningObjectivesJson || c.learningObjectives || c['Tujuan Pembelajaran'] || c['TP'] || c.tp || c.daftartp || '';
+            if (typeof rawTpStr === 'string' && rawTpStr.trim().length > 0) {
+              try {
+                const parsed = JSON.parse(rawTpStr);
+                if (Array.isArray(parsed)) {
+                  tps = parsed;
+                } else if (typeof parsed === 'string') {
+                  tps = [parsed];
+                }
+              } catch {
+                // Parsing baris teks bebas (misal format bernomor 1., 2., strip -, atau baris baru)
+                tps = rawTpStr
+                  .split(/[\r\n;]+/)
+                  .map((s: string) => s.replace(/^[\s\d\.\-\*•]+/, '').trim())
+                  .filter(Boolean);
+              }
             }
           }
+
+          const rawSubject = String(c.subject || c['Mata Pelajaran'] || c.mapel || c['Mapel'] || '').trim();
+          const rawGrade = String(c.grade || c['Kelas'] || c.kelas || c['Jenjang'] || c.jenjang || c['Fase'] || c.fase || '').trim();
+          const rawElement = String(c.element || c['Elemen'] || c.elemen || c['Materi'] || c.materi || '').trim();
+          const rawOutcome = String(c.learningOutcome || c['Capaian Pembelajaran'] || c.cp || c['CP'] || c['Kompetensi Dasar'] || c.kd || '').trim();
+
+          // Simpan otomatis mata pelajaran baru ke daftar persistent
+          if (rawSubject) {
+            StorageService.addCustomSubject(rawSubject);
+          }
+
           return {
-            id: String(c.id || `CUR-${Date.now()}`),
-            subject: String(c.subject || ''),
-            grade: String(c.grade || ''),
-            element: String(c.element || ''),
-            learningOutcome: String(c.learningOutcome || ''),
-            learningObjectives: Array.isArray(tps) ? tps : [],
+            id: String(c.id || `CUR-${Date.now()}-${Math.floor(Math.random() * 1000)}`),
+            subject: rawSubject,
+            grade: rawGrade || 'Fase B (Kelas 4)',
+            element: rawElement,
+            learningOutcome: rawOutcome,
+            learningObjectives: Array.isArray(tps) ? tps.filter(Boolean) : [],
             updatedAt: String(c.updatedAt || new Date().toISOString())
           };
-        });
-        StorageService.saveCurriculum(parsedCurriculum);
+        }).filter(item => item.subject || item.element || item.learningOutcome);
+
+        const localCurriculum = StorageService.getCurriculum();
+        const isRemoteDummy = parsedCurriculum.length > 0 && parsedCurriculum.every(c => StorageService.isDummyCurriculum(c.id));
+        const isLocalCustom = localCurriculum.some(c => !StorageService.isDummyCurriculum(c.id));
+
+        if (isRemoteDummy && isLocalCustom) {
+          // Sheets masih berisi template dummy awal, sedangkan aplikasi memiliki CP/TP nyata dari guru
+          StorageService.addLog('SYNC', 'Data CP/TP lokal guru diprioritaskan & disinkronkan ke Google Sheets.');
+          await this.pushCurriculum(localCurriculum);
+        } else if (parsedCurriculum.length > 0) {
+          // Filter item dummy jika ada data riil lain
+          const hasRealItems = parsedCurriculum.some(c => !StorageService.isDummyCurriculum(c.id));
+          const cleanCurriculum = hasRealItems ? parsedCurriculum.filter(c => !StorageService.isDummyCurriculum(c.id)) : parsedCurriculum;
+          StorageService.saveCurriculum(cleanCurriculum);
+        } else if (localCurriculum.length > 0 && isLocalCustom) {
+          await this.pushCurriculum(localCurriculum);
+        }
       }
 
       StorageService.addLog('SYNC', `Sinkronisasi sukses! Data berhasil dimuat dari Google Sheets.`, undefined, 'success');

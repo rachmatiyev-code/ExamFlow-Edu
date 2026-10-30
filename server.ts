@@ -235,75 +235,53 @@ function parseQuestionsJson(rawText: string): any[] {
   return [];
 }
 
-// Helper untuk mendiversifikasi kunci jawaban agar tidak pernah sama secara berurutan
+// Helper untuk membersihkan prefix opsi dan mendiversifikasi kunci secara aman
 function diversifyAnswerKeys(questions: any[]): any[] {
-  if (!Array.isArray(questions) || questions.length <= 1) return questions;
+  if (!Array.isArray(questions) || questions.length === 0) return questions;
 
-  let lastSingleKey = '';
-  let lastCheckboxSignature = '';
+  // 1. Bersihkan prefix huruf ganda seperti "A. ", "B. ", "1. " dari teks pilihan
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    if (q && Array.isArray(q.options)) {
+      q.options = q.options.map((o: any) => ({
+        ...o,
+        text: String(o.text || '').replace(/^[A-Ea-e\d][\.\)\-]\s*/, '').trim()
+      }));
+    }
+  }
 
+  if (questions.length <= 1) return questions;
+
+  // Cek apakah model AI sudah mendistribusikan kunci secara bervariasi
+  const mcQuestions = questions.filter((q: any) => q.type === 'multiple_choice' || q.type === 'true_false' || !q.type);
+  const singleKeys = mcQuestions.map((q: any) => typeof q.correctKey === 'string' ? q.correctKey : q.correctKey?.[0]);
+  const isAlreadyVaried = new Set(singleKeys.filter(Boolean)).size > 1;
+
+  // Jika AI sudah memberikan sebaran kunci yang bervariasi, PERTAHANKAN teks dan kunci aslinya demi kebenaran pedagogis!
+  if (isAlreadyVaried) {
+    return questions;
+  }
+
+  // Hanya jika AI menghasilkan kunci seragam monoton (misal semua opt_a), lakukan rotasi terkontrol
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i];
     if (!q || !Array.isArray(q.options) || q.options.length < 2) continue;
-
     const optIds: string[] = q.options.map((o: any) => o.id);
 
-    // Kasus 1: Pilihan Ganda Tunggal / Benar-Salah
     if (q.type === 'multiple_choice' || q.type === 'true_false' || !q.type) {
       let currentKey = typeof q.correctKey === 'string' ? q.correctKey : (Array.isArray(q.correctKey) && q.correctKey[0] ? q.correctKey[0] : optIds[0]);
-      if (!optIds.includes(currentKey)) {
-        currentKey = optIds[0];
-        q.correctKey = currentKey;
-      }
+      const targetKey = optIds[i % optIds.length];
 
-      // Jika kunci sama dengan nomor sebelumnya, tukar teks opsi dengan opsi lain
-      if (lastSingleKey && currentKey === lastSingleKey) {
-        const availableTargets = optIds.filter(id => id !== lastSingleKey);
-        if (availableTargets.length > 0) {
-          const targetKey = availableTargets[i % availableTargets.length];
-          const optCurrent = q.options.find((o: any) => o.id === currentKey);
-          const optTarget = q.options.find((o: any) => o.id === targetKey);
-          if (optCurrent && optTarget) {
-            const temp = optCurrent.text;
-            optCurrent.text = optTarget.text;
-            optTarget.text = temp;
-            q.correctKey = targetKey;
-            currentKey = targetKey;
-          }
+      if (currentKey !== targetKey) {
+        const optCurrent = q.options.find((o: any) => o.id === currentKey);
+        const optTarget = q.options.find((o: any) => o.id === targetKey);
+        if (optCurrent && optTarget) {
+          const temp = optCurrent.text;
+          optCurrent.text = optTarget.text;
+          optTarget.text = temp;
+          q.correctKey = targetKey;
         }
       }
-
-      lastSingleKey = currentKey;
-    } 
-    // Kasus 2: Pilihan Ganda Kompleks (Checkbox)
-    else if (q.type === 'checkbox') {
-      let currentKeys: string[] = Array.isArray(q.correctKey) ? [...q.correctKey] : [String(q.correctKey || optIds[0])];
-      currentKeys = currentKeys.filter(k => optIds.includes(k));
-      if (currentKeys.length === 0) {
-        currentKeys = [optIds[0], optIds[1] || optIds[0]];
-      }
-
-      let currentSig = [...currentKeys].sort().join(',');
-      if (lastCheckboxSignature && currentSig === lastCheckboxSignature) {
-        // Cari satu opsi yang terpilih dan satu opsi yang tidak terpilih, lalu tukar
-        const unselected = optIds.find(id => !currentKeys.includes(id));
-        const selected = currentKeys[0];
-        if (unselected && selected) {
-          const optSel = q.options.find((o: any) => o.id === selected);
-          const optUnsel = q.options.find((o: any) => o.id === unselected);
-          if (optSel && optUnsel) {
-            const temp = optSel.text;
-            optSel.text = optUnsel.text;
-            optUnsel.text = temp;
-            currentKeys = currentKeys.map(k => k === selected ? unselected : k);
-            q.correctKey = currentKeys;
-            currentSig = [...currentKeys].sort().join(',');
-          }
-        }
-      }
-
-      q.correctKey = currentKeys;
-      lastCheckboxSignature = currentSig;
     }
   }
 
@@ -363,40 +341,62 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
 Anda adalah seorang pakar kurikulum dan asesmen pendidikan nasional (Kurikulum Merdeka / K13).
 Tugas Anda adalah menghasilkan persis ${count} butir soal berkualitas tinggi untuk:
 - Mata Pelajaran: ${subject}
-- Topik / Materi: ${topic}
+- Topik / Pokok Bahasan: ${topic}
 - Jenjang Kelas: ${grade}
 - Tingkat Kesulitan: ${difficulty}
 - Kerangka Taksonomi: ${taxonomy === 'solo' ? 'SOLO (Prestructural, Unistructural, Multistructural, Relational, Extended Abstract)' : 'Bloom-Anderson (C1 Mengingat, C2 Memahami, C3 Menerapkan, C4 Menganalisis, C5 Mengevaluasi, C6 Mencipta)'}
 - Bentuk Soal: ${typeInstruction}${tpInstruction}${customPromptInstruction}
 
-ATURAN WAJIB DISTRIBUSI KUNCI JAWABAN (SANGAT PENTING - ANTI MONOTON):
-1. DILARANG KERAS menetapkan kunci jawaban pada opsi yang sama secara berurutan!
-2. Setiap nomor soal HARUS memiliki kunci jawaban dengan opsi yang berbeda dari nomor soal sebelumnya.
-   Contoh: Jika soal nomor 1 kuncinya opsi A ("opt_a"), maka soal nomor 2 HARUS opsi yang lain ("opt_b", "opt_c", atau "opt_d"), soal nomor 3 harus berbeda lagi, dan seterusnya.
-3. Sebar kunci jawaban secara merata dan proporsional di antara pilihan A, B, C, dan D (jangan semuanya A atau semuanya B).
-4. Untuk Pilihan Ganda Kompleks (checkbox), variasikan kombinasi kunci di setiap nomor (misal nomor 1 ["opt_a", "opt_c"], nomor 2 ["opt_b", "opt_d"]).
+PANDUAN KHUSUS SOAL HOTS & STIMULUS BACAAN MENDALAM (WAJIB DIPATUHI):
+1. STIMULUS KAYA & KONTEKSTUAL (2 - 4 PARAGRAF / DATA / STUDI KASUS):
+   - Setiap butir soal WAJIB diawali dengan STIMULUS BACAAN yang memadai dan mendalam (minimal 2 sampai 4 paragraf narasi kontekstual, dialog bermakna antar tokoh, hasil pengamatan/percobaan, deskripsi tabel data, atau studi kasus nyata yang dekat dengan kehidupan murid).
+   - DILARANG KERAS membuat stimulus pendek 1 baris atau pertanyaan hafalan langsung tanpa bacaan!
+   - Stimulus harus mendorong murid untuk membaca dengan teliti (close reading). Masukkan fakta-fakta penting, data pengamatan, atau petunjuk eksplisit & implisit di dalam narasi tersebut.
+2. TUNTUTAN ANALISIS SEBELUM MENJAWAB:
+   - Pertanyaan pokok setelah narasi harus menuntut murid menganalisis isi bacaan, menghubungkan hubungan sebab-akibat, membandingkan data, mengevaluasi argumen, atau merumuskan solusi atas masalah yang disajikan dalam stimulus.
+3. KESESUAIAN BAHASA DENGAN JENJANG KELAS (${grade}):
+   - Untuk jenjang SD (Sekolah Dasar): Gunakan narasi cerita yang runtut, hangat, nama tokoh ramah anak (Budi, Siti, Edo, Lani, dsb.), dan situasi nyata di lingkungan rumah/sekolah/alam sekitar.
+   - Untuk jenjang SMP/SMA: Gunakan wacana literasi sains/sosial, data tabel percobaan, studi kasus fenomena alam/teknologi kontemporer.
+
+ATURAN MUTLAK KEBENARAN KUNCI JAWABAN & VARIASI OPSI (ANTI SALAH KUNCI):
+1. KEBENARAN KONTEN ADALAH PRIORITAS UTAMA:
+   - Opsi yang Anda tunjuk sebagai "correctKey" (misal "opt_a", "opt_b", "opt_c", atau "opt_d") HARUS berisi teks jawaban yang 100% BENAR, AKURAT, dan MENJAWAB PERTANYAAN secara tepat.
+   - DILARANG KERAS menetapkan opsi yang salah sebagai kunci jawaban! Opsi pengecoh (distraktor) harus masuk akal namun jelas salah.
+2. ROTASIKAN POSISI JAWABAN BENAR AGAR KUNCI BERVARIASI (ANTI MONOTON):
+   - Jangan meletakkan jawaban benar pada opsi yang sama berturut-turut!
+   - Rotasikan di opsi mana Anda MENULISKAN teks jawaban yang benar:
+     * Nomor 1: Tuliskan teks jawaban BENAR pada "opt_a", dan opsi lain sebagai pengecoh. Kunci: "opt_a".
+     * Nomor 2: Tuliskan teks jawaban BENAR pada "opt_b", dan opsi lain sebagai pengecoh. Kunci: "opt_b".
+     * Nomor 3: Tuliskan teks jawaban BENAR pada "opt_c", dan opsi lain sebagai pengecoh. Kunci: "opt_c".
+     * Nomor 4: Tuliskan teks jawaban BENAR pada "opt_d", dan opsi lain sebagai pengecoh. Kunci: "opt_d".
+     * Nomor 5: Tuliskan teks jawaban BENAR pada "opt_b" (atau "opt_c"), dst.
+   - Pastikan teks jawaban yang benar SELALU berada di dalam opsi yang Anda jadikan "correctKey"!
+3. TEKS OPSI JAWABAN MURNI:
+   - DILARANG menuliskan huruf "A. ", "B. ", "C. ", "D. " di awal teks opsi! Tuliskan teksnya langsung (Contoh: "Fotosintesis pada daun", BUKAN "A. Fotosintesis pada daun").
+4. PEMBAHASAN MENDALAM:
+   - Atribut "explanation" harus menguraikan analisis bacaan/stimulus dan alasan ilmiah mengapa opsi pada "correctKey" tersebut benar serta mengapa pengecoh lainnya salah.
 
 Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
 [
   {
     "order": 1,
-    "prompt": "Kalimat pertanyaan yang jelas dan kontekstual",
+    "prompt": "Stimulus bacaan 2-4 paragraf yang kaya dan kontekstual... (diikuti kalimat pertanyaan analisis yang jelas)",
     "type": "${questionType === 'checkbox' ? 'checkbox' : questionType === 'essay' ? 'essay' : 'multiple_choice'}",
     "mediaType": "none",
     "options": [
-      { "id": "opt_a", "text": "Pilihan A" },
-      { "id": "opt_b", "text": "Pilihan B" },
-      { "id": "opt_c", "text": "Pilihan C" },
-      { "id": "opt_d", "text": "Pilihan D" }
+      { "id": "opt_a", "text": "Teks opsi A (tanpa awalan huruf A.)" },
+      { "id": "opt_b", "text": "Teks opsi B (tanpa awalan huruf B.)" },
+      { "id": "opt_c", "text": "Teks opsi C (tanpa awalan huruf C.)" },
+      { "id": "opt_d", "text": "Teks opsi D (tanpa awalan huruf D.)" }
     ],
     "correctKey": "${questionType === 'checkbox' ? '["opt_a", "opt_c"]' : 'opt_b'}",
     "points": 20,
-    "explanation": "Pembahasan ilmiah dan alasan mengapa opsi tersebut benar",
-    "bloomLevel": "C3 - Menerapkan",
-    "soloLevel": "Multistructural",
+    "explanation": "Pembahasan rinci berdasarkan stimulus dan alasan ilmiah mengapa kunci benar",
+    "bloomLevel": "C4 - Menganalisis",
+    "soloLevel": "Relational",
     "basicCompetency": "Kompetensi Dasar / Capaian Pembelajaran terkait",
     "indicator": "Indikator pencapaian kompetensi soal ini",
-    "learningObjective": "${validObjectives[0] || 'Peserta didik mampu memahami konsep pokok materi'}"
+    "learningObjective": "${validObjectives[0] || 'Peserta didik mampu menganalisis konsep pokok materi'}"
   }
 ]
 

@@ -40,6 +40,12 @@ const SHEETS = {
 };
 
 // Canonical Headers untuk integritas & auto-healing kolom antar versi
+const CANONICAL_PROFILE_HEADERS = [
+  'name', 'npsn', 'address', 'logoUrl', 'regionalGovLogoUrl', 'regionalGovName', 
+  'regionalGovDepartment', 'academicYear', 'semester', 'principalName', 'principalNip', 
+  'teacherName', 'teacherNip', 'teacherSubject', 'teacherEmail', 'teacherTitle', 'updatedAt'
+];
+
 const CANONICAL_QU_HEADERS = [
   'id', 'examId', 'order', 'prompt', 'type', 'mediaType', 'mediaUrl', 
   'optionsJson', 'correctKeyJson', 'points', 'explanation', 'bloomLevel', 
@@ -53,6 +59,21 @@ const CANONICAL_EX_HEADERS = [
   'allowLateSubmission', 'lateExtensionMinutes', 'learningObjectives', 'attemptMode', 
   'createdAt', 'redeployCount'
 ];
+
+/**
+ * Mencari sheet Curriculum secara fleksibel (mendukung ragam nama tab: Curriculum, Kurikulum, CP_TP, dsb.)
+ */
+function getCurriculumSheet(ss) {
+  if (!ss) return null;
+  return ss.getSheetByName(SHEETS.CURRICULUM) ||
+         ss.getSheetByName('Kurikulum') ||
+         ss.getSheetByName('CP_TP') ||
+         ss.getSheetByName('CP-TP') ||
+         ss.getSheetByName('Capaian Pembelajaran') ||
+         ss.getSheetByName('Capaian_Pembelajaran') ||
+         ss.getSheetByName('CP & TP') ||
+         null;
+}
 
 /**
  * Memastikan sheet memiliki jumlah kolom fisik yang mencukupi tanpa memicu exception batas kolom
@@ -89,12 +110,15 @@ function initDatabase() {
   let shProfile = ss.getSheetByName(SHEETS.PROFILE);
   if (!shProfile) {
     shProfile = ss.insertSheet(SHEETS.PROFILE);
-    shProfile.appendRow(['name', 'npsn', 'address', 'logoUrl', 'academicYear', 'semester', 'principalName', 'principalNip', 'teacherName', 'teacherNip', 'teacherSubject', 'teacherEmail', 'teacherTitle', 'updatedAt']);
+    shProfile.appendRow(CANONICAL_PROFILE_HEADERS);
     shProfile.appendRow([
       'SD NEGERI PISANGCANDI 1 MALANG',
       '20533857',
       'Jl. Raya Pisang Candi No. 1, Kec. Sukun, Kota Malang, Jawa Timur 65146',
       'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=200&auto=format&fit=crop&q=80',
+      '', // regionalGovLogoUrl
+      'PEMERINTAH KOTA MALANG',
+      'DINAS PENDIDIKAN DAN KEBUDAYAAN',
       '2026/2027',
       'Ganjil',
       'Dr. H. Sulaiman, M.Pd.',
@@ -107,6 +131,8 @@ function initDatabase() {
       new Date().toISOString()
     ]);
     formatHeaderRow(shProfile);
+  } else {
+    ensureMinColumns(shProfile, CANONICAL_PROFILE_HEADERS.length);
   }
 
   // 2. Exams (Didukung attemptMode: 'single' | 'unlimited')
@@ -270,7 +296,7 @@ function doGet(e) {
         students: getSheetDataAsObjects(ss.getSheetByName(SHEETS.STUDENTS)),
         submissions: getSheetDataAsObjects(ss.getSheetByName(SHEETS.SUBMISSIONS)),
         users: getSheetDataAsObjects(ss.getSheetByName(SHEETS.USERS)),
-        curriculum: getSheetDataAsObjects(ss.getSheetByName(SHEETS.CURRICULUM))
+        curriculum: getSheetDataAsObjects(getCurriculumSheet(ss))
       };
       return jsonResponse({ status: 'success', data: data });
     }
@@ -297,7 +323,7 @@ function doGet(e) {
     }
 
     if (action === 'getCurriculum') {
-      return jsonResponse({ status: 'success', data: getSheetDataAsObjects(ss.getSheetByName(SHEETS.CURRICULUM)) });
+      return jsonResponse({ status: 'success', data: getSheetDataAsObjects(getCurriculumSheet(ss)) });
     }
 
     return jsonResponse({ status: 'error', message: 'Action tidak dikenal: ' + action });
@@ -328,7 +354,7 @@ function doPost(e) {
         students: getSheetDataAsObjects(ss.getSheetByName(SHEETS.STUDENTS)),
         submissions: getSheetDataAsObjects(ss.getSheetByName(SHEETS.SUBMISSIONS)),
         users: getSheetDataAsObjects(ss.getSheetByName(SHEETS.USERS)),
-        curriculum: getSheetDataAsObjects(ss.getSheetByName(SHEETS.CURRICULUM))
+        curriculum: getSheetDataAsObjects(getCurriculumSheet(ss))
       };
       return jsonResponse({ status: 'success', data: data });
     }
@@ -786,24 +812,32 @@ function doPost(e) {
 
     if (action === 'saveSchoolProfile') {
       const p = payload.profile;
-      const sh = ss.getSheetByName(SHEETS.PROFILE);
+      let sh = ss.getSheetByName(SHEETS.PROFILE);
+      if (!sh) {
+        initDatabase();
+        sh = ss.getSheetByName(SHEETS.PROFILE);
+      }
+      ensureMinColumns(sh, CANONICAL_PROFILE_HEADERS.length);
       clearAndSetSingleRow(sh, [
-        p.name,
-        p.npsn,
-        p.address,
-        p.logoUrl,
-        p.academicYear,
-        p.semester,
-        p.principalName,
-        p.principalNip,
-        p.teacherName,
+        p.name || '',
+        p.npsn || '',
+        p.address || '',
+        p.logoUrl || '',
+        p.regionalGovLogoUrl || '',
+        p.regionalGovName || '',
+        p.regionalGovDepartment || '',
+        p.academicYear || '',
+        p.semester || 'Ganjil',
+        p.principalName || '',
+        p.principalNip || '',
+        p.teacherName || '',
         p.teacherNip || '',
         p.teacherSubject || '',
         p.teacherEmail || '',
         p.teacherTitle || '',
         new Date().toISOString()
       ]);
-      logAction('SYNC', 'Profil sekolah diperbarui: ' + p.name);
+      logAction('SYNC', 'Profil sekolah diperbarui: ' + (p.name || ''));
       return jsonResponse({ status: 'success', message: 'Profil sekolah berhasil disimpan' });
     }
 
@@ -899,6 +933,22 @@ function jsonResponse(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+function normalizeGasHeader(h) {
+  const raw = String(h || '').trim();
+  const clean = raw.toLowerCase().replace(/[\s_\-]+/g, '');
+  if (['matapelajaran', 'mapel', 'subject'].includes(clean)) return 'subject';
+  if (['kelas', 'jenjang', 'fase', 'tingkat', 'grade', 'classgrade'].includes(clean)) return 'grade';
+  if (['elemen', 'element', 'materi', 'pokokbahasan'].includes(clean)) return 'element';
+  if (['capaianpembelajaran', 'cp', 'learningoutcome', 'kompetensidasar', 'kd'].includes(clean)) return 'learningOutcome';
+  if (['tujuanpembelajaran', 'tp', 'learningobjectives', 'learningobjectivesjson', 'daftartp'].includes(clean)) return 'learningObjectivesJson';
+  if (['namasiswa', 'studentname', 'nama', 'namalengkap'].includes(clean)) return 'studentName';
+  if (['nis', 'nisn', 'nomorinduk', 'studentno'].includes(clean)) return 'studentNo';
+  if (['namapemerintahdaerah', 'pemda', 'pemkot', 'regionalgovname'].includes(clean)) return 'regionalGovName';
+  if (['namadinas', 'opd', 'dinas', 'organisasiperangkatdaerah', 'regionalgovdepartment'].includes(clean)) return 'regionalGovDepartment';
+  if (['logopemda', 'logopemkot', 'regionalgovlogourl'].includes(clean)) return 'regionalGovLogoUrl';
+  return raw;
+}
+
 function getSheetDataAsObjects(sheet) {
   if (!sheet) return [];
   const rows = sheet.getDataRange().getValues();
@@ -910,13 +960,33 @@ function getSheetDataAsObjects(sheet) {
     const obj = {};
     for (let h = 0; h < headers.length; h++) {
       let val = row[h];
-      const header = headers[h];
-      if (header.endsWith('Json') || header === 'answersJson' || header === 'optionsJson' || header === 'correctKeyJson') {
-        try {
-          val = JSON.parse(val);
-        } catch(e) {}
+      const origHeader = String(headers[h] || '').trim();
+      const normHeader = normalizeGasHeader(origHeader);
+      
+      if (
+        origHeader.endsWith('Json') || 
+        origHeader === 'answersJson' || 
+        origHeader === 'optionsJson' || 
+        origHeader === 'correctKeyJson' ||
+        normHeader === 'learningObjectivesJson'
+      ) {
+        if (typeof val === 'string' && val.trim().length > 0) {
+          try {
+            val = JSON.parse(val);
+          } catch(e) {
+            // Jika bukan JSON valid, parse pemisah baris baru atau titik koma
+            if (normHeader === 'learningObjectivesJson') {
+              val = val.split(/[\r\n;]+/)
+                .map(function(s) { return s.replace(/^[\s\d\.\-\*•]+/, '').trim(); })
+                .filter(Boolean);
+            }
+          }
+        }
       }
-      obj[header] = val;
+      obj[origHeader] = val;
+      if (normHeader !== origHeader) {
+        obj[normHeader] = val;
+      }
     }
     results.push(obj);
   }

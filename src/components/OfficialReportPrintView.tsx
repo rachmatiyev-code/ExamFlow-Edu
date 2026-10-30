@@ -324,48 +324,65 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
       <main className="print-area max-w-[210mm] mx-auto mt-6 bg-white text-black shadow-lg border border-slate-200 p-8 sm:p-12 print:m-0 print:p-0 print:border-none print:shadow-none print:w-full print:max-w-none">
         
         {/* ==============================================================
-            KOP SURAT RESMI SEKOLAH (SDN PISANGCANDI 1)
+            KOP SURAT RESMI SEKOLAH STANDAR TATA NASKAH DINAS
            ============================================================== */}
         <div className="kop-surat relative border-b-2 border-black pb-3 mb-6 print-break-inside-avoid">
           <div className="flex items-center justify-between gap-4">
-            {profile.logoUrl ? (
-              <img
-                src={profile.logoUrl}
-                alt="Logo Sekolah"
-                referrerPolicy="no-referrer"
-                className="w-20 h-20 object-contain shrink-0"
-              />
-            ) : (
-              <div className="w-16 h-16 rounded border border-black flex items-center justify-center font-bold text-xs text-center shrink-0">
-                LOGO
-              </div>
-            )}
+            {/* Logo Pemerintah Daerah (SEBELAH KIRI KOP SURAT) */}
+            <div className="w-20 h-20 flex items-center justify-center shrink-0">
+              {profile.regionalGovLogoUrl ? (
+                <img
+                  src={profile.regionalGovLogoUrl}
+                  alt="Logo Pemda Kiri"
+                  referrerPolicy="no-referrer"
+                  className="w-20 h-20 object-contain shrink-0"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
+                  <span>PEMDA</span>
+                  <span className="text-[8px] font-normal">KIRI</span>
+                </div>
+              )}
+            </div>
 
-            <div className="flex-1 text-center font-serif">
-              <h4 className="text-xs uppercase tracking-widest font-bold text-slate-800">
-                PEMERINTAH KOTA MALANG
+            {/* Hirarki Teks Kedinasan: Pemda -> OPD -> Nama Sekolah -> Alamat */}
+            <div className="flex-1 text-center font-serif leading-tight">
+              <h4 className="text-xs uppercase tracking-widest font-bold text-black">
+                {profile.regionalGovName || 'PEMERINTAH KOTA MALANG'}
               </h4>
-              <h4 className="text-xs uppercase tracking-wider font-bold text-slate-800">
-                DINAS PENDIDIKAN DAN KEBUDAYAAN
+              <h4 className="text-xs uppercase tracking-wider font-bold text-black mt-0.5">
+                {profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'}
               </h4>
-              <h2 className="text-base sm:text-lg uppercase font-extrabold tracking-wide text-black mt-0.5">
+              <h2 className="text-base sm:text-lg uppercase font-extrabold tracking-wide text-black mt-1">
                 {profile.name || 'SD NEGERI PISANGCANDI 1 MALANG'}
               </h2>
-              <p className="text-[11px] text-slate-700 mt-0.5 font-sans">
+              <p className="text-[11px] text-black mt-0.5 font-sans">
                 {profile.address || 'Jl. Raya Pisang Candi No. 1, Kec. Sukun, Kota Malang, Jawa Timur 65146'}
               </p>
-              <p className="text-[10px] text-slate-600 font-mono mt-0.5">
-                NPSN: {profile.npsn || '20533857'} · Website: sdn-pisangcandi1.sch.id · Email: info@sdnpisangcandi1.sch.id
+              <p className="text-[10px] text-black font-mono mt-0.5">
+                NPSN: {profile.npsn || '20533857'} · Tahun Ajaran: {profile.academicYear || '2026/2027'} · Semester: {profile.semester || 'Genap'}
               </p>
             </div>
 
-            <div className="w-20 shrink-0 text-right font-mono text-[10px] text-slate-500">
-              <span className="block font-bold">FORM-EXAM</span>
-              <span className="block">{currentExam?.id || '2026-ED'}</span>
+            {/* Logo Satuan Pendidikan / Sekolah (SEBELAH KANAN KOP SURAT) */}
+            <div className="w-20 h-20 flex items-center justify-center shrink-0">
+              {profile.logoUrl ? (
+                <img
+                  src={profile.logoUrl}
+                  alt="Logo Sekolah Kanan"
+                  referrerPolicy="no-referrer"
+                  className="w-20 h-20 object-contain shrink-0"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
+                  <span>SEKOLAH</span>
+                  <span className="text-[8px] font-normal">KANAN</span>
+                </div>
+              )}
             </div>
           </div>
-          {/* Double underline standard Kop Surat */}
-          <div className="border-b-4 border-black mt-1"></div>
+          {/* Double underline standard Kop Surat Resmi */}
+          <div className="border-b-4 border-black mt-1.5"></div>
         </div>
 
         {/* ==============================================================

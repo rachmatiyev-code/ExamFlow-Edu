@@ -2,7 +2,10 @@ export interface SchoolProfile {
   name: string;
   npsn: string;
   address: string;
-  logoUrl: string;
+  logoUrl: string; // Logo Sekolah (kanan kop)
+  regionalGovLogoUrl?: string; // Logo Pemerintah Daerah / Kota (kiri kop)
+  regionalGovName?: string; // Nama Pemerintah Daerah (misal: PEMERINTAH KOTA MALANG)
+  regionalGovDepartment?: string; // Nama Organisasi Perangkat Daerah / Dinas (misal: DINAS PENDIDIKAN DAN KEBUDAYAAN)
   academicYear: string;
   semester: 'Ganjil' | 'Genap';
   principalName: string;

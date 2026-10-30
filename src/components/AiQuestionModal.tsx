@@ -42,6 +42,8 @@ interface AiQuestionModalProps {
   aiMessage: string | null;
   onGenerate: () => Promise<void>;
   onOpenSettings?: () => void;
+  aiGrade?: string;
+  setAiGrade?: (grade: string) => void;
 }
 
 export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
@@ -70,11 +72,53 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
   isGeneratingAi,
   aiMessage,
   onGenerate,
-  onOpenSettings
+  onOpenSettings,
+  aiGrade,
+  setAiGrade
 }) => {
   const modalContainerRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+
+  const targetExamObj = exams.find(e => e.id === (selectedExamId || exams[0]?.id)) || exams[0];
+  const [internalGrade, setInternalGrade] = React.useState<string>(targetExamObj?.grade || 'Semua');
+
+  const activeGrade = aiGrade !== undefined ? aiGrade : internalGrade;
+  const handleGradeChange = (newGrade: string) => {
+    if (setAiGrade) {
+      setAiGrade(newGrade);
+    } else {
+      setInternalGrade(newGrade);
+    }
+  };
+
+  // Filter curriculum items based on the active grade
+  const filteredCurriculumList = React.useMemo(() => {
+    if (!activeGrade || activeGrade === 'Semua') return curriculumList;
+    const q = activeGrade.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return curriculumList.filter(item => {
+      const g = (item.grade || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!g) return true;
+      if (g.includes(q) || q.includes(g)) return true;
+
+      // Fase mapping for Kurikulum Merdeka (SD SDN Pisangcandi 1, SMP, SMA)
+      const isFaseA = g.includes('fasea') || g.includes('kelas1') || g.includes('kelas2') || g.includes('kelasi') || g.includes('kelasii');
+      const isFaseB = g.includes('faseb') || g.includes('kelas3') || g.includes('kelas4') || g.includes('kelasiii') || g.includes('kelasiv');
+      const isFaseC = g.includes('fasec') || g.includes('kelas5') || g.includes('kelas6') || g.includes('kelasv') || g.includes('kelasvi');
+      const isFaseD = g.includes('fased') || g.includes('kelas7') || g.includes('kelas8') || g.includes('kelas9') || g.includes('smp');
+      const isFaseE = g.includes('fasee') || g.includes('kelas10') || g.includes('kelasx');
+      const isFaseF = g.includes('fasef') || g.includes('kelas11') || g.includes('kelas12') || g.includes('kelasxi') || g.includes('kelasxii');
+
+      if (q.includes('1') || q.includes('2') || q.includes('fasea')) return isFaseA;
+      if (q.includes('3') || q.includes('4') || q.includes('faseb')) return isFaseB;
+      if (q.includes('5') || q.includes('6') || q.includes('fasec')) return isFaseC;
+      if (q.includes('7') || q.includes('8') || q.includes('9') || q.includes('fased')) return isFaseD;
+      if (q.includes('10') || q.includes('fasee')) return isFaseE;
+      if (q.includes('11') || q.includes('12') || q.includes('fasef')) return isFaseF;
+
+      return false;
+    });
+  }, [curriculumList, activeGrade]);
 
   // Tutup menu dengan tombol "Esc" (dukung keydown capture phase agar selalu tertangkap)
   useEffect(() => {
@@ -107,7 +151,6 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
 
   if (!isOpen) return null;
 
-  const targetExamObj = exams.find(e => e.id === (selectedExamId || exams[0]?.id)) || exams[0];
   const currentCount = targetExamObj ? StorageService.getQuestionsByExamId(targetExamObj.id).length : 0;
   const hasGeminiKey = Boolean(StorageService.getSettings().geminiApiKey?.trim());
 
@@ -185,26 +228,79 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                 <span>1. Mata Pelajaran & Kurikulum</span>
               </div>
 
-              {/* Mata Pelajaran & Kelas Tujuan */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Mata Pelajaran & Kelas Tujuan
-                </label>
-                <select
-                  value={selectedExamId || exams[0]?.id || ''}
-                  onChange={(e) => onSelectExamId(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-semibold focus:ring-2 focus:ring-indigo-500"
-                >
-                  {exams.map(e => (
-                    <option key={e.id} value={e.id}>
-                      {e.subject} — Kelas {e.grade} ({e.title})
-                    </option>
-                  ))}
-                </select>
+              {/* Mata Pelajaran, Paket Ujian & Pemilihan Kelas */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Target Paket Ujian
+                  </label>
+                  <select
+                    value={selectedExamId || exams[0]?.id || ''}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      onSelectExamId(id);
+                      const ex = exams.find(x => x.id === id);
+                      if (ex?.grade) {
+                        handleGradeChange(ex.grade);
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-semibold focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {exams.map(e => (
+                      <option key={e.id} value={e.id}>
+                        {e.subject} — Kelas {e.grade} ({e.title})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* PILIH KELAS / FASE (Requirements 1 & 2) */}
+                <div className="p-2.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                      <span>Pilih Tingkat Kelas / Fase:</span>
+                    </label>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold">
+                      {filteredCurriculumList.length} CP Sesuai
+                    </span>
+                  </div>
+                  <select
+                    value={activeGrade}
+                    onChange={(e) => handleGradeChange(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="Semua">-- Tampilkan Semua Kelas / Fase --</option>
+                    <optgroup label="Sekolah Dasar (SD) - Fase A, B, C">
+                      <option value="Kelas 1">Kelas 1 (Fase A)</option>
+                      <option value="Kelas 2">Kelas 2 (Fase A)</option>
+                      <option value="Kelas 3">Kelas 3 (Fase B)</option>
+                      <option value="Kelas 4">Kelas 4 (Fase B)</option>
+                      <option value="Kelas 5">Kelas 5 (Fase C)</option>
+                      <option value="Kelas 6">Kelas 6 (Fase C)</option>
+                    </optgroup>
+                    <optgroup label="Sekolah Menengah Pertama (SMP) - Fase D">
+                      <option value="Kelas 7">Kelas 7 (Fase D)</option>
+                      <option value="Kelas 8">Kelas 8 (Fase D)</option>
+                      <option value="Kelas 9">Kelas 9 (Fase D)</option>
+                    </optgroup>
+                    <optgroup label="Sekolah Menengah Atas (SMA) - Fase E & F">
+                      <option value="Kelas 10">Kelas 10 (Fase E)</option>
+                      <option value="Kelas 11">Kelas 11 (Fase F)</option>
+                      <option value="Kelas 12">Kelas 12 (Fase F)</option>
+                    </optgroup>
+                    {targetExamObj?.grade && !['Kelas 1', 'Kelas 2', 'Kelas 3', 'Kelas 4', 'Kelas 5', 'Kelas 6', 'Kelas 7', 'Kelas 8', 'Kelas 9', 'Kelas 10', 'Kelas 11', 'Kelas 12', 'Semua'].includes(targetExamObj.grade) && (
+                      <option value={targetExamObj.grade}>Kelas Ujian ({targetExamObj.grade})</option>
+                    )}
+                  </select>
+                  <p className="text-[10px] text-amber-800/80 dark:text-amber-300/80 mt-1 leading-tight">
+                    Capaian Pembelajaran (CP) dan Tujuan Pembelajaran (TP) di bawah akan disaring otomatis sesuai tingkat kelas ini.
+                  </p>
+                </div>
 
                 {/* Info Card Mata Pelajaran & Kelas */}
                 {targetExamObj && (
-                  <div className="mt-2 p-2.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[11px] text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <div className="p-2.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[11px] text-slate-700 dark:text-slate-300 flex items-center justify-between">
                     <div className="flex flex-wrap items-center gap-1.5 truncate">
                       <span className="font-bold text-indigo-600 dark:text-indigo-400">{targetExamObj.subject}</span>
                       <span>·</span>
@@ -228,20 +324,20 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                   type="text"
                   value={aiTopic}
                   onChange={(e) => setAiTopic(e.target.value)}
-                  placeholder="Contoh: Hukum Archimedes & Tekanan Zat Cair"
+                  placeholder="Contoh: Norma dan Aturan dalam Masyarakat (Pancasila)"
                   className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
-              {/* Dropdown Capaian Pembelajaran & Elemen (Kurikulum Merdeka) */}
+              {/* Dropdown Capaian Pembelajaran & Elemen (Kurikulum Merdeka) - DISARING BERDASARKAN KELAS */}
               <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
                     <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    <span>Capaian Pembelajaran (CP) & Elemen</span>
+                    <span>Capaian Pembelajaran (CP) {activeGrade !== 'Semua' ? `[${activeGrade}]` : ''}</span>
                   </label>
                   <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold font-mono">
-                    {curriculumList.length} CP Tersedia
+                    {filteredCurriculumList.length} CP Tersedia
                   </span>
                 </div>
 
@@ -249,7 +345,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                   onChange={(e) => {
                     const selectedId = e.target.value;
                     if (!selectedId) return;
-                    const cur = curriculumList.find(c => c.id === selectedId);
+                    const cur = (filteredCurriculumList.length > 0 ? filteredCurriculumList : curriculumList).find(c => c.id === selectedId);
                     if (cur) {
                       setAiTopic(`${cur.subject}: ${cur.element}`);
                       if (cur.learningObjectives && cur.learningObjectives.length > 0) {
@@ -259,16 +355,16 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                   }}
                   className="w-full px-3 py-2 text-xs rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
                 >
-                  <option value="">-- Pilih Capaian Pembelajaran / Elemen --</option>
-                  {curriculumList.map((cur) => (
+                  <option value="">-- Pilih Capaian Pembelajaran / Elemen {activeGrade !== 'Semua' ? `(${activeGrade})` : ''} --</option>
+                  {(filteredCurriculumList.length > 0 ? filteredCurriculumList : curriculumList).map((cur) => (
                     <option key={cur.id} value={cur.id}>
-                      [{cur.subject}] {cur.element} — {cur.learningOutcome.length > 50 ? cur.learningOutcome.slice(0, 50) + '...' : cur.learningOutcome}
+                      [{cur.subject} - {cur.grade || 'Umum'}] {cur.element} — {cur.learningOutcome.length > 45 ? cur.learningOutcome.slice(0, 45) + '...' : cur.learningOutcome}
                     </option>
                   ))}
                 </select>
 
                 <p className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80 leading-relaxed">
-                  Memilih CP otomatis mengisi topik dan menyalin butir Tujuan Pembelajaran yang sesuai.
+                  Memilih CP otomatis mengisi topik dan menyalin butir Tujuan Pembelajaran yang sesuai jenjang kelas.
                 </p>
               </div>
 
@@ -287,7 +383,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                   rows={3}
                   value={aiCustomPrompt}
                   onChange={(e) => setAiCustomPrompt(e.target.value)}
-                  placeholder="Contoh: Fokuskan pada soal kontekstual kehidupan sehari-hari, sertakan rumus KaTeX $...$, buat narasi stimulus, hindari soal hafalan murni..."
+                  placeholder="Contoh: Sajikan stimulus cerita kontekstual 2-3 paragraf, fokuskan pada penalaran HOTS, hindari pertanyaan ingatan hafalan..."
                   className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 leading-relaxed resize-none"
                 />
                 <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
@@ -325,10 +421,10 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                 </div>
               </div>
 
-              {/* Quick Select TP from Curriculum */}
+              {/* Quick Select TP from Curriculum (Filtered by Selected Grade) */}
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                  Ambil Cepat TP dari Bank Kurikulum:
+                  Ambil Cepat TP dari Bank Kurikulum {activeGrade !== 'Semua' ? `(${activeGrade})` : ''}:
                 </label>
                 <select
                   onChange={(e) => {
@@ -339,8 +435,8 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                   }}
                   className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                 >
-                  <option value="">-- Pilih TP dari Kurikulum untuk Ditambahkan --</option>
-                  {curriculumList.flatMap(c => c.learningObjectives.map((tp, idx) => ({ key: `${c.id}-${idx}`, label: `[${c.subject}] ${tp}`, text: tp }))).map(item => (
+                  <option value="">-- Pilih TP dari Kurikulum {activeGrade !== 'Semua' ? `(${activeGrade})` : ''} --</option>
+                  {(filteredCurriculumList.length > 0 ? filteredCurriculumList : curriculumList).flatMap(c => (c.learningObjectives || []).map((tp, idx) => ({ key: `${c.id}-${idx}`, label: `[${c.subject} - ${c.grade || 'Umum'}] ${tp}`, text: tp }))).map(item => (
                     <option key={item.key} value={item.text} disabled={aiLearningObjectives.includes(item.text)}>
                       {item.label.length > 55 ? item.label.slice(0, 55) + '...' : item.label} {aiLearningObjectives.includes(item.text) ? '(Sudah Ada)' : ''}
                     </option>

@@ -143,32 +143,60 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
         
         {/* 1. KOP SURAT RESMI SEKOLAH */}
         <div className="kop-surat relative pb-3 mb-4 print-break-inside-avoid">
-          <div className="flex items-center gap-5">
-            {profile.logoUrl && (
-              <img
-                src={profile.logoUrl}
-                alt={profile.name}
-                referrerPolicy="no-referrer"
-                className="w-20 h-20 sm:w-24 sm:h-24 object-contain shrink-0"
-              />
-            )}
-            <div className="flex-1 text-center font-serif text-black">
-              <h4 className="text-xs sm:text-sm font-semibold tracking-wider uppercase">
-                PEMERINTAH PROVINSI / DINAS PENDIDIKAN & KEBUDAYAAN
-              </h4>
-              <h2 className="text-base sm:text-xl font-bold uppercase tracking-tight mt-0.5">
-                {profile.name}
-              </h2>
-              {profile.npsn && (
-                <p className="text-xs font-medium">NPSN: {profile.npsn}</p>
+          <div className="flex items-center justify-between gap-4">
+            {/* Logo Pemda (Kiri) */}
+            <div className="w-20 h-20 flex items-center justify-center shrink-0">
+              {profile.regionalGovLogoUrl ? (
+                <img
+                  src={profile.regionalGovLogoUrl}
+                  alt="Logo Pemda Kiri"
+                  referrerPolicy="no-referrer"
+                  className="w-20 h-20 object-contain shrink-0"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
+                  <span>PEMDA</span>
+                  <span className="text-[8px] font-normal">KIRI</span>
+                </div>
               )}
+            </div>
+
+            {/* Hirarki Kedinasan: Pemda -> OPD -> Satuan Pendidikan */}
+            <div className="flex-1 text-center font-serif text-black leading-tight">
+              <h4 className="text-xs sm:text-sm font-bold tracking-wider uppercase">
+                {profile.regionalGovName || 'PEMERINTAH KOTA MALANG'}
+              </h4>
+              <h4 className="text-xs sm:text-sm font-bold tracking-wider uppercase mt-0.5">
+                {profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'}
+              </h4>
+              <h2 className="text-base sm:text-xl font-extrabold uppercase tracking-tight mt-1">
+                {profile.name || 'SD NEGERI PISANGCANDI 1 MALANG'}
+              </h2>
               <p className="text-[11px] sm:text-xs leading-tight mt-0.5">
-                {profile.address || 'Alamat Lengkap Satuan Pendidikan'}
+                {profile.address || 'Jl. Raya Pisang Candi No. 1, Kec. Sukun, Kota Malang, Jawa Timur'}
               </p>
-              <div className="flex items-center justify-center gap-3 text-[10.5px] mt-0.5 font-sans text-slate-700">
-                <span>Tahun Ajaran: {profile.academicYear || '2024/2025'}</span>
-                <span>Semester: {profile.semester || 'Ganjil'}</span>
+              <div className="flex items-center justify-center gap-3 text-[10.5px] mt-0.5 font-sans text-slate-800">
+                {profile.npsn && <span>NPSN: {profile.npsn}</span>}
+                <span>Tahun Ajaran: {profile.academicYear || '2026/2027'}</span>
+                <span>Semester: {profile.semester || 'Genap'}</span>
               </div>
+            </div>
+
+            {/* Logo Sekolah (Kanan) */}
+            <div className="w-20 h-20 flex items-center justify-center shrink-0">
+              {profile.logoUrl ? (
+                <img
+                  src={profile.logoUrl}
+                  alt={profile.name}
+                  referrerPolicy="no-referrer"
+                  className="w-20 h-20 object-contain shrink-0"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
+                  <span>SEKOLAH</span>
+                  <span className="text-[8px] font-normal">KANAN</span>
+                </div>
+              )}
             </div>
           </div>
 

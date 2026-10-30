@@ -19,6 +19,7 @@ import {
   GraduationCap
 } from 'lucide-react';
 import { CurriculumItem, Exam } from '../types';
+import { StorageService } from '../services/storage';
 
 interface CurriculumManagementProps {
   curriculumList: CurriculumItem[];
@@ -30,32 +31,13 @@ interface CurriculumManagementProps {
   exams?: Exam[];
 }
 
-const COMMON_SUBJECTS = [
-  'Biologi',
-  'Fisika',
-  'Kimia',
-  'Matematika',
-  'Bahasa Indonesia',
-  'Bahasa Inggris',
-  'Informatika',
-  'Sejarah',
-  'Geografi',
-  'Ekonomi',
-  'Sosiologi',
-  'Pendidikan Pancasila',
-  'Pendidikan Agama & Budi Pekerti',
-  'PJOK',
-  'Seni Budaya',
-  'Prakarya & Kewirausahaan'
-];
-
 const COMMON_GRADES = [
-  'Fase E (Kelas X)',
-  'Fase F (Kelas XI)',
-  'Fase F (Kelas XII)',
-  'Fase D (Kelas VII - IX)',
-  'Fase C (Kelas V - VI)',
-  'Fase A - B (Kelas I - IV)'
+  'Fase B (Kelas 3 - 4)',
+  'Fase C (Kelas 5 - 6)',
+  'Fase A (Kelas 1 - 2)',
+  'Fase D (Kelas 7 - 9)',
+  'Fase E (Kelas 10)',
+  'Fase F (Kelas 11 - 12)'
 ];
 
 export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
@@ -69,12 +51,13 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
 }) => {
   const [filterSubject, setFilterSubject] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [allSubjects, setAllSubjects] = useState<string[]>(() => StorageService.getAllSubjects());
   
   // Form State
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [subject, setSubject] = useState<string>(exams[0]?.subject || 'Biologi');
+  const [subject, setSubject] = useState<string>(exams[0]?.subject || allSubjects[0] || 'Pendidikan Pancasila');
   const [customSubject, setCustomSubject] = useState<string>('');
-  const [grade, setGrade] = useState<string>('Fase E (Kelas X)');
+  const [grade, setGrade] = useState<string>('Fase B (Kelas 3 - 4)');
   const [element, setElement] = useState<string>('');
   const [learningOutcome, setLearningOutcome] = useState<string>('');
   const [objectives, setObjectives] = useState<string[]>([]);
@@ -106,9 +89,9 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
 
   const handleResetForm = () => {
     setEditingId(null);
-    setSubject(exams[0]?.subject || 'Biologi');
+    setSubject(exams[0]?.subject || allSubjects[0] || 'Pendidikan Pancasila');
     setCustomSubject('');
-    setGrade('Fase E (Kelas X)');
+    setGrade('Fase B (Kelas 3 - 4)');
     setElement('');
     setLearningOutcome('');
     setObjectives([]);
@@ -117,19 +100,29 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
 
   const handleEditItem = (item: CurriculumItem) => {
     setEditingId(item.id);
-    if (COMMON_SUBJECTS.includes(item.subject)) {
+    if (allSubjects.includes(item.subject)) {
       setSubject(item.subject);
       setCustomSubject('');
     } else {
       setSubject('Lainnya');
       setCustomSubject(item.subject);
     }
-    setGrade(item.grade || 'Fase E (Kelas X)');
+    setGrade(item.grade || 'Fase B (Kelas 3 - 4)');
     setElement(item.element);
     setLearningOutcome(item.learningOutcome);
     setObjectives([...(item.learningObjectives || [])]);
     setTpInput('');
     window.scrollTo({ top: 120, behavior: 'smooth' });
+  };
+
+  const handleClearDummies = () => {
+    if (confirm('Bersihkan data Capaian & TP dummy/contoh? Data kurikulum asli yang Anda input dan yang tersinkronisasi dari Google Sheets tidak akan terhapus.')) {
+      StorageService.clearDummyCurriculum();
+      showToast('Data dummy berhasil dibersihkan.');
+      setTimeout(() => {
+        window.location.reload();
+      }, 800);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -155,6 +148,10 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
 
     setIsSubmitting(true);
     try {
+      // Simpan mata pelajaran baru ke daftar persistent agar muncul di semua pilihan mapel
+      StorageService.addCustomSubject(finalSubject);
+      setAllSubjects(StorageService.getAllSubjects());
+
       const itemToSave: CurriculumItem = {
         id: editingId || `CUR-${Date.now()}`,
         subject: finalSubject,
@@ -241,12 +238,22 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
               type="button"
               onClick={onResetDefaultTemplate}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-700/80 hover:bg-indigo-600 text-indigo-100 text-xs font-semibold rounded-xl border border-indigo-500/50 transition-colors"
-              title="Muat ulang template default Kurikulum Merdeka (Biologi, Fisika, Matematika, B. Indonesia)"
+              title="Muat ulang template default Kurikulum Merdeka (Pendidikan Pancasila, Bahasa Indonesia, IPAS, Matematika)"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Muat Template Standar</span>
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={handleClearDummies}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600/80 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl transition-colors"
+            title="Bersihkan data kurikulum dummy/sample (seperti data Biologi lama)"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Bersihkan Template Dummy</span>
+          </button>
         </div>
       </div>
 
@@ -288,12 +295,12 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
               <select
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 font-semibold"
               >
-                {COMMON_SUBJECTS.map(s => (
+                {allSubjects.map(s => (
                   <option key={s} value={s}>{s}</option>
                 ))}
-                <option value="Lainnya">+ Tambah Mapel Lainnya...</option>
+                <option value="Lainnya">+ Tambah Mapel Baru / Lainnya...</option>
               </select>
 
               {subject === 'Lainnya' && (

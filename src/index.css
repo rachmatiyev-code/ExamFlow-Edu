@@ -35,9 +35,15 @@
     print-color-adjust: exact !important;
   }
 
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   /* Area Dokumen Resmi Cetak */
   .print-area {
     width: 100% !important;
+    max-width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
     box-shadow: none !important;

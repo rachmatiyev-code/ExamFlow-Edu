@@ -208,17 +208,17 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
 
         {/* 2. JUDUL DOKUMEN ASESMEN */}
         <div className="text-center my-3 font-serif">
-          <h3 className="text-sm sm:text-base font-bold uppercase tracking-wide underline underline-offset-4">
+          <h3 className="text-base font-bold uppercase tracking-wide underline underline-offset-4">
             NASKAH SOAL ASESMEN SUMATIF / PENILAIAN AKHIR
           </h3>
           <p className="text-xs font-semibold uppercase mt-1">
-            TAHUN AJARAN {new Date().getFullYear()} / {new Date().getFullYear() + 1}
+            TAHUN AJARAN {profile.academicYear || `${new Date().getFullYear()} / ${new Date().getFullYear() + 1}`}
           </p>
         </div>
 
-        {/* 3. TABEL IDENTITAS UJIAN & KOTAK NILAI SISWA */}
-        <div className="my-3 border border-black rounded-xs p-3 text-xs font-sans grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div className="md:col-span-8 grid grid-cols-12 gap-y-1">
+        {/* 3. TABEL IDENTITAS UJIAN & KOTAK NILAI SISWA (Konsisten 2 Kolom di Preview App & Print Modal) */}
+        <div className="my-3 border border-black rounded-xs p-3 text-xs font-sans flex flex-row items-stretch gap-4 print:flex print:flex-row print:items-stretch">
+          <div className="flex-1 grid grid-cols-12 gap-y-1">
             <div className="col-span-4 font-semibold">Mata Pelajaran</div>
             <div className="col-span-8">: <span className="font-bold">{selectedExam?.subject || '-'}</span></div>
 
@@ -238,9 +238,9 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
             <div className="col-span-8">: {questions.length} Butir Soal</div>
           </div>
 
-          {/* Kotak Nilai & Tanda Tangan Guru Penguji (Hadir di Kanan Atas) */}
+          {/* Kotak Nilai & Tanda Tangan Guru Penguji (Hadir di Kanan Atas Secara Konsisten) */}
           {showScoreBox && (
-            <div className="md:col-span-4 border-t md:border-t-0 md:border-l border-black pt-2 md:pt-0 md:pl-3 flex flex-col justify-between">
+            <div className="w-64 shrink-0 border-l border-black pl-3 flex flex-col justify-between print:w-64 print:shrink-0 print:border-l print:border-black print:pl-3">
               <div className="grid grid-cols-2 border border-black text-center">
                 <div className="border-r border-b border-black py-1 font-bold text-[10.5px] bg-slate-100 print:bg-transparent">
                   NILAI SISWA
@@ -256,12 +256,12 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
                 </div>
               </div>
               <div className="mt-1 text-[10.5px]">
-                <div className="flex justify-between">
-                  <span>Nama Siswa:</span>
+                <div className="flex items-center">
+                  <span className="shrink-0">Nama Siswa:</span>
                   <span className="border-b border-dotted border-black flex-1 ml-1">&nbsp;</span>
                 </div>
-                <div className="flex justify-between mt-1">
-                  <span>No. Peserta:</span>
+                <div className="flex items-center mt-1">
+                  <span className="shrink-0">No. Peserta:</span>
                   <span className="border-b border-dotted border-black flex-1 ml-1">&nbsp;</span>
                 </div>
               </div>

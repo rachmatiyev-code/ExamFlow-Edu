@@ -23,6 +23,8 @@ import { AiQuestionModal } from './AiQuestionModal';
 import { RichTextEditor } from './RichTextEditor';
 import { MathRenderer } from '../services/mathRenderer';
 import { detectMediaType } from '../services/mediaHelper';
+import { exportGradeRecapToDocx, exportItemAnalysisToDocx } from '../services/exportDocxService';
+import { exportGradeRecapToExcel, exportItemAnalysisToExcel } from '../services/exportExcelService';
 import { 
   Plus, 
   CloudUpload,
@@ -633,6 +635,45 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     setTimeout(() => setSessionToast(null), 4000);
   };
 
+  const handleStopExamPermanently = async (exam: Exam) => {
+    if (!confirm(`HENTIKAN SESI UJIAN SECARA PERMANEN?\n\nSesi ujian "${exam.title}" akan dihentikan dan seluruh akses siswa langsung diputus oleh server.\n\nStatus henti ini permanen dan tidak dapat berubah meski halaman dimuat ulang (refresh), sampai Anda membukanya kembali dengan tombol "Lanjutkan".`)) {
+      return;
+    }
+    const updated: Exam = {
+      ...exam,
+      status: 'stopped',
+      sessionStatus: 'stopped',
+      sessionEndedAt: new Date().toISOString()
+    };
+    StorageService.upsertExam(updated);
+    const qs = StorageService.getQuestionsByExamId(exam.id);
+    await GasClient.stopExamSession(exam.id);
+    await GasClient.pushExam(updated, qs);
+    setSessionToast(`Sesi ujian "${exam.title}" telah DIHENTIKAN SECARA PERMANEN! Akses siswa ditutup.`);
+    StorageService.addLog('EXAM', `Sesi ujian "${exam.title}" DIHENTIKAN PERMANEN oleh guru pengawas`, undefined, 'error');
+    onRefreshData();
+    setTimeout(() => setSessionToast(null), 5000);
+  };
+
+  const handleResumeExamPermanently = async (exam: Exam) => {
+    if (!confirm(`LANJUTKAN KEMBALI SESI UJIAN "${exam.title}"?\n\nAkses pengerjaan siswa akan dibuka kembali sehingga siswa dapat login dan mengerjakan ujian.`)) {
+      return;
+    }
+    const updated: Exam = {
+      ...exam,
+      status: 'active',
+      sessionStatus: 'active'
+    };
+    StorageService.upsertExam(updated);
+    const qs = StorageService.getQuestionsByExamId(exam.id);
+    await GasClient.resumeExamSession(exam.id);
+    await GasClient.pushExam(updated, qs);
+    setSessionToast(`Sesi ujian "${exam.title}" telah DILANJUTKAN KEMBALI! Siswa dapat mengakses ujian.`);
+    StorageService.addLog('EXAM', `Sesi ujian "${exam.title}" DILANJUTKAN KEMBALI oleh guru pengawas`, undefined, 'success');
+    onRefreshData();
+    setTimeout(() => setSessionToast(null), 5000);
+  };
+
   const handleOpenLateExtension = (exam: Exam) => {
     setLateExtensionExam(exam);
     setLateExtensionMinutes(exam.lateExtensionMinutes || 30);
@@ -1100,6 +1141,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       reportMode,
       studentNis: selectedReportStudentNis
     });
+  };
+
+  const handleExportGradeRecapWord = async () => {
+    const targetExam = exams.find(e => e.id === analyticsExamFilter) || exams.find(e => e.id === selectedExamId) || exams[0];
+    if (!targetExam) {
+      alert('Pilih paket ujian terlebih dahulu.');
+      return;
+    }
+    const targetClass = analyticsClassFilter !== 'all' ? analyticsClassFilter : targetExam.grade;
+    await exportGradeRecapToDocx(targetExam, filteredAnalyticsSubmissions, profile, targetClass);
+  };
+
+  const handleExportGradeRecapExcel = () => {
+    const targetExam = exams.find(e => e.id === analyticsExamFilter) || exams.find(e => e.id === selectedExamId) || exams[0];
+    if (!targetExam) {
+      alert('Pilih paket ujian terlebih dahulu.');
+      return;
+    }
+    const targetClass = analyticsClassFilter !== 'all' ? analyticsClassFilter : targetExam.grade;
+    exportGradeRecapToExcel(targetExam, filteredAnalyticsSubmissions, profile, targetClass);
   };
 
   // Save Question as Draft
@@ -1718,7 +1779,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-1.5 text-xs">
                             <span className="font-sans text-slate-400 font-semibold">Sesi:</span>
-                            {exam.sessionStatus === 'active' ? (
+                            {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                                <StopCircle className="w-3 h-3 text-rose-600" />
+                                Sesi Dihentikan Permanen
+                              </span>
+                            ) : exam.sessionStatus === 'active' ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 animate-pulse">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                                 Sesi Berlangsung
@@ -1745,37 +1811,59 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                         {/* Session Control Buttons */}
                         <div className="grid grid-cols-2 gap-1.5">
-                          {exam.sessionStatus === 'active' ? (
+                          {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
                             <button
                               type="button"
-                              onClick={() => handleEndExamSession(exam)}
-                              className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
-                              title="Hentikan dan tutup sesi ujian ini sekarang"
-                            >
-                              <StopCircle className="w-3.5 h-3.5" />
-                              <span>Hentikan Sesi Ujian</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleStartExamSession(exam)}
-                              className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
-                              title="Buka dan mulai sesi ujian sekarang (Siswa dapat login)"
+                              onClick={() => handleResumeExamPermanently(exam)}
+                              className="col-span-2 px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                              title="Buka kembali sesi ujian yang dihentikan secara permanen"
                             >
                               <Play className="w-3.5 h-3.5 fill-current" />
-                              <span>Mulai Sesi Ujian</span>
+                              <span>Lanjutkan Sesi Ujian (Buka Akses)</span>
                             </button>
+                          ) : exam.sessionStatus === 'active' ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleStopExamPermanently(exam)}
+                                className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                                title="Hentikan sesi ujian secara permanen (Siswa terputus)"
+                              >
+                                <StopCircle className="w-3.5 h-3.5" />
+                                <span>Hentikan Ujian</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenLateExtension(exam)}
+                                className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs"
+                                title="Perpanjang sesi untuk siswa terlambat"
+                              >
+                                <FastForward className="w-3 h-3 text-amber-600" />
+                                <span>Perpanjang Waktu</span>
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleStartExamSession(exam)}
+                                className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                                title="Buka dan mulai sesi ujian sekarang"
+                              >
+                                <Play className="w-3.5 h-3.5 fill-current" />
+                                <span>Mulai Sesi Ujian</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenLateExtension(exam)}
+                                className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs"
+                                title="Lanjutkan sesi untuk siswa terlambat"
+                              >
+                                <FastForward className="w-3 h-3 text-amber-600" />
+                                <span>Lanjutkan (Terlambat)</span>
+                              </button>
+                            </>
                           )}
-
-                          <button
-                            type="button"
-                            onClick={() => handleOpenLateExtension(exam)}
-                            className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs"
-                            title="Lanjutkan sesi atau beri perpanjangan waktu untuk siswa terlambat"
-                          >
-                            <FastForward className="w-3 h-3 text-amber-600" />
-                            <span>Lanjutkan (Terlambat)</span>
-                          </button>
                         </div>
                       </div>
                     </div>
@@ -1816,17 +1904,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       </button>
                     </div>
 
-                    {/* Baris 2: Tombol Pokok (HENTIKAN/KONTROL SESI & HAPUS) */}
+                    {/* Baris 2: Tombol Pokok (HENTIKAN PERMANEN / LANJUTKAN & HAPUS) */}
                     <div className="grid grid-cols-2 gap-2">
-                      {exam.sessionStatus === 'active' ? (
+                      {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
                         <button
                           type="button"
-                          onClick={() => handleEndExamSession(exam)}
+                          onClick={() => handleResumeExamPermanently(exam)}
+                          className="px-3 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                          title="Buka kembali sesi ujian yang dihentikan secara permanen"
+                        >
+                          <Play className="w-3.5 h-3.5" />
+                          <span>Lanjutkan Ujian</span>
+                        </button>
+                      ) : exam.sessionStatus === 'active' ? (
+                        <button
+                          type="button"
+                          onClick={() => handleStopExamPermanently(exam)}
                           className="px-3 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                          title="Hentikan sesi ujian ini seketika"
+                          title="Hentikan sesi ujian secara permanen"
                         >
                           <StopCircle className="w-3.5 h-3.5" />
-                          <span>Hentikan Sesi Ujian</span>
+                          <span>Hentikan Ujian</span>
                         </button>
                       ) : (
                         <button
@@ -1870,13 +1968,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         type="button"
                         onClick={() => {
                           setSelectedExamId(exam.id);
-                          onSelectTab('kisi-kisi', exam.id);
+                          onSelectTab('analisis-butir', exam.id);
                         }}
-                        className="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                        title="Cetak kisi-kisi dan spesifikasi butir soal"
+                        className="px-3 py-1.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                        title="Buka analisis butir soal per siswa format lampiran PDF"
                       >
-                        <Layers className="w-3.5 h-3.5" />
-                        <span>Cetak Kisi-Kisi</span>
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        <span>Analisis Butir Soal</span>
                       </button>
                     </div>
 
@@ -2235,6 +2333,36 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Bersihkan Nilai Dummy</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onSelectTab('analisis-butir', analyticsExamFilter !== 'all' ? analyticsExamFilter : undefined)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg transition-colors shadow-xs no-print cursor-pointer"
+                title="Buka matriks analisis butir soal per siswa format lampiran PDF"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Analisis Butir Soal (Matriks PDF)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportGradeRecapWord}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs no-print cursor-pointer"
+                title="Simpan rekapitulasi nilai kelas dalam format Microsoft Word (.docx)"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Simpan .docx</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportGradeRecapExcel}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs no-print cursor-pointer"
+                title="Simpan rekapitulasi nilai kelas dalam format Microsoft Excel (.xlsx)"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Simpan .xlsx</span>
               </button>
 
               <button
@@ -2860,13 +2988,53 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 </select>
               </div>
 
+              {targetAnalysisExam && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onSelectTab('analisis-butir', targetAnalysisExam.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors no-print"
+                    title="Buka tampilan matriks persis format lampiran PDF (ANALISIS PAS GASAL)"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Buka Matriks Butir (Sesuai Lampiran PDF)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => exportItemAnalysisToExcel(targetAnalysisExam, targetAnalysisQuestions, students, targetAnalysisSubmissions, profile)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors no-print"
+                    title="Simpan tabel matriks analisis butir soal ke Microsoft Excel (.xlsx)"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Ekspor .xlsx</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => exportItemAnalysisToDocx(targetAnalysisExam, targetAnalysisQuestions, students, targetAnalysisSubmissions, profile)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors no-print"
+                    title="Simpan lembar analisis butir soal ke Microsoft Word (.docx)"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Ekspor .docx</span>
+                  </button>
+                </>
+              )}
+
               <button
                 type="button"
-                onClick={() => window.print()}
+                onClick={() => {
+                  if (targetAnalysisExam) {
+                    onSelectTab('analisis-butir', targetAnalysisExam.id);
+                  } else {
+                    window.print();
+                  }
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg transition-colors no-print"
               >
                 <Printer className="w-3.5 h-3.5" />
-                <span>Cetak Analisis</span>
+                <span>Cetak / PDF</span>
               </button>
             </div>
           </div>

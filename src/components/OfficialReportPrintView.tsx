@@ -3,6 +3,7 @@ import {
   Printer, 
   ArrowLeft, 
   FileText, 
+  FileSpreadsheet,
   Sliders, 
   CheckCircle2, 
   Award, 
@@ -17,6 +18,9 @@ import {
 } from 'lucide-react';
 import { Exam, Submission, Question, SchoolProfile, Student } from '../types';
 import { StorageService } from '../services/storage';
+import { exportGradeRecapToDocx } from '../services/exportDocxService';
+import { exportGradeRecapToExcel } from '../services/exportExcelService';
+import { PrintSetupModal } from './PrintSetupModal';
 
 interface OfficialReportPrintViewProps {
   profile: SchoolProfile;
@@ -161,9 +165,27 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
     };
   }, [examSubmissions, currentExam]);
 
+  const [isPrintSetupOpen, setIsPrintSetupOpen] = useState<boolean>(false);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+
   // Print execution
   const handlePrint = () => {
-    window.print();
+    setIsPrintSetupOpen(true);
+  };
+
+  const handleExportWord = async () => {
+    if (!currentExam) return;
+    setIsExporting(true);
+    try {
+      await exportGradeRecapToDocx(currentExam, examSubmissions, profile, currentExam.grade);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (!currentExam) return;
+    exportGradeRecapToExcel(currentExam, examSubmissions, profile, currentExam.grade);
   };
 
   // Predicate Helper
@@ -237,13 +259,48 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
               </button>
             </div>
 
+            {/* Setup Cetak Button */}
+            <button
+              type="button"
+              onClick={() => setIsPrintSetupOpen(true)}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+              title="Atur margin, ukuran kertas F4/A4, dan properti printer"
+            >
+              <Sliders className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Setup Cetak</span>
+            </button>
+
+            {/* Export Rekap Word (.docx) */}
+            <button
+              type="button"
+              onClick={handleExportWord}
+              disabled={isExporting}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Download rekap nilai dalam format Microsoft Word (.docx)"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>{isExporting ? 'Exporting...' : 'Export .docx'}</span>
+            </button>
+
+            {/* Export Rekap Excel (.xlsx) */}
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+              title="Download rekap nilai dalam format Microsoft Excel (.xlsx)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Export .xlsx</span>
+            </button>
+
             {/* Print Trigger Button */}
             <button
+              type="button"
               onClick={handlePrint}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-2 cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              <span>Cetak Dokumen Sekarang (PDF)</span>
+              <span>Cetak Dokumen Sekarang</span>
             </button>
           </div>
         </div>
@@ -818,6 +875,14 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
           </div>
         )}
       </main>
+
+      {/* Modal Setup Cetak */}
+      <PrintSetupModal
+        isOpen={isPrintSetupOpen}
+        onClose={() => setIsPrintSetupOpen(false)}
+        documentTitle={`Laporan Hasil Asesmen - ${currentExam?.subject || 'Asesmen'} (${reportMode === 'klasikal' ? 'Rekap Klasikal' : 'Rapor Individu'})`}
+        defaultOrientation="portrait"
+      />
     </div>
   );
 };

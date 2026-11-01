@@ -725,6 +725,56 @@ function doPost(e) {
       return jsonResponse({ status: 'success', message: 'Ujian dan ' + questions.length + ' soal berhasil diperbarui' });
     }
 
+    if (action === 'stopExamSession') {
+      const examId = String(payload.examId || '').trim();
+      let shEx = ss.getSheetByName(SHEETS.EXAMS);
+      if (shEx && examId) {
+        const exData = shEx.getDataRange().getValues();
+        if (exData.length > 1) {
+          const headers = exData[0];
+          const idCol = headers.indexOf('id');
+          const statusCol = headers.indexOf('status');
+          const sessionStatusCol = headers.indexOf('sessionStatus');
+          const endedAtCol = headers.indexOf('sessionEndedAt');
+          for (let i = 1; i < exData.length; i++) {
+            if (String(exData[i][idCol] || '').trim().toLowerCase() === examId.toLowerCase()) {
+              if (statusCol !== -1) shEx.getRange(i + 1, statusCol + 1).setValue('stopped');
+              if (sessionStatusCol !== -1) shEx.getRange(i + 1, sessionStatusCol + 1).setValue('stopped');
+              if (endedAtCol !== -1) shEx.getRange(i + 1, endedAtCol + 1).setValue(new Date().toISOString());
+              SpreadsheetApp.flush();
+              break;
+            }
+          }
+        }
+      }
+      logAction('EXAM', 'Sesi ujian DIHENTIKAN PERMANEN: ' + examId);
+      return jsonResponse({ status: 'success', message: 'Sesi ujian ' + examId + ' berhasil dihentikan secara permanen.' });
+    }
+
+    if (action === 'resumeExamSession') {
+      const examId = String(payload.examId || '').trim();
+      let shEx = ss.getSheetByName(SHEETS.EXAMS);
+      if (shEx && examId) {
+        const exData = shEx.getDataRange().getValues();
+        if (exData.length > 1) {
+          const headers = exData[0];
+          const idCol = headers.indexOf('id');
+          const statusCol = headers.indexOf('status');
+          const sessionStatusCol = headers.indexOf('sessionStatus');
+          for (let i = 1; i < exData.length; i++) {
+            if (String(exData[i][idCol] || '').trim().toLowerCase() === examId.toLowerCase()) {
+              if (statusCol !== -1) shEx.getRange(i + 1, statusCol + 1).setValue('active');
+              if (sessionStatusCol !== -1) shEx.getRange(i + 1, sessionStatusCol + 1).setValue('active');
+              SpreadsheetApp.flush();
+              break;
+            }
+          }
+        }
+      }
+      logAction('EXAM', 'Sesi ujian DILANJUTKAN kembali: ' + examId);
+      return jsonResponse({ status: 'success', message: 'Sesi ujian ' + examId + ' berhasil dilanjutkan.' });
+    }
+
     if (action === 'saveQuestions' || action === 'syncQuestions') {
       const examId = String(payload.examId || '').trim();
       const questions = payload.questions || [];

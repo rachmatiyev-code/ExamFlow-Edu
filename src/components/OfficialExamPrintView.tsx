@@ -3,6 +3,7 @@ import {
   Printer, 
   ArrowLeft, 
   FileText, 
+  FileSpreadsheet,
   Sliders, 
   CheckCircle2, 
   BookOpen, 
@@ -15,6 +16,9 @@ import {
 import { Exam, Question, SchoolProfile } from '../types';
 import { StorageService } from '../services/storage';
 import { MathRenderer } from '../services/mathRenderer';
+import { exportExamToDocx } from '../services/exportDocxService';
+import { exportExamToExcel } from '../services/exportExcelService';
+import { PrintSetupModal } from './PrintSetupModal';
 
 interface OfficialExamPrintViewProps {
   profile: SchoolProfile;
@@ -35,6 +39,8 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
   const [includeAnswerKey, setIncludeAnswerKey] = useState<boolean>(false);
   const [showScoreBox, setShowScoreBox] = useState<boolean>(true);
   const [fontSizeMode, setFontSizeMode] = useState<'sm' | 'base' | 'lg'>('base');
+  const [isPrintSetupOpen, setIsPrintSetupOpen] = useState<boolean>(false);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
 
   const selectedExam = exams.find(e => e.id === selectedExamId) || exams[0];
   const questions: Question[] = selectedExam
@@ -42,7 +48,22 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
     : [];
 
   const handlePrint = () => {
-    window.print();
+    setIsPrintSetupOpen(true);
+  };
+
+  const handleExportWord = async () => {
+    if (!selectedExam) return;
+    setIsExporting(true);
+    try {
+      await exportExamToDocx(selectedExam, questions, profile, includeAnswerKey);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (!selectedExam) return;
+    exportExamToExcel(selectedExam, questions, profile);
   };
 
   const getLetterBadge = (idx: number) => {
@@ -124,6 +145,40 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
             <span>Sertakan Kunci</span>
           </label>
 
+          {/* Tombol Setup Cetak */}
+          <button
+            type="button"
+            onClick={() => setIsPrintSetupOpen(true)}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+            title="Setup margin, ukuran kertas F4/A4, orientasi, dan opsi printer"
+          >
+            <Sliders className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>Setup Cetak</span>
+          </button>
+
+          {/* Tombol Export ke Word (.docx) */}
+          <button
+            type="button"
+            onClick={handleExportWord}
+            disabled={isExporting}
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="Download naskah soal dalam format Microsoft Word (.docx)"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>{isExporting ? 'Exporting...' : 'Export .docx'}</span>
+          </button>
+
+          {/* Tombol Export ke Excel (.xlsx) */}
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+            title="Download butir soal dan kunci dalam format Microsoft Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>Export .xlsx</span>
+          </button>
+
           {/* Tombol Cetak / PDF */}
           <button
             type="button"
@@ -131,7 +186,7 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
           >
             <Printer className="w-4 h-4" />
-            <span>Cetak / Simpan PDF</span>
+            <span>Cetak Dokumen</span>
           </button>
         </div>
       </div>
@@ -463,6 +518,14 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Modal Setup Cetak */}
+      <PrintSetupModal
+        isOpen={isPrintSetupOpen}
+        onClose={() => setIsPrintSetupOpen(false)}
+        documentTitle={`Naskah Soal - ${selectedExam?.title || 'Ujian'}`}
+        defaultOrientation="portrait"
+      />
     </div>
   );
 };

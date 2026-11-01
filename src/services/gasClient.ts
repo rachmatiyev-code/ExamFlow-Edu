@@ -644,6 +644,61 @@ export class GasClient {
   }
 
   /**
+   * Menghentikan sesi ujian secara permanen di server & lokal
+   */
+  static async stopExamSession(examId: string): Promise<{ success: boolean; message: string }> {
+    const exam = StorageService.getExamById(examId);
+    if (exam) {
+      exam.status = 'stopped';
+      exam.sessionStatus = 'stopped';
+      exam.sessionEndedAt = new Date().toISOString();
+      StorageService.upsertExam(exam);
+    }
+
+    const url = this.getWebAppUrl();
+    if (!url) {
+      return { success: true, message: 'Status henti disimpan di penyimpanan lokal.' };
+    }
+
+    try {
+      const res = await this.postToGas({
+        action: 'stopExamSession',
+        examId
+      });
+      return res;
+    } catch {
+      return { success: true, message: 'Status henti tersimpan di lokal.' };
+    }
+  }
+
+  /**
+   * Melanjutkan kembali sesi ujian yang sebelumnya dihentikan
+   */
+  static async resumeExamSession(examId: string): Promise<{ success: boolean; message: string }> {
+    const exam = StorageService.getExamById(examId);
+    if (exam) {
+      exam.status = 'active';
+      exam.sessionStatus = 'active';
+      StorageService.upsertExam(exam);
+    }
+
+    const url = this.getWebAppUrl();
+    if (!url) {
+      return { success: true, message: 'Status aktif disimpan di penyimpanan lokal.' };
+    }
+
+    try {
+      const res = await this.postToGas({
+        action: 'resumeExamSession',
+        examId
+      });
+      return res;
+    } catch {
+      return { success: true, message: 'Status aktif tersimpan di lokal.' };
+    }
+  }
+
+  /**
    * Menghapus ujian dari Google Sheets & lokal
    */
   static async deleteExam(examId: string): Promise<{ success: boolean; message: string }> {

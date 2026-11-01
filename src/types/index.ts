@@ -84,8 +84,8 @@ export interface Exam {
   allowReview: boolean;
   startsAt: string; // ISO date string or YYYY-MM-DD HH:mm
   endsAt: string;
-  status: 'draft' | 'active' | 'archived';
-  sessionStatus?: 'scheduled' | 'active' | 'ended'; // Kontrol sesi langsung: dijadwalkan, aktif, atau ditutup
+  status: 'draft' | 'active' | 'archived' | 'stopped';
+  sessionStatus?: 'scheduled' | 'active' | 'ended' | 'stopped'; // Kontrol sesi langsung: dijadwalkan, aktif, dihentikan, atau ditutup
   sessionStartedAt?: string;
   sessionEndedAt?: string;
   attemptMode?: 'unlimited' | 'single'; // 'unlimited' (berulang) atau 'single' (sekali saja)
@@ -104,6 +104,8 @@ export interface Student {
   studentNo: string; // NIS / NISN
   fullName: string;
   classGrade: string;
+  nis?: string; // Nomor Induk Siswa (NIS)
+  nisn?: string; // Nomor Induk Siswa Nasional (NISN)
   email?: string;
   phone?: string;
   status: 'active' | 'inactive';

@@ -162,6 +162,17 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     if (!isExamActive || timeRemainingSeconds <= 0) return;
 
     const timer = setInterval(() => {
+      // Cek apakah guru menghentikan sesi ujian secara langsung
+      if (selectedExam) {
+        const latestExam = StorageService.getExamById(selectedExam.id);
+        if (latestExam && (latestExam.status === 'stopped' || latestExam.sessionStatus === 'stopped')) {
+          clearInterval(timer);
+          setIsExamActive(false);
+          alert('Pemberitahuan Pengawas: Sesi ujian ini telah DIHENTIKAN PERMANEN oleh guru pengawas. Pengerjaan telah ditutup.');
+          return;
+        }
+      }
+
       setTimeRemainingSeconds(prev => {
         if (prev <= 1) {
           clearInterval(timer);
@@ -173,7 +184,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isExamActive, timeRemainingSeconds]);
+  }, [isExamActive, timeRemainingSeconds, selectedExam]);
 
   // Anti-Cheat Tab-Switch Detection
   useEffect(() => {
@@ -256,8 +267,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     if (!selectedExam) return;
 
     // 1. Verifikasi Status Sesi Ujian (Hentikan Ujian)
-    if (selectedExam.sessionStatus === 'ended') {
-      setLoginError('Sesi ujian ini telah dihentikan oleh guru pengawas. Akses pengerjaan ujian telah ditutup.');
+    if (selectedExam.sessionStatus === 'stopped' || selectedExam.status === 'stopped' || selectedExam.sessionStatus === 'ended') {
+      setLoginError('Sesi ujian ini telah DIHENTIKAN PERMANEN oleh guru pengawas. Akses pengerjaan telah ditutup hingga sesi dibuka kembali oleh guru dengan tombol "Lanjutkan".');
       return;
     }
 
@@ -1071,9 +1082,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         {exam.attemptMode === 'unlimited' ? 'Mode: Berulang' : 'Mode: Sekali (1x)'}
                       </span>
 
-                      {exam.sessionStatus === 'ended' ? (
+                      {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1">
                           <StopCircle className="w-3 h-3 text-rose-500" />
+                          <span>Sesi Dihentikan Permanen</span>
+                        </span>
+                      ) : exam.sessionStatus === 'ended' ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 flex items-center gap-1">
+                          <StopCircle className="w-3 h-3 text-slate-500" />
                           <span>Sesi Ditutup</span>
                         </span>
                       ) : exam.sessionStatus === 'active' ? (
@@ -1130,14 +1146,23 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 </div>
 
                 {/* Action button */}
-                {exam.sessionStatus === 'ended' ? (
+                {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full py-2.5 px-4 bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <StopCircle className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Sesi Ujian Dihentikan oleh Pengawas</span>
+                  </button>
+                ) : exam.sessionStatus === 'ended' ? (
                   <button
                     type="button"
                     disabled
                     className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     <StopCircle className="w-3.5 h-3.5" />
-                    <span>Sesi Ujian Telah Dihentikan</span>
+                    <span>Sesi Ujian Telah Ditutup</span>
                   </button>
                 ) : (
                   <button

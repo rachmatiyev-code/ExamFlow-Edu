@@ -266,68 +266,116 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     if (!selectedExam) return;
 
+    const freshExam = StorageService.getExamById(selectedExam.id) || selectedExam;
+
     // 1. Verifikasi Status Sesi Ujian (Hentikan Ujian)
-    if (selectedExam.sessionStatus === 'stopped' || selectedExam.status === 'stopped' || selectedExam.sessionStatus === 'ended') {
+    if (freshExam.sessionStatus === 'stopped' || freshExam.status === 'stopped' || freshExam.sessionStatus === 'ended') {
       setLoginError('Sesi ujian ini telah DIHENTIKAN PERMANEN oleh guru pengawas. Akses pengerjaan telah ditutup hingga sesi dibuka kembali oleh guru dengan tombol "Lanjutkan".');
       return;
     }
 
     // 2. Verifikasi Mode Pengerjaan ("Sekali" vs "Berulang")
-    const isSingleAttempt = (selectedExam.attemptMode || 'single') === 'single';
-    if (isSingleAttempt) {
+    const isSingleAttempt = (freshExam.attemptMode || 'single') === 'single';
+    if (!isSingleAttempt) {
+      // Mode "Berulang" (Bisa Mengulang): Siswa dapat mengerjakan ujian berkali-kali!
+      // Bersihkan jawaban dan izin lama agar mulai dengan lembar baru
+      setUserAnswers({});
+      setFlaggedQuestions({});
+      setLoginError(null);
+    } else {
+      // Mode "Sekali Pengerjaan": Cek apakah siswa berhak mengulang ujian
+      const hasDirectPermission = StorageService.hasRetakePermission(freshExam.id, studentNo, studentName);
+
       let allSubmissions = StorageService.getSubmissions();
       let studentPastSubs = allSubmissions.filter(sub =>
-        String(sub.examId).trim().toLowerCase() === String(selectedExam.id).trim().toLowerCase() &&
+        String(sub.examId).trim().toLowerCase() === String(freshExam.id).trim().toLowerCase() &&
         (
           (studentNo.trim() && sub.studentNo?.trim().toLowerCase() === studentNo.trim().toLowerCase()) ||
           (studentName.trim() && sub.studentName?.trim().toLowerCase() === studentName.trim().toLowerCase())
         )
       );
 
-      // Cek apakah ada submission lama yang memblokir pengerjaan
-      const hasBlockingSubmission = studentPastSubs.some(
-        sub => sub.allowRepeat !== true && sub.statusNote !== 'Mengulang Ujian'
-      );
+      // Cek apakah rekaman lokal telah memiliki status 'Mengulang Ujian'
+      const hasLocalRepeatFlag = studentPastSubs.some(sub => {
+        const rawNote = String(sub.statusNote || '').toLowerCase();
+        return sub.allowRepeat === true ||
+               String(sub.allowRepeat).toLowerCase() === 'true' ||
+               String(sub.allowRepeat) === '1' ||
+               rawNote.includes('ulang') ||
+               rawNote.includes('reset') ||
+               (Number(sub.score) === 0 && Number(sub.percentage) === 0);
+      });
 
-      // Jika ada submission yang memblokir, selalu periksa status server Google Sheets terbaru!
-      // Karena guru mungkin baru saja menekan tombol "Mengulang Ujian" atau menghapus nilai siswa di dashboard.
-      if (hasBlockingSubmission) {
+      if (hasDirectPermission || hasLocalRepeatFlag) {
+        // GURU TELAH MENGIZINKAN SISWA MENGULANG UJIAN!
+        studentPastSubs.forEach(s => {
+          StorageService.deleteSubmission(s.id);
+        });
+        StorageService.consumeRetakePermission(freshExam.id, studentNo, studentName);
+        setUserAnswers({});
+        setFlaggedQuestions({});
+        setLoginError(null);
+      } else if (studentPastSubs.length > 0) {
+        // Ada submission lama yang selesai. Lakukan verifikasi real-time ke Google Sheets server
         const gasUrl = StorageService.getSettings().gasWebAppUrl;
         if (gasUrl && gasUrl.trim().startsWith('http')) {
+          setLoginError('Menghubungkan ke server Google Sheets untuk verifikasi status izin ujian...');
           try {
             await GasClient.fetchAllFromSheets();
-            // Baca ulang submissions setelah sinkronisasi segar dari server Google Sheets
             allSubmissions = StorageService.getSubmissions();
-            studentPastSubs = allSubmissions.filter(sub =>
-              String(sub.examId).trim().toLowerCase() === String(selectedExam.id).trim().toLowerCase() &&
+            const serverPastSubs = allSubmissions.filter(sub =>
+              String(sub.examId).trim().toLowerCase() === String(freshExam.id).trim().toLowerCase() &&
               (
                 (studentNo.trim() && sub.studentNo?.trim().toLowerCase() === studentNo.trim().toLowerCase()) ||
                 (studentName.trim() && sub.studentName?.trim().toLowerCase() === studentName.trim().toLowerCase())
               )
             );
-          } catch {}
-        }
-      }
 
-      if (studentPastSubs.length > 0) {
-        // Cek apakah ada izin mengulang dari guru (allowRepeat === true atau statusNote === 'Mengulang Ujian')
-        const hasRepeatPermission = studentPastSubs.some(
-          sub => sub.allowRepeat === true || sub.statusNote === 'Mengulang Ujian'
-        );
+            // A. Jika di Google Sheets nilai siswa SUDAH DIHAPUS oleh guru:
+            if (serverPastSubs.length === 0) {
+              // Guru telah menghapus nilai di dasbor / Google Sheets -> izinkan siswa mengerjakan!
+              studentPastSubs.forEach(s => StorageService.deleteSubmission(s.id));
+              setUserAnswers({});
+              setFlaggedQuestions({});
+              setLoginError(null);
+            } else {
+              // B. Jika di server masih ada submission, cek apakah statusnya 'Mengulang Ujian':
+              const serverAllowsRepeat = serverPastSubs.some(sub => {
+                const rawNote = String(sub.statusNote || '').toLowerCase();
+                return sub.allowRepeat === true ||
+                       String(sub.allowRepeat).toLowerCase() === 'true' ||
+                       String(sub.allowRepeat) === '1' ||
+                       rawNote.includes('ulang') ||
+                       rawNote.includes('reset') ||
+                       (Number(sub.score) === 0 && Number(sub.percentage) === 0);
+              });
 
-        if (!hasRepeatPermission) {
+              if (serverAllowsRepeat) {
+                // Guru telah mereset nilai dengan status Mengulang Ujian!
+                serverPastSubs.forEach(s => StorageService.deleteSubmission(s.id));
+                studentPastSubs.forEach(s => StorageService.deleteSubmission(s.id));
+                StorageService.consumeRetakePermission(freshExam.id, studentNo, studentName);
+                setUserAnswers({});
+                setFlaggedQuestions({});
+                setLoginError(null);
+              } else {
+                setLoginError(
+                  `Ujian ini diatur dalam mode "Sekali Pengerjaan" dan siswa atas nama "${studentName}" (${studentNo}) telah tercatat menyelesaikan sesi ujian sebelumnya. Akses telah ditutup oleh server. Jika ingin mengulang pengerjaan, silakan hubungi guru pengawas untuk mereset status nilai Anda di dasbor dengan keterangan "Mengulang Ujian" atau menghapus nilai sebelumnya.`
+                );
+                return;
+              }
+            }
+          } catch {
+            setLoginError(
+              `Ujian ini diatur dalam mode "Sekali Pengerjaan" dan siswa atas nama "${studentName}" (${studentNo}) telah tercatat menyelesaikan sesi ujian sebelumnya. Akses telah ditutup oleh server. Jika ingin mengulang pengerjaan, silakan hubungi guru pengawas untuk mereset status nilai Anda di dasbor dengan keterangan "Mengulang Ujian" atau menghapus nilai sebelumnya.`
+            );
+            return;
+          }
+        } else {
           setLoginError(
             `Ujian ini diatur dalam mode "Sekali Pengerjaan" dan siswa atas nama "${studentName}" (${studentNo}) telah tercatat menyelesaikan sesi ujian sebelumnya. Akses telah ditutup oleh server. Jika ingin mengulang pengerjaan, silakan hubungi guru pengawas untuk mereset status nilai Anda di dasbor dengan keterangan "Mengulang Ujian" atau menghapus nilai sebelumnya.`
           );
           return;
-        } else {
-          // Guru telah mengizinkan siswa mengulang ujian!
-          // Bersihkan submission lama dan draft jawaban agar pengerjaan ulang dimulai dengan lembar bersih
-          studentPastSubs.forEach(s => {
-            StorageService.deleteSubmission(s.id);
-          });
-          setUserAnswers({});
-          setFlaggedQuestions({});
         }
       }
     }
@@ -1239,7 +1287,25 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
             {loginError && (
               <div className="mb-4 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs text-rose-600 dark:text-rose-400">
-                {loginError}
+                <p className="leading-relaxed">{loginError}</p>
+                {loginError.includes('ditutup oleh server') && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setLoginError('Menghubungkan ke server Google Sheets untuk sinkronisasi izin...');
+                      try {
+                        await GasClient.fetchAllFromSheets();
+                        setLoginError('Data server telah diperbarui. Silakan klik tombol "Mulai Ujian Sekarang" kembali.');
+                      } catch {
+                        setLoginError('Gagal menyinkronkan dengan server. Pastikan koneksi internet aktif.');
+                      }
+                    }}
+                    className="mt-2.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Cek Ulang Izin dari Server (Jika Guru Baru Saja Mereset)</span>
+                  </button>
+                )}
               </div>
             )}
 

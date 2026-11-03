@@ -24,6 +24,7 @@ const STORAGE_KEYS = {
   SETTINGS: 'examflow_settings_v1',
   CURRENT_USER: 'examflow_current_user_v1',
   PENDING_SYNC: 'examflow_pending_sync_v1',
+  RETAKE_PERMISSIONS: 'examflow_retake_permissions_v1',
   INITIALIZED: 'examflow_initialized_v1'
 };
 
@@ -600,6 +601,74 @@ export class StorageService {
   static removePendingSync(subId: string): void {
     const pending = this.getPendingSync().filter(p => p.id !== subId);
     this.setItem(STORAGE_KEYS.PENDING_SYNC, pending);
+  }
+
+  // Retake Permissions (Izin Mengulang Ujian Siswa)
+  static grantExamRetake(examId: string, studentNo: string, studentName?: string): void {
+    const list = this.getItem<{ examId: string; studentNo: string; studentName?: string; grantedAt: string }[]>(STORAGE_KEYS.RETAKE_PERMISSIONS, []);
+    const cleanExam = String(examId || '').trim().toLowerCase();
+    const cleanNo = String(studentNo || '').trim().toLowerCase();
+    const cleanName = String(studentName || '').trim().toLowerCase();
+
+    // Hapus duplikat lama jika ada
+    const filtered = list.filter(item =>
+      !(item.examId.toLowerCase() === cleanExam &&
+        (
+          (cleanNo && item.studentNo.toLowerCase() === cleanNo) ||
+          (cleanName && item.studentName && item.studentName.toLowerCase() === cleanName)
+        ))
+    );
+
+    filtered.push({
+      examId: cleanExam,
+      studentNo: cleanNo,
+      studentName: cleanName,
+      grantedAt: new Date().toISOString()
+    });
+
+    this.setItem(STORAGE_KEYS.RETAKE_PERMISSIONS, filtered);
+  }
+
+  static hasRetakePermission(examId: string, studentNo: string, studentName?: string): boolean {
+    const list = this.getItem<{ examId: string; studentNo: string; studentName?: string; grantedAt: string }[]>(STORAGE_KEYS.RETAKE_PERMISSIONS, []);
+    const cleanExam = String(examId || '').trim().toLowerCase();
+    const cleanNo = String(studentNo || '').trim().toLowerCase();
+    const cleanName = String(studentName || '').trim().toLowerCase();
+
+    return list.some(item =>
+      item.examId.toLowerCase() === cleanExam &&
+      (
+        (cleanNo && item.studentNo.toLowerCase() === cleanNo) ||
+        (cleanName && item.studentName && item.studentName.toLowerCase() === cleanName)
+      )
+    );
+  }
+
+  static consumeRetakePermission(examId: string, studentNo: string, studentName?: string): void {
+    const list = this.getItem<{ examId: string; studentNo: string; studentName?: string; grantedAt: string }[]>(STORAGE_KEYS.RETAKE_PERMISSIONS, []);
+    const cleanExam = String(examId || '').trim().toLowerCase();
+    const cleanNo = String(studentNo || '').trim().toLowerCase();
+    const cleanName = String(studentName || '').trim().toLowerCase();
+
+    const filtered = list.filter(item =>
+      !(item.examId.toLowerCase() === cleanExam &&
+        (
+          (cleanNo && item.studentNo.toLowerCase() === cleanNo) ||
+          (cleanName && item.studentName && item.studentName.toLowerCase() === cleanName)
+        ))
+    );
+
+    this.setItem(STORAGE_KEYS.RETAKE_PERMISSIONS, filtered);
+  }
+
+  static clearRetakePermissions(examId?: string): void {
+    if (!examId) {
+      this.setItem(STORAGE_KEYS.RETAKE_PERMISSIONS, []);
+    } else {
+      const cleanExam = String(examId).trim().toLowerCase();
+      const list = this.getItem<{ examId: string; studentNo: string; studentName?: string; grantedAt: string }[]>(STORAGE_KEYS.RETAKE_PERMISSIONS, []);
+      this.setItem(STORAGE_KEYS.RETAKE_PERMISSIONS, list.filter(item => item.examId.toLowerCase() !== cleanExam));
+    }
   }
 
   // Users & Auth

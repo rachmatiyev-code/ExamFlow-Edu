@@ -292,15 +292,37 @@ export class GasClient {
             syncStatus: 'synced',
             feedback: String(s.feedback || ''),
             statusNote: String(s.statusNote || 'Selesai'),
-            allowRepeat: s.allowRepeat === true || s.allowRepeat === 'true' || s.statusNote === 'Mengulang Ujian'
+            allowRepeat: (() => {
+              const rawNote = String(s.statusNote || '').toLowerCase().trim();
+              const isRepeatNote = rawNote.includes('ulang') || rawNote.includes('reset') || rawNote.includes('retake');
+              const isFlagTrue = s.allowRepeat === true || String(s.allowRepeat).toLowerCase() === 'true' || String(s.allowRepeat) === '1';
+              return isFlagTrue || isRepeatNote || (Number(s.score || 0) === 0 && Number(s.percentage || 0) === 0 && isRepeatNote);
+            })()
           };
         });
         // Selalu bersihkan submission dummy dari hasil sync
         const cleanRemoteSubs = normalizedSubmissions.filter(s => !StorageService.isDummySubmission(s.id));
-        // Pertahankan entri lokal yang masih pending antrean sync
-        const pendingLocal = StorageService.getSubmissions().filter(s => s.syncStatus === 'pending');
+        
+        // Daftarkan izin mengulang untuk setiap entri yang memiliki status 'Mengulang Ujian'
+        cleanRemoteSubs.forEach(sub => {
+          if (sub.allowRepeat || String(sub.statusNote || '').toLowerCase().includes('ulang')) {
+            StorageService.grantExamRetake(sub.examId, sub.studentNo, sub.studentName);
+          }
+        });
+
+        // Simpan hasil sync bersih dari server sebagai sumber kebenaran (source of truth)
         const subMap = new Map<string, Submission>();
         cleanRemoteSubs.forEach(sub => subMap.set(sub.id, sub));
+
+        // Hanya pertahankan pending lokal yang dibuat dalam 2 menit terakhir dan bukan yang sengaja dihapus guru
+        const now = Date.now();
+        const pendingLocal = StorageService.getSubmissions().filter(s => {
+          if (s.syncStatus !== 'pending') return false;
+          const subTime = new Date(s.submittedAt).getTime();
+          // Jangan pulihkan data lama yang sudah lewat dari 2 menit jika server sudah tidak menyimpannya
+          return (now - subTime) < 120000;
+        });
+
         pendingLocal.forEach(sub => {
           if (!subMap.has(sub.id)) subMap.set(sub.id, sub);
         });
@@ -817,6 +839,9 @@ export class GasClient {
    */
   static async deleteSubmission(subId: string, studentNo?: string, examId?: string): Promise<{ success: boolean; message: string }> {
     StorageService.deleteSubmission(subId);
+    if (examId && studentNo) {
+      StorageService.grantExamRetake(examId, studentNo);
+    }
     const url = this.getWebAppUrl();
     if (!url) return { success: true, message: 'Nilai dihapus dari lokal.' };
 
@@ -849,13 +874,14 @@ export class GasClient {
       feedback: 'Status direset oleh guru: Mengulang Ujian'
     };
     StorageService.updateSubmission(sub.id, updated);
+    StorageService.grantExamRetake(sub.examId, sub.studentNo, sub.studentName);
 
     const url = this.getWebAppUrl();
     if (!url) return { success: true, message: 'Status diubah di lokal (Sheets belum terhubung).' };
 
     try {
-      // Kirim action spesifik allowRetakeSubmission
-      const res = await this.postToGas({
+      // 1. Kirim action spesifik allowRetakeSubmission
+      let res = await this.postToGas({
         action: 'allowRetakeSubmission',
         submissionId: sub.id,
         id: sub.id,
@@ -863,7 +889,18 @@ export class GasClient {
         examId: sub.examId
       });
 
-      // Sinkronkan seluruh data submissions agar kedua tab Submissions & Data_Mentah sinkron penuh
+      // 2. Fallback jika script Google belum mengenal 'allowRetakeSubmission'
+      if (!res.success && res.message && (res.message.includes('tidak dikenal') || res.message.includes('allowRetakeSubmission'))) {
+        res = await this.postToGas({
+          action: 'resetSubmission',
+          submissionId: sub.id,
+          id: sub.id,
+          studentNo: sub.studentNo,
+          examId: sub.examId
+        });
+      }
+
+      // 3. Sinkronkan seluruh data submissions agar kedua tab Submissions & Data_Mentah sinkron penuh
       const allSubs = StorageService.getSubmissions();
       await this.pushSubmissions(allSubs);
 

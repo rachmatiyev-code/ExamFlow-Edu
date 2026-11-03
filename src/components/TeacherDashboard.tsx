@@ -341,6 +341,12 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       totalQuestions: editingExam.totalQuestions || 0,
       token: editingExam.token || '',
       instructions: editingExam.instructions || 'Kerjakan dengan teliti dan jujur.',
+      sessionStatus: editingExam.sessionStatus || 'active',
+      sessionStartedAt: editingExam.sessionStartedAt,
+      sessionEndedAt: editingExam.sessionEndedAt,
+      allowLateSubmission: Boolean(editingExam.allowLateSubmission),
+      lateExtensionMinutes: editingExam.lateExtensionMinutes || 30,
+      attemptMode: editingExam.attemptMode || 'single',
       createdAt: editingExam.createdAt || new Date().toISOString(),
       redeployCount: editingExam.redeployCount || 0,
       learningObjectives: Array.isArray(editingExam.learningObjectives) ? editingExam.learningObjectives.filter(Boolean).slice(0, 15) : []
@@ -1017,6 +1023,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     if (!window.confirm(`Hapus rekaman nilai ${sub ? `siswa "${sub.studentName}" (${sub.studentNo})` : 'ini'}?\n\nNilai akan dihapus dari sistem dan Google Sheets, sehingga akses ujian terbuka kembali untuk siswa.`)) return;
     
     StorageService.deleteSubmission(subId);
+    if (sub) {
+      StorageService.grantExamRetake(sub.examId, sub.studentNo, sub.studentName);
+    }
     setSelectedSubmissionIds(prev => prev.filter(id => id !== subId));
     onRefreshData();
 
@@ -1119,6 +1128,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     };
 
     StorageService.updateSubmission(sub.id, updated);
+    StorageService.grantExamRetake(sub.examId, sub.studentNo, sub.studentName);
     onRefreshData();
 
     // Otomatis sinkronkan status izin mengulang ke Google Sheets

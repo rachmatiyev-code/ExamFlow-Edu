@@ -487,8 +487,34 @@ function doPost(e) {
       const examId = String(payload.examId || '').trim().toLowerCase();
 
       let shSub = ss.getSheetByName(SHEETS.SUBMISSIONS);
-      if (shSub && subId) {
-        deleteRowsByColumnValue(shSub, 'id', subId);
+      if (shSub) {
+        if (subId) {
+          deleteRowsByColumnValue(shSub, 'id', subId);
+        }
+        if (studentNo) {
+          const subData = shSub.getDataRange().getValues();
+          if (subData.length > 1) {
+            const headers = subData[0];
+            const stNoCol = headers.indexOf('studentNo');
+            const exIdCol = headers.indexOf('examId');
+            if (stNoCol !== -1) {
+              const retained = [subData[0]];
+              for (let i = 1; i < subData.length; i++) {
+                const rowNis = String(subData[i][stNoCol] || '').trim().toLowerCase();
+                const rowExam = exIdCol !== -1 ? String(subData[i][exIdCol] || '').trim().toLowerCase() : '';
+                const isMatch = (examId ? (rowNis === studentNo && rowExam === examId) : (rowNis === studentNo));
+                if (!isMatch) {
+                  retained.push(subData[i]);
+                }
+              }
+              shSub.clearContents();
+              if (retained.length > 0) {
+                shSub.getRange(1, 1, retained.length, retained[0].length).setValues(retained);
+              }
+            }
+          }
+        }
+        SpreadsheetApp.flush();
       }
 
       let shDataMentah = ss.getSheetByName(SHEETS.DATA_MENTAH);
@@ -510,6 +536,7 @@ function doPost(e) {
             shDataMentah.getRange(1, 1, retainedDm.length, retainedDm[0].length).setValues(retainedDm);
           }
         }
+        SpreadsheetApp.flush();
       }
 
       logAction('SYNC', 'Submission dihapus dari Google Sheets: ' + (subId || studentNo));
@@ -526,22 +553,38 @@ function doPost(e) {
         const subData = shSub.getDataRange().getValues();
         if (subData.length > 1) {
           const headers = subData[0];
-          const idCol = headers.indexOf('id');
-          const stNoCol = headers.indexOf('studentNo');
-          const exIdCol = headers.indexOf('examId');
-          const scoreCol = headers.indexOf('score');
-          const pctCol = headers.indexOf('percentage');
-          const passedCol = headers.indexOf('passed');
-          const noteCol = headers.indexOf('statusNote');
-          const repeatCol = headers.indexOf('allowRepeat');
-          const feedbackCol = headers.indexOf('feedback');
+          let idCol = headers.indexOf('id');
+          let stNoCol = headers.indexOf('studentNo');
+          let exIdCol = headers.indexOf('examId');
+          let scoreCol = headers.indexOf('score');
+          let pctCol = headers.indexOf('percentage');
+          let passedCol = headers.indexOf('passed');
+          let noteCol = headers.indexOf('statusNote');
+          let repeatCol = headers.indexOf('allowRepeat');
+          let feedbackCol = headers.indexOf('feedback');
+
+          // Auto-healing header jika belum ada kolom statusNote atau allowRepeat
+          if (noteCol === -1 || repeatCol === -1) {
+            const currentHeaders = headers.slice();
+            if (noteCol === -1) {
+              currentHeaders.push('statusNote');
+              noteCol = currentHeaders.length - 1;
+            }
+            if (repeatCol === -1) {
+              currentHeaders.push('allowRepeat');
+              repeatCol = currentHeaders.length - 1;
+            }
+            ensureMinColumns(shSub, currentHeaders.length);
+            shSub.getRange(1, 1, 1, currentHeaders.length).setValues([currentHeaders]);
+          }
 
           for (let i = 1; i < subData.length; i++) {
             const rowId = idCol !== -1 ? String(subData[i][idCol] || '').trim() : '';
             const rowNis = stNoCol !== -1 ? String(subData[i][stNoCol] || '').trim().toLowerCase() : '';
             const rowExam = exIdCol !== -1 ? String(subData[i][exIdCol] || '').trim().toLowerCase() : '';
 
-            const isTarget = (subId && rowId === subId) || (studentNo && examId && rowNis === studentNo && rowExam === examId);
+            const isTarget = (subId && rowId.toLowerCase() === subId.toLowerCase()) || 
+                             (studentNo && rowNis === studentNo && (rowExam === examId || !examId));
             if (isTarget) {
               if (scoreCol !== -1) shSub.getRange(i + 1, scoreCol + 1).setValue(0);
               if (pctCol !== -1) shSub.getRange(i + 1, pctCol + 1).setValue(0);
@@ -551,6 +594,7 @@ function doPost(e) {
               if (feedbackCol !== -1) shSub.getRange(i + 1, feedbackCol + 1).setValue('Diizinkan Mengulang Ujian');
             }
           }
+          SpreadsheetApp.flush();
         }
       }
 
@@ -567,9 +611,10 @@ function doPost(e) {
             shDataMentah.getRange(i + 1, 9).setValue('Mengulang Ujian');
           }
         }
+        SpreadsheetApp.flush();
       }
 
-      logAction('SYNC', 'Status siswa direset untuk mengulang ujian: ' + studentNo);
+      logAction('SYNC', 'Status siswa direset untuk mengulang ujian: ' + (studentNo || subId));
       return jsonResponse({ status: 'success', message: 'Status siswa berhasil direset ke "Mengulang Ujian"' });
     }
 

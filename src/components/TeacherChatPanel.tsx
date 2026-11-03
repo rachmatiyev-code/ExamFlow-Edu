@@ -91,22 +91,25 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
     });
 
     messages.forEach((msg) => {
-      // If message is broadcast
-      if (msg.senderRole === 'teacher' && !msg.targetNis) {
+      const cleanTarget = String(msg.targetNis || '').trim().toLowerCase();
+      const isTeacherBroadcast = (msg.senderRole === 'teacher' || msg.senderType === 'system') && (!cleanTarget || cleanTarget === 'all');
+
+      if (isTeacherBroadcast) {
         const item = map.get('broadcast')!;
-        item.lastMessage = `Guru: ${msg.text}`;
-        item.lastTimestamp = Math.max(item.lastTimestamp, msg.timestamp);
+        item.lastMessage = `${msg.senderName}: ${msg.text}`;
+        item.lastTimestamp = Math.max(item.lastTimestamp, Number(msg.timestamp) || 0);
         return;
       }
 
       // Student thread key: NIS or Guest ID
-      const studentNis = msg.senderRole === 'student' ? msg.senderNis : msg.targetNis;
-      if (!studentNis) return;
+      const isStudentSender = msg.senderRole === 'student' || msg.senderType === 'student';
+      const studentNis = isStudentSender ? (msg.senderNis || 'Tamu') : (msg.targetNis || '');
+      if (!studentNis || studentNis === 'all') return;
 
-      const studentName = msg.senderRole === 'student' ? msg.senderName : msg.targetName || 'Siswa';
+      const studentName = isStudentSender ? (msg.senderName || 'Siswa') : (msg.targetName || 'Siswa');
       const existing = map.get(studentNis);
 
-      const isUnread = !msg.isRead && msg.senderRole === 'student';
+      const isUnread = !msg.isRead && isStudentSender;
 
       if (!existing) {
         map.set(studentNis, {
@@ -117,17 +120,18 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
           examTitle: msg.examTitle,
           examId: msg.examId,
           lastMessage: msg.text,
-          lastTimestamp: msg.timestamp,
+          lastTimestamp: Number(msg.timestamp) || Date.now(),
           unreadCount: isUnread ? 1 : 0,
         });
       } else {
-        if (msg.timestamp > existing.lastTimestamp) {
+        const msgTs = Number(msg.timestamp) || 0;
+        if (msgTs >= existing.lastTimestamp) {
           existing.lastMessage = msg.text;
-          existing.lastTimestamp = msg.timestamp;
+          existing.lastTimestamp = msgTs;
           if (msg.examTitle) existing.examTitle = msg.examTitle;
           if (msg.examId) existing.examId = msg.examId;
           if (msg.classGrade) existing.classGrade = msg.classGrade;
-          if (msg.senderRole === 'student') existing.name = msg.senderName;
+          if (isStudentSender) existing.name = msg.senderName;
         }
         if (isUnread) {
           existing.unreadCount += 1;
@@ -158,12 +162,16 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
 
   // Active thread messages
   const threadMessages = messages.filter((m) => {
-    if (selectedThreadId === 'broadcast') {
-      return m.senderRole === 'teacher' && !m.targetNis;
+    const cleanTarget = String(m.targetNis || '').trim().toLowerCase();
+    const cleanSender = String(m.senderNis || '').trim().toLowerCase();
+    const threadId = selectedThreadId.trim().toLowerCase();
+
+    if (threadId === 'broadcast') {
+      return (m.senderRole === 'teacher' || m.senderType === 'system') && (!cleanTarget || cleanTarget === 'all');
     }
     return (
-      (m.senderRole === 'student' && m.senderNis === selectedThreadId) ||
-      (m.senderRole === 'teacher' && m.targetNis === selectedThreadId)
+      ((m.senderRole === 'student' || m.senderType === 'student') && cleanSender === threadId) ||
+      ((m.senderRole === 'teacher' || m.senderType === 'teacher') && cleanTarget === threadId)
     );
   });
 
@@ -192,10 +200,11 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
 
     const newMsg: Partial<ChatMessage> = {
       senderRole: 'teacher',
+      senderType: 'teacher',
       senderName: teacherName,
       text: textToSend,
-      targetNis: isBroadcast ? undefined : activeConversation.nis,
-      targetName: isBroadcast ? undefined : activeConversation.name,
+      targetNis: isBroadcast ? 'all' : activeConversation.nis,
+      targetName: isBroadcast ? 'Semua Siswa' : activeConversation.name,
       quickAction: quickAction,
     };
 

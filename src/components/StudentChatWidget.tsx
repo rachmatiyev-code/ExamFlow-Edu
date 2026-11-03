@@ -64,8 +64,18 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
 
     const unsubscribeMsg = chatService.subscribeMessages((msg) => {
       // Check if message is for this student or is a broadcast or sent by this student
-      const myNis = nis || localStorage.getItem('guest_student_nis');
-      const isForMe = !msg.targetNis || msg.targetNis === myNis || msg.senderNis === myNis;
+      const myNis = String(nis || localStorage.getItem('guest_student_nis') || '').trim().toLowerCase();
+      const myName = String(name || localStorage.getItem('guest_student_name') || '').trim().toLowerCase();
+      
+      const targetNis = String(msg.targetNis || '').trim().toLowerCase();
+      const senderNis = String(msg.senderNis || '').trim().toLowerCase();
+      const targetName = String(msg.targetName || '').trim().toLowerCase();
+
+      const isBroadcast = !targetNis || targetNis === 'all';
+      const isTargetedToMe = Boolean(myNis && targetNis === myNis) || Boolean(myName && targetName === myName);
+      const isSentByMe = Boolean(myNis && senderNis === myNis);
+
+      const isForMe = isBroadcast || isTargetedToMe || isSentByMe;
 
       if (isForMe) {
         setMessages((prev) => {
@@ -359,7 +369,7 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
             ) : (
               messages.map((msg) => {
                 const isMe = msg.senderRole === 'student' && (!myIdentifier || msg.senderNis === myIdentifier);
-                const isBroadcast = msg.senderRole === 'teacher' && !msg.targetNis;
+                const isBroadcast = (msg.senderRole === 'teacher' || msg.senderType === 'system') && (!msg.targetNis || msg.targetNis === 'all');
 
                 return (
                   <div

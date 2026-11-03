@@ -11,6 +11,8 @@ class ChatService {
   private statusListeners: Set<StatusListener> = new Set();
   private isConnected = false;
   private reconnectTimeout: any = null;
+  private pollInterval: any = null;
+  private knownMessageIds: Set<string> = new Set();
   private currentUser: {
     role: 'teacher' | 'student';
     name: string;
@@ -19,7 +21,7 @@ class ChatService {
   } | null = null;
 
   constructor() {
-    // Initial connection attempt will be triggered by initialize()
+    this.startBackgroundSync();
   }
 
   public initialize(user: {
@@ -30,6 +32,10 @@ class ChatService {
   }) {
     this.currentUser = user;
     this.connect();
+    // Trigger immediate history fetch
+    this.getHistory({ nis: user.nis, role: user.role }).then((msgs) => {
+      msgs.forEach((m) => this.notifyMessage(m));
+    });
   }
 
   public updateUserInfo(user: {
@@ -43,6 +49,10 @@ class ChatService {
       this.ws.send(
         JSON.stringify({
           type: 'auth:register',
+          role: this.currentUser.role,
+          name: this.currentUser.name,
+          nis: this.currentUser.nis,
+          classGrade: this.currentUser.classGrade,
           data: this.currentUser,
         })
       );
@@ -66,6 +76,10 @@ class ChatService {
           this.ws?.send(
             JSON.stringify({
               type: 'auth:register',
+              role: this.currentUser.role,
+              name: this.currentUser.name,
+              nis: this.currentUser.nis,
+              classGrade: this.currentUser.classGrade,
               data: this.currentUser,
             })
           );
@@ -75,13 +89,19 @@ class ChatService {
       this.ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
+
           if (payload.type === 'chat:message' && payload.data) {
             this.playNotificationSound();
             this.notifyMessage(payload.data);
-          } else if (payload.type === 'chat:history' && Array.isArray(payload.data)) {
-            payload.data.forEach((msg: ChatMessage) => this.notifyMessage(msg));
+          } else if ((payload.type === 'chat:history' || payload.type === 'chat:init') && payload.data) {
+            const list = Array.isArray(payload.data) ? payload.data : (payload.data.messages || []);
+            list.forEach((msg: ChatMessage) => this.notifyMessage(msg));
           } else if (payload.type === 'chat:presence' && payload.data) {
-            this.notifyPresence(payload.data);
+            const d = payload.data;
+            this.notifyPresence({
+              teachers: d.teachers ?? d.teachersOnline ?? 0,
+              students: d.students ?? d.studentsOnline ?? 0,
+            });
           }
         } catch (e) {
           console.error('[ChatService] Error parsing WS message:', e);
@@ -95,7 +115,7 @@ class ChatService {
       };
 
       this.ws.onerror = (err) => {
-        console.warn('[ChatService] WebSocket error, fallback to REST available', err);
+        console.warn('[ChatService] WebSocket error, fallback to REST sync active', err);
         this.isConnected = false;
         this.notifyStatus(false);
       };
@@ -109,7 +129,26 @@ class ChatService {
     if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
     this.reconnectTimeout = setTimeout(() => {
       this.connect();
-    }, 4000);
+    }, 3500);
+  }
+
+  private startBackgroundSync() {
+    if (this.pollInterval) clearInterval(this.pollInterval);
+    // Poll every 3 seconds to guarantee 100% sync reliability
+    this.pollInterval = setInterval(async () => {
+      if (!this.currentUser) return;
+      try {
+        const msgs = await this.getHistory({
+          nis: this.currentUser.nis,
+          role: this.currentUser.role,
+        });
+        if (Array.isArray(msgs) && msgs.length > 0) {
+          msgs.forEach((m) => this.notifyMessage(m));
+        }
+      } catch {
+        // Silently ignore background poll errors
+      }
+    }, 3000);
   }
 
   public async getHistory(params?: { nis?: string; role?: string }): Promise<ChatMessage[]> {
@@ -121,7 +160,11 @@ class ChatService {
       const res = await fetch(`/api/chat/messages?${query.toString()}`);
       if (res.ok) {
         const data = await res.json();
-        return data.messages || [];
+        const rawMsgs = data.messages || [];
+        return rawMsgs.map((m: any) => ({
+          ...m,
+          timestamp: typeof m.timestamp === 'number' ? m.timestamp : (Date.parse(m.timestamp) || Date.now()),
+        }));
       }
     } catch (e) {
       console.warn('[ChatService] Failed to fetch chat history via REST:', e);
@@ -130,45 +173,68 @@ class ChatService {
   }
 
   public async sendMessage(messageData: Partial<ChatMessage>): Promise<ChatMessage | null> {
-    const fullMessage: Partial<ChatMessage> = {
-      ...messageData,
-      senderRole: this.currentUser?.role || messageData.senderRole || 'student',
-      senderName: messageData.senderName || this.currentUser?.name || 'Siswa',
-      senderNis: messageData.senderNis || this.currentUser?.nis || '',
+    const id = messageData.id || `MSG-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const senderRole = (messageData.senderRole || this.currentUser?.role || 'student') as 'student' | 'teacher';
+    const senderName = messageData.senderName || this.currentUser?.name || (senderRole === 'teacher' ? 'Guru Pengawas' : 'Siswa');
+    const senderNis = messageData.senderNis || this.currentUser?.nis || '';
+
+    const fullMessage: ChatMessage = {
+      id,
+      senderRole,
+      senderType: senderRole,
+      senderName,
+      senderNis,
       classGrade: messageData.classGrade || this.currentUser?.classGrade || '',
-      timestamp: Date.now(),
+      examId: messageData.examId,
+      examTitle: messageData.examTitle,
+      targetNis: messageData.targetNis || (senderRole === 'student' ? 'all' : undefined),
+      targetName: messageData.targetName,
+      text: String(messageData.text || '').trim(),
+      timestamp: messageData.timestamp ? Number(messageData.timestamp) : Date.now(),
+      quickAction: messageData.quickAction,
+      isRead: senderRole === 'teacher',
     };
 
-    // Try sending via WebSocket if open
+    // 1. Optimistically notify local listeners immediately (zero UI lag)
+    this.notifyMessage(fullMessage);
+
+    // 2. Try sending via WebSocket
+    let sentWs = false;
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(
-        JSON.stringify({
-          type: 'chat:send',
-          data: fullMessage,
-        })
-      );
-      // We will receive our own message back from the broadcast
-      return null;
+      try {
+        this.ws.send(
+          JSON.stringify({
+            type: 'chat:send',
+            data: fullMessage,
+          })
+        );
+        sentWs = true;
+      } catch (err) {
+        console.warn('[ChatService] WS send error, falling back to REST:', err);
+      }
     }
 
-    // Fallback to REST API
-    try {
-      const res = await fetch('/api/chat/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fullMessage),
-      });
-      if (res.ok) {
-        const result = await res.json();
-        if (result.message) {
-          this.notifyMessage(result.message);
-          return result.message;
+    // 3. Fallback to / backup with REST API
+    if (!sentWs) {
+      try {
+        const res = await fetch('/api/chat/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fullMessage),
+        });
+        if (res.ok) {
+          const result = await res.json();
+          if (result.message) {
+            this.notifyMessage(result.message);
+            return result.message;
+          }
         }
+      } catch (e) {
+        console.error('[ChatService] Failed to send message via REST fallback:', e);
       }
-    } catch (e) {
-      console.error('[ChatService] Failed to send message via REST fallback:', e);
     }
-    return null;
+
+    return fullMessage;
   }
 
   public async markAsRead(messageIds: string[]) {
@@ -207,15 +273,42 @@ class ChatService {
   }
 
   private notifyMessage(msg: ChatMessage) {
-    this.messageListeners.forEach((fn) => fn(msg));
+    // Normalize timestamp to number
+    const normalized: ChatMessage = {
+      ...msg,
+      timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : (Date.parse(String(msg.timestamp)) || Date.now()),
+    };
+
+    // Track known IDs to prevent duplications
+    this.knownMessageIds.add(normalized.id);
+
+    this.messageListeners.forEach((fn) => {
+      try {
+        fn(normalized);
+      } catch (e) {
+        console.error('[ChatService] Error in message listener:', e);
+      }
+    });
   }
 
   private notifyPresence(data: { teachers: number; students: number }) {
-    this.presenceListeners.forEach((fn) => fn(data));
+    this.presenceListeners.forEach((fn) => {
+      try {
+        fn(data);
+      } catch (e) {
+        console.error('[ChatService] Error in presence listener:', e);
+      }
+    });
   }
 
   private notifyStatus(status: boolean) {
-    this.statusListeners.forEach((fn) => fn(status));
+    this.statusListeners.forEach((fn) => {
+      try {
+        fn(status);
+      } catch (e) {
+        console.error('[ChatService] Error in status listener:', e);
+      }
+    });
   }
 
   private playNotificationSound() {

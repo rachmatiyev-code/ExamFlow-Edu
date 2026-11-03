@@ -517,26 +517,28 @@ apiRouter.all('/gas-proxy', async (req, res) => {
 interface ServerChatMessage {
   id: string;
   senderType: 'student' | 'teacher' | 'system';
+  senderRole?: 'student' | 'teacher' | 'system';
   senderName: string;
   senderNis?: string;
-  senderRole?: string;
   classGrade?: string;
   examId?: string;
   examTitle?: string;
   targetNis?: string; // 'all' or student NIS
+  targetName?: string;
   text: string;
-  timestamp: string;
+  timestamp: number | string;
   isRead?: boolean;
-  quickAction?: string;
+  quickAction?: any;
 }
 
 const chatMessages: ServerChatMessage[] = [
   {
     id: 'MSG-INIT-001',
     senderType: 'system',
+    senderRole: 'system',
     senderName: 'Pengawas Ujian SDN Pisangcandi 1',
     text: 'Selamat datang di Ruang Bantuan Pengawas Ujian! Silakan hubungi pengawas jika Anda membutuhkan token ujian, izin mengulang, atau mengalami kendala sebelum masuk ujian.',
-    timestamp: new Date().toISOString(),
+    timestamp: Date.now(),
     targetNis: 'all',
     isRead: true
   }
@@ -551,19 +553,40 @@ interface ConnectedClient {
 }
 const connectedClients = new Set<ConnectedClient>();
 
+function sanitizeTimestamp(ts: any): number {
+  if (typeof ts === 'number') return ts;
+  const parsed = Date.parse(ts);
+  return isNaN(parsed) ? Date.now() : parsed;
+}
+
 function broadcastChatMessage(msg: ServerChatMessage) {
-  const payload = JSON.stringify({ type: 'chat:message', data: msg });
+  // Normalize timestamp before sending
+  const normalizedMsg = {
+    ...msg,
+    timestamp: sanitizeTimestamp(msg.timestamp)
+  };
+  const payload = JSON.stringify({ type: 'chat:message', data: normalizedMsg });
+
   connectedClients.forEach(client => {
     if (client.ws.readyState === WebSocket.OPEN) {
       if (client.role === 'teacher') {
         // Guru selalu menerima semua pesan
-        client.ws.send(payload);
-      } else if (client.role === 'student') {
-        // Siswa menerima pesan siaran umum ('all') atau pesan khusus yang ditujukan padanya / dikirim olehnya
-        const isTarget = !msg.targetNis || msg.targetNis === 'all' || (client.nis && msg.targetNis.toLowerCase() === client.nis.toLowerCase());
-        const isSender = client.nis && msg.senderNis && msg.senderNis.toLowerCase() === client.nis.toLowerCase();
-        if (isTarget || isSender) {
-          client.ws.send(payload);
+        try { client.ws.send(payload); } catch {}
+      } else {
+        // Siswa menerima pesan siaran ('all' / kosong) atau yang ditujukan padanya / dikirim olehnya
+        const cleanTarget = String(msg.targetNis || '').trim().toLowerCase();
+        const cleanSender = String(msg.senderNis || '').trim().toLowerCase();
+        const clientNis = String(client.nis || '').trim().toLowerCase();
+        const clientName = String(client.name || '').trim().toLowerCase();
+        const targetName = String(msg.targetName || '').trim().toLowerCase();
+
+        const isBroadcast = !cleanTarget || cleanTarget === 'all';
+        const isTargetedToMe = Boolean(clientNis && cleanTarget && cleanTarget === clientNis) ||
+                              Boolean(clientName && targetName && targetName === clientName);
+        const isSentByMe = Boolean(clientNis && cleanSender && cleanSender === clientNis);
+
+        if (isBroadcast || isTargetedToMe || isSentByMe) {
+          try { client.ws.send(payload); } catch {}
         }
       }
     }
@@ -575,11 +598,16 @@ function broadcastOnlineCount() {
   const teacherCount = Array.from(connectedClients).filter(c => c.role === 'teacher').length;
   const payload = JSON.stringify({
     type: 'chat:presence',
-    data: { studentsOnline: studentCount, teachersOnline: teacherCount }
+    data: {
+      teachers: teacherCount,
+      students: studentCount,
+      teachersOnline: teacherCount,
+      studentsOnline: studentCount
+    }
   });
   connectedClients.forEach(c => {
     if (c.ws.readyState === WebSocket.OPEN) {
-      c.ws.send(payload);
+      try { c.ws.send(payload); } catch {}
     }
   });
 }
@@ -589,16 +617,23 @@ apiRouter.get('/chat/messages', (req, res) => {
   const nis = req.query.nis ? String(req.query.nis).trim().toLowerCase() : '';
   const role = req.query.role ? String(req.query.role).trim().toLowerCase() : 'student';
 
+  const sanitized = chatMessages.map(m => ({
+    ...m,
+    timestamp: sanitizeTimestamp(m.timestamp)
+  }));
+
   if (role === 'teacher') {
     // Guru dapat melihat seluruh log pesan
-    return res.json({ success: true, messages: chatMessages });
+    return res.json({ success: true, messages: sanitized });
   }
 
   // Siswa hanya melihat pesan miliknya dan pengumuman umum ('all')
-  const filtered = chatMessages.filter(m => {
-    if (!m.targetNis || m.targetNis === 'all') return true;
-    if (nis && m.targetNis.toLowerCase() === nis) return true;
-    if (nis && m.senderNis && m.senderNis.toLowerCase() === nis) return true;
+  const filtered = sanitized.filter(m => {
+    const cleanTarget = String(m.targetNis || '').trim().toLowerCase();
+    const cleanSender = String(m.senderNis || '').trim().toLowerCase();
+    if (!cleanTarget || cleanTarget === 'all') return true;
+    if (nis && cleanTarget === nis) return true;
+    if (nis && cleanSender === nis) return true;
     return false;
   });
 
@@ -608,37 +643,29 @@ apiRouter.get('/chat/messages', (req, res) => {
 // 2. POST /api/chat/messages
 apiRouter.post('/chat/messages', (req, res) => {
   try {
-    const { 
-      senderType = 'student', 
-      senderName = 'Siswa', 
-      senderNis = '', 
-      senderRole, 
-      classGrade = '', 
-      examId = '', 
-      examTitle = '', 
-      targetNis = 'all', 
-      text = '', 
-      quickAction = 'general' 
-    } = req.body;
+    const d = req.body;
+    const sRole = d.senderRole || d.senderType || 'student';
+    const text = String(d.text || '').trim();
 
-    if (!text || String(text).trim().length === 0) {
+    if (!text) {
       return res.status(400).json({ success: false, message: 'Isi pesan tidak boleh kosong.' });
     }
 
     const newMsg: ServerChatMessage = {
-      id: `MSG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      senderType,
-      senderName: String(senderName).trim(),
-      senderNis: String(senderNis).trim(),
-      senderRole,
-      classGrade: String(classGrade).trim(),
-      examId: String(examId).trim(),
-      examTitle: String(examTitle).trim(),
-      targetNis: String(targetNis).trim(),
-      text: String(text).trim(),
-      timestamp: new Date().toISOString(),
-      isRead: senderType === 'teacher',
-      quickAction
+      id: d.id || `MSG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      senderType: sRole,
+      senderRole: sRole,
+      senderName: String(d.senderName || (sRole === 'teacher' ? 'Guru Pengawas' : 'Siswa')).trim(),
+      senderNis: d.senderNis ? String(d.senderNis).trim() : '',
+      classGrade: d.classGrade ? String(d.classGrade).trim() : '',
+      examId: d.examId ? String(d.examId).trim() : '',
+      examTitle: d.examTitle ? String(d.examTitle).trim() : '',
+      targetNis: (!d.targetNis || d.targetNis === 'all') ? 'all' : String(d.targetNis).trim(),
+      targetName: d.targetName ? String(d.targetName).trim() : undefined,
+      text: text,
+      timestamp: Date.now(),
+      isRead: sRole === 'teacher',
+      quickAction: d.quickAction || 'general'
     };
 
     chatMessages.push(newMsg);
@@ -679,9 +706,10 @@ apiRouter.delete('/chat/messages', (_req, res) => {
   chatMessages.push({
     id: `MSG-RESET-${Date.now()}`,
     senderType: 'system',
+    senderRole: 'system',
     senderName: 'Pengawas Ujian SDN Pisangcandi 1',
     text: 'Riwayat percakapan telah dibersihkan oleh guru pengawas.',
-    timestamp: new Date().toISOString(),
+    timestamp: Date.now(),
     targetNis: 'all',
     isRead: true
   });
@@ -708,9 +736,18 @@ async function startServer() {
     broadcastOnlineCount();
 
     // Kirim pesan sambutan & riwayat pesan terkini saat tersambung
+    const initialHistory = chatMessages.slice(-50).map(m => ({
+      ...m,
+      timestamp: sanitizeTimestamp(m.timestamp)
+    }));
+
     ws.send(JSON.stringify({
       type: 'chat:init',
-      data: { messages: chatMessages.slice(-50) }
+      data: { messages: initialHistory }
+    }));
+    ws.send(JSON.stringify({
+      type: 'chat:history',
+      data: initialHistory
     }));
 
     ws.on('message', (raw: string) => {
@@ -719,9 +756,11 @@ async function startServer() {
         
         // 1. Pendaftaran peran (role: teacher / student)
         if (payload.type === 'auth:register') {
-          client.role = payload.role === 'teacher' ? 'teacher' : 'student';
-          client.nis = payload.nis ? String(payload.nis).trim() : undefined;
-          client.name = payload.name ? String(payload.name).trim() : undefined;
+          const reg = payload.data || payload;
+          const regRole = reg.role || payload.role;
+          client.role = regRole === 'teacher' ? 'teacher' : 'student';
+          client.nis = reg.nis ? String(reg.nis).trim() : (payload.nis ? String(payload.nis).trim() : undefined);
+          client.name = reg.name ? String(reg.name).trim() : (payload.name ? String(payload.name).trim() : undefined);
           broadcastOnlineCount();
           return;
         }
@@ -729,19 +768,32 @@ async function startServer() {
         // 2. Pengiriman pesan chat real-time
         if (payload.type === 'chat:send' && payload.data) {
           const d = payload.data;
+          const sRole = d.senderRole || d.senderType || client.role || 'student';
+          
+          if (d.senderNis && (!client.nis || client.nis === 'guest')) {
+            client.nis = String(d.senderNis).trim();
+          }
+          if (d.senderName && !client.name) {
+            client.name = String(d.senderName).trim();
+          }
+          if (sRole === 'teacher') {
+            client.role = 'teacher';
+          }
+
           const newMsg: ServerChatMessage = {
-            id: `MSG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            senderType: d.senderType || client.role,
-            senderName: String(d.senderName || client.name || (client.role === 'teacher' ? 'Guru Pengawas' : 'Siswa')).trim(),
-            senderNis: d.senderNis || client.nis,
-            senderRole: d.senderRole,
-            classGrade: d.classGrade,
-            examId: d.examId,
-            examTitle: d.examTitle,
-            targetNis: d.targetNis || 'all',
+            id: d.id || `MSG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            senderType: sRole,
+            senderRole: sRole,
+            senderName: String(d.senderName || client.name || (sRole === 'teacher' ? 'Guru Pengawas' : 'Siswa')).trim(),
+            senderNis: d.senderNis || client.nis || '',
+            classGrade: d.classGrade || '',
+            examId: d.examId || '',
+            examTitle: d.examTitle || '',
+            targetNis: (!d.targetNis || d.targetNis === 'all') ? 'all' : String(d.targetNis).trim(),
+            targetName: d.targetName ? String(d.targetName).trim() : undefined,
             text: String(d.text || '').trim(),
-            timestamp: new Date().toISOString(),
-            isRead: (d.senderType || client.role) === 'teacher',
+            timestamp: Date.now(),
+            isRead: sRole === 'teacher',
             quickAction: d.quickAction || 'general'
           };
 
@@ -766,7 +818,7 @@ async function startServer() {
           });
           connectedClients.forEach(c => {
             if (c.ws !== ws && c.ws.readyState === WebSocket.OPEN) {
-              c.ws.send(typingPayload);
+              try { c.ws.send(typingPayload); } catch {}
             }
           });
           return;

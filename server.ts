@@ -1,8 +1,10 @@
 import express from 'express';
+import http from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
+import { WebSocketServer, WebSocket } from 'ws';
 
 dotenv.config();
 
@@ -506,14 +508,290 @@ apiRouter.all('/gas-proxy', async (req, res) => {
   }
 });
 
+/**
+ * -------------------------------------------------------------
+ * SISTEM LIVE CHAT GURU & SISWA (REAL-TIME WEBSOCKET + REST)
+ * Siswa dapat chat dengan pengawas sebelum login ke naskah soal!
+ * -------------------------------------------------------------
+ */
+interface ServerChatMessage {
+  id: string;
+  senderType: 'student' | 'teacher' | 'system';
+  senderName: string;
+  senderNis?: string;
+  senderRole?: string;
+  classGrade?: string;
+  examId?: string;
+  examTitle?: string;
+  targetNis?: string; // 'all' or student NIS
+  text: string;
+  timestamp: string;
+  isRead?: boolean;
+  quickAction?: string;
+}
+
+const chatMessages: ServerChatMessage[] = [
+  {
+    id: 'MSG-INIT-001',
+    senderType: 'system',
+    senderName: 'Pengawas Ujian SDN Pisangcandi 1',
+    text: 'Selamat datang di Ruang Bantuan Pengawas Ujian! Silakan hubungi pengawas jika Anda membutuhkan token ujian, izin mengulang, atau mengalami kendala sebelum masuk ujian.',
+    timestamp: new Date().toISOString(),
+    targetNis: 'all',
+    isRead: true
+  }
+];
+
+// Connected WebSocket clients registry
+interface ConnectedClient {
+  ws: WebSocket;
+  role: 'teacher' | 'student';
+  nis?: string;
+  name?: string;
+}
+const connectedClients = new Set<ConnectedClient>();
+
+function broadcastChatMessage(msg: ServerChatMessage) {
+  const payload = JSON.stringify({ type: 'chat:message', data: msg });
+  connectedClients.forEach(client => {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      if (client.role === 'teacher') {
+        // Guru selalu menerima semua pesan
+        client.ws.send(payload);
+      } else if (client.role === 'student') {
+        // Siswa menerima pesan siaran umum ('all') atau pesan khusus yang ditujukan padanya / dikirim olehnya
+        const isTarget = !msg.targetNis || msg.targetNis === 'all' || (client.nis && msg.targetNis.toLowerCase() === client.nis.toLowerCase());
+        const isSender = client.nis && msg.senderNis && msg.senderNis.toLowerCase() === client.nis.toLowerCase();
+        if (isTarget || isSender) {
+          client.ws.send(payload);
+        }
+      }
+    }
+  });
+}
+
+function broadcastOnlineCount() {
+  const studentCount = Array.from(connectedClients).filter(c => c.role === 'student').length;
+  const teacherCount = Array.from(connectedClients).filter(c => c.role === 'teacher').length;
+  const payload = JSON.stringify({
+    type: 'chat:presence',
+    data: { studentsOnline: studentCount, teachersOnline: teacherCount }
+  });
+  connectedClients.forEach(c => {
+    if (c.ws.readyState === WebSocket.OPEN) {
+      c.ws.send(payload);
+    }
+  });
+}
+
+// 1. GET /api/chat/messages
+apiRouter.get('/chat/messages', (req, res) => {
+  const nis = req.query.nis ? String(req.query.nis).trim().toLowerCase() : '';
+  const role = req.query.role ? String(req.query.role).trim().toLowerCase() : 'student';
+
+  if (role === 'teacher') {
+    // Guru dapat melihat seluruh log pesan
+    return res.json({ success: true, messages: chatMessages });
+  }
+
+  // Siswa hanya melihat pesan miliknya dan pengumuman umum ('all')
+  const filtered = chatMessages.filter(m => {
+    if (!m.targetNis || m.targetNis === 'all') return true;
+    if (nis && m.targetNis.toLowerCase() === nis) return true;
+    if (nis && m.senderNis && m.senderNis.toLowerCase() === nis) return true;
+    return false;
+  });
+
+  return res.json({ success: true, messages: filtered });
+});
+
+// 2. POST /api/chat/messages
+apiRouter.post('/chat/messages', (req, res) => {
+  try {
+    const { 
+      senderType = 'student', 
+      senderName = 'Siswa', 
+      senderNis = '', 
+      senderRole, 
+      classGrade = '', 
+      examId = '', 
+      examTitle = '', 
+      targetNis = 'all', 
+      text = '', 
+      quickAction = 'general' 
+    } = req.body;
+
+    if (!text || String(text).trim().length === 0) {
+      return res.status(400).json({ success: false, message: 'Isi pesan tidak boleh kosong.' });
+    }
+
+    const newMsg: ServerChatMessage = {
+      id: `MSG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      senderType,
+      senderName: String(senderName).trim(),
+      senderNis: String(senderNis).trim(),
+      senderRole,
+      classGrade: String(classGrade).trim(),
+      examId: String(examId).trim(),
+      examTitle: String(examTitle).trim(),
+      targetNis: String(targetNis).trim(),
+      text: String(text).trim(),
+      timestamp: new Date().toISOString(),
+      isRead: senderType === 'teacher',
+      quickAction
+    };
+
+    chatMessages.push(newMsg);
+    // Batasi memori pesan maksimal 500 riwayat
+    if (chatMessages.length > 500) {
+      chatMessages.shift();
+    }
+
+    // Broadcast ke semua WebSocket yang tersambung
+    broadcastChatMessage(newMsg);
+
+    return res.json({ success: true, message: newMsg });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Gagal mengirim pesan chat.' });
+  }
+});
+
+// 3. POST /api/chat/mark-read
+apiRouter.post('/chat/mark-read', (req, res) => {
+  const { nis, messageIds } = req.body;
+  if (Array.isArray(messageIds) && messageIds.length > 0) {
+    const idSet = new Set(messageIds);
+    chatMessages.forEach(m => {
+      if (idSet.has(m.id)) m.isRead = true;
+    });
+  } else if (nis) {
+    const cleanNis = String(nis).trim().toLowerCase();
+    chatMessages.forEach(m => {
+      if (m.senderNis && m.senderNis.toLowerCase() === cleanNis) m.isRead = true;
+    });
+  }
+  return res.json({ success: true });
+});
+
+// 4. DELETE /api/chat/messages
+apiRouter.delete('/chat/messages', (_req, res) => {
+  chatMessages.length = 0;
+  chatMessages.push({
+    id: `MSG-RESET-${Date.now()}`,
+    senderType: 'system',
+    senderName: 'Pengawas Ujian SDN Pisangcandi 1',
+    text: 'Riwayat percakapan telah dibersihkan oleh guru pengawas.',
+    timestamp: new Date().toISOString(),
+    targetNis: 'all',
+    isRead: true
+  });
+  broadcastChatMessage(chatMessages[0]);
+  return res.json({ success: true, message: 'Riwayat chat berhasil dibersihkan.' });
+});
+
 // Mount router on both /api and root /
 app.use('/api', apiRouter);
 app.use('/', apiRouter);
 
 /**
- * Inisialisasi Vite middleware di mode development
+ * Inisialisasi Vite middleware & WebSocket Server di port 3000
  */
 async function startServer() {
+  const server = http.createServer(app);
+
+  // Inisialisasi WebSocket Server pada path /ws/chat
+  const wss = new WebSocketServer({ server, path: '/ws/chat' });
+
+  wss.on('connection', (ws: WebSocket) => {
+    const client: ConnectedClient = { ws, role: 'student' };
+    connectedClients.add(client);
+    broadcastOnlineCount();
+
+    // Kirim pesan sambutan & riwayat pesan terkini saat tersambung
+    ws.send(JSON.stringify({
+      type: 'chat:init',
+      data: { messages: chatMessages.slice(-50) }
+    }));
+
+    ws.on('message', (raw: string) => {
+      try {
+        const payload = JSON.parse(raw.toString());
+        
+        // 1. Pendaftaran peran (role: teacher / student)
+        if (payload.type === 'auth:register') {
+          client.role = payload.role === 'teacher' ? 'teacher' : 'student';
+          client.nis = payload.nis ? String(payload.nis).trim() : undefined;
+          client.name = payload.name ? String(payload.name).trim() : undefined;
+          broadcastOnlineCount();
+          return;
+        }
+
+        // 2. Pengiriman pesan chat real-time
+        if (payload.type === 'chat:send' && payload.data) {
+          const d = payload.data;
+          const newMsg: ServerChatMessage = {
+            id: `MSG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            senderType: d.senderType || client.role,
+            senderName: String(d.senderName || client.name || (client.role === 'teacher' ? 'Guru Pengawas' : 'Siswa')).trim(),
+            senderNis: d.senderNis || client.nis,
+            senderRole: d.senderRole,
+            classGrade: d.classGrade,
+            examId: d.examId,
+            examTitle: d.examTitle,
+            targetNis: d.targetNis || 'all',
+            text: String(d.text || '').trim(),
+            timestamp: new Date().toISOString(),
+            isRead: (d.senderType || client.role) === 'teacher',
+            quickAction: d.quickAction || 'general'
+          };
+
+          if (newMsg.text.length > 0) {
+            chatMessages.push(newMsg);
+            if (chatMessages.length > 500) chatMessages.shift();
+            broadcastChatMessage(newMsg);
+          }
+          return;
+        }
+
+        // 3. Status sedang mengetik (typing indicator)
+        if (payload.type === 'chat:typing') {
+          const typingPayload = JSON.stringify({
+            type: 'chat:typing',
+            data: {
+              name: client.name || (client.role === 'teacher' ? 'Guru Pengawas' : 'Siswa'),
+              role: client.role,
+              nis: client.nis,
+              isTyping: Boolean(payload.isTyping)
+            }
+          });
+          connectedClients.forEach(c => {
+            if (c.ws !== ws && c.ws.readyState === WebSocket.OPEN) {
+              c.ws.send(typingPayload);
+            }
+          });
+          return;
+        }
+
+        // 4. Ping-Pong heartbeat
+        if (payload.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong', time: Date.now() }));
+        }
+      } catch (err) {
+        console.error('Error handling WebSocket message:', err);
+      }
+    });
+
+    ws.on('close', () => {
+      connectedClients.delete(client);
+      broadcastOnlineCount();
+    });
+
+    ws.on('error', () => {
+      connectedClients.delete(client);
+      broadcastOnlineCount();
+    });
+  });
+
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -530,8 +808,8 @@ async function startServer() {
 
   // Hanya listen port jika tidak berjalan di lingkungan serverless Vercel
   if (!process.env.VERCEL) {
-    app.listen(port, '0.0.0.0', () => {
-      console.log(`ExamFlow Edu server running at http://0.0.0.0:${port}`);
+    server.listen(port, '0.0.0.0', () => {
+      console.log(`ExamFlow Edu server + WebSocket Chat running at http://0.0.0.0:${port}`);
     });
   }
 }

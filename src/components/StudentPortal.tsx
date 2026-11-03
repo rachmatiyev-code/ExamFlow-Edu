@@ -4,6 +4,7 @@ import { StorageService } from '../services/storage';
 import { GasClient } from '../services/gasClient';
 import { MediaViewer } from './MediaViewer';
 import { QuestionMedia, QuestionPromptRenderer } from './QuestionMedia';
+import { StudentChatWidget } from './StudentChatWidget';
 import { MathRenderer } from '../services/mathRenderer';
 import confetti from 'canvas-confetti';
 import { 
@@ -1530,6 +1531,20 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Live Help & Chat with Teacher/Supervisor (Available even before login) */}
+      <StudentChatWidget
+        currentExam={selectedExam}
+        studentNo={studentNo}
+        studentName={studentName}
+        classGrade={studentClass}
+        onApplyToken={(token) => {
+          setExamToken(token);
+        }}
+        onRetakeGranted={() => {
+          setLoginError(null);
+        }}
+      />
     </div>
   );
 };

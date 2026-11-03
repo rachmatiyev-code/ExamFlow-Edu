@@ -21,6 +21,8 @@ import { MediaUploaderInput } from './MediaUploaderInput';
 import { CurriculumManagement } from './CurriculumManagement';
 import { AiQuestionModal } from './AiQuestionModal';
 import { RichTextEditor } from './RichTextEditor';
+import { TeacherChatPanel } from './TeacherChatPanel';
+import { chatService } from '../services/chatService';
 import { MathRenderer } from '../services/mathRenderer';
 import { detectMediaType } from '../services/mediaHelper';
 import { exportGradeRecapToDocx, exportItemAnalysisToDocx } from '../services/exportDocxService';
@@ -84,7 +86,8 @@ import {
   StopCircle,
   RotateCcw,
   FastForward,
-  ImageIcon
+  ImageIcon,
+  MessageSquare
 } from 'lucide-react';
 
 interface TeacherDashboardProps {
@@ -115,7 +118,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
 
   // Sub-tabs
-  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'students' | 'users' | 'profile' | 'gas'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>('exams');
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
+
+  // Subscribe to live incoming student messages to update unread badge
+  useEffect(() => {
+    const unsub = chatService.subscribeMessages((msg) => {
+      if (msg.senderRole === 'student' && !msg.isRead) {
+        setChatUnreadCount((c) => c + 1);
+      }
+    });
+    return unsub;
+  }, []);
 
   // Curriculum State (Capaian Pembelajaran, Elemen & Tujuan Pembelajaran Kurikulum Merdeka)
   const [curriculumList, setCurriculumList] = useState<CurriculumItem[]>(() => StorageService.getCurriculum());
@@ -1634,6 +1648,26 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         >
           <Code className="w-3.5 h-3.5" />
           <span>Kode Google Apps Script</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab('chat');
+            setChatUnreadCount(0);
+          }}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap relative ${
+            activeTab === 'chat'
+              ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border-b-2 border-emerald-600 dark:border-emerald-400 font-bold'
+              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+          <span>Chat & Bantuan Siswa</span>
+          {chatUnreadCount > 0 && (
+            <span className="bg-red-500 text-white font-extrabold text-[10px] px-1.5 py-0.2 rounded-full animate-bounce">
+              {chatUnreadCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -4382,6 +4416,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </ol>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          SUB-TAB 7: LIVE CHAT & STUDENT HELPDESK
+         --------------------------------------------------------- */}
+      {activeTab === 'chat' && (
+        <div className="space-y-4 animate-fadeIn">
+          <TeacherChatPanel exams={exams} onExamUpdated={onRefreshData} />
         </div>
       )}
 

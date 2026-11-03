@@ -198,3 +198,35 @@ export interface StudentRemedialRecommendation {
   remedialPlan: string[];
   enrichmentPlan: string[];
 }
+
+export interface ChatMessage {
+  id: string;
+  senderType?: 'student' | 'teacher' | 'system';
+  senderRole: 'student' | 'teacher' | 'system';
+  senderName: string;
+  senderNis?: string;
+  classGrade?: string;
+  examId?: string;
+  examTitle?: string;
+  targetNis?: string; // empty or undefined for broadcast, or specific student NIS
+  targetName?: string;
+  text: string;
+  timestamp: number;
+  isRead?: boolean;
+  quickAction?: {
+    type: 'request_token' | 'request_retake' | 'unregistered_student' | 'technical_issue' | 'send_token' | 'grant_retake' | 'general';
+    token?: string;
+    examId?: string;
+    examTitle?: string;
+  };
+}
+
+export interface ChatConversation {
+  studentNis: string;
+  studentName: string;
+  classGrade?: string;
+  lastMessage: ChatMessage;
+  unreadCount: number;
+  updatedAt: string;
+}
+

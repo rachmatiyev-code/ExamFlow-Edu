@@ -1,4 +1,5 @@
 import { ChatMessage } from '../types';
+import { GasClient } from './gasClient';
 
 type MessageListener = (message: ChatMessage) => void;
 type PresenceListener = (onlineUsers: { teachers: number; students: number }) => void;
@@ -233,6 +234,18 @@ class ChatService {
         console.error('[ChatService] Failed to send message via REST fallback:', e);
       }
     }
+
+    // 4. Mirror to Google Sheets (Chat_Bantuan sheet) in background
+    GasClient.pushChatMessage({
+      id: fullMessage.id,
+      senderNis: fullMessage.senderNis || '',
+      senderName: fullMessage.senderName,
+      senderRole: fullMessage.senderRole,
+      targetNis: fullMessage.targetNis || 'all',
+      message: fullMessage.text,
+      timestamp: new Date(fullMessage.timestamp).toISOString(),
+      examId: fullMessage.examId || ''
+    }).catch(() => {});
 
     return fullMessage;
   }

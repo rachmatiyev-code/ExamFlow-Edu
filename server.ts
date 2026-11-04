@@ -301,6 +301,7 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
       difficulty = 'Sedang', 
       taxonomy = 'bloom', 
       questionType = 'multiple_choice',
+      typeBreakdown,
       subject = 'Umum', 
       grade = 'SMA/SMK',
       customApiKey,
@@ -332,12 +333,21 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
       ? `\n- INSTRUKSI / PROMPT KHUSUS DARI GURU:\n"${customPrompt.trim()}"\nWajib ikuti instruksi spesifik di atas dalam perumusan konteks, stimulus, atau karakteristik soal.\n`
       : '';
 
-    const typeInstruction = 
-      questionType === 'multiple_choice' ? 'Semua butir soal berbentuk Pilihan Ganda Tunggal ("type": "multiple_choice") dengan 4 pilihan ("opt_a", "opt_b", "opt_c", "opt_d") dan 1 kunci benar.' :
-      questionType === 'checkbox' ? 'Semua butir soal berbentuk Pilihan Ganda Kompleks ("type": "checkbox") dengan 4 pilihan di mana terdapat 2 atau lebih jawaban yang benar ("correctKey": ["opt_a", "opt_c"]).' :
-      questionType === 'true_false' ? 'Semua butir soal berbentuk Benar/Salah ("type": "multiple_choice") dengan 2 opsi ("opt_a": "Benar", "opt_b": "Salah") dan "correctKey" berupa "opt_a" atau "opt_b".' :
-      questionType === 'essay' ? 'Semua butir soal berbentuk Uraian / Isian Singkat ("type": "essay") dengan "options": [] dan "correctKey" berupa kata kunci / jawaban esai.' :
-      'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), dan Uraian ("type": "essay").';
+    let typeInstruction = '';
+    if (typeBreakdown && (typeBreakdown.multipleChoice > 0 || typeBreakdown.checkbox > 0 || typeBreakdown.trueFalse > 0 || typeBreakdown.essay > 0)) {
+      typeInstruction = `Distribusi Kuantitas per Bentuk Soal (Wajib Ditaati Persis Total ${count} butir):\n` +
+        (typeBreakdown.multipleChoice > 0 ? `- Buat persis ${typeBreakdown.multipleChoice} butir Pilihan Ganda Tunggal ("type": "multiple_choice", 4 pilihan opsi opt_a..opt_d, 1 kunci benar)\n` : '') +
+        (typeBreakdown.checkbox > 0 ? `- Buat persis ${typeBreakdown.checkbox} butir Pilihan Ganda Kompleks ("type": "checkbox", 4 pilihan opsi opt_a..opt_d, 2 atau lebih kunci benar)\n` : '') +
+        (typeBreakdown.trueFalse > 0 ? `- Buat persis ${typeBreakdown.trueFalse} butir Benar/Salah ("type": "multiple_choice", 2 pilihan: Benar & Salah, 1 kunci benar)\n` : '') +
+        (typeBreakdown.essay > 0 ? `- Buat persis ${typeBreakdown.essay} butir Uraian / Isian Singkat ("type": "essay", "options": [], kunci berupa teks acuan)\n` : '');
+    } else {
+      typeInstruction = 
+        questionType === 'multiple_choice' ? 'Semua butir soal berbentuk Pilihan Ganda Tunggal ("type": "multiple_choice") dengan 4 pilihan ("opt_a", "opt_b", "opt_c", "opt_d") dan 1 kunci benar.' :
+        questionType === 'checkbox' ? 'Semua butir soal berbentuk Pilihan Ganda Kompleks ("type": "checkbox") dengan 4 pilihan di mana terdapat 2 atau lebih jawaban yang benar ("correctKey": ["opt_a", "opt_c"]).' :
+        questionType === 'true_false' ? 'Semua butir soal berbentuk Benar/Salah ("type": "multiple_choice") dengan 2 opsi ("opt_a": "Benar", "opt_b": "Salah") dan "correctKey" berupa "opt_a" atau "opt_b".' :
+        questionType === 'essay' ? 'Semua butir soal berbentuk Uraian / Isian Singkat ("type": "essay") dengan "options": [] dan "correctKey" berupa kata kunci / jawaban esai.' :
+        'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), dan Uraian ("type": "essay").';
+    }
 
     const promptText = `
 Anda adalah seorang pakar kurikulum dan asesmen pendidikan nasional (Kurikulum Merdeka / K13).

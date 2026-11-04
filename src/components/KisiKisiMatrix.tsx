@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Exam, Question, SchoolProfile, TaxonomyType, BloomLevel, SoloLevel } from '../types';
 import { StorageService } from '../services/storage';
 import { Printer, Download, ArrowLeft, Layers, Sparkles, BookOpen } from 'lucide-react';
+import { sanitizeLogoUrl, PEMKOT_MALANG_LOGO_SVG, SDN_PISANGCANDI_1_LOGO_SVG } from '../services/logoAssets';
 
 interface KisiKisiMatrixProps {
   profile: SchoolProfile;
@@ -142,19 +143,12 @@ export const KisiKisiMatrix: React.FC<KisiKisiMatrixProps> = ({ profile, exams }
         <div className="kop-surat border-b-4 border-double border-slate-900 dark:border-slate-100 pb-4 mb-6 flex items-center justify-between gap-6 print:border-black print-break-inside-avoid">
           {/* Logo Pemda (Kiri) */}
           <div className="w-20 h-20 flex items-center justify-center shrink-0">
-            {profile.regionalGovLogoUrl ? (
-              <img
-                src={profile.regionalGovLogoUrl}
-                alt="Logo Pemda Kiri"
-                referrerPolicy="no-referrer"
-                className="w-20 h-20 object-contain shrink-0"
-              />
-            ) : (
-              <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
-                <span>PEMDA</span>
-                <span className="text-[8px] font-normal">KIRI</span>
-              </div>
-            )}
+            <img
+              src={sanitizeLogoUrl(profile.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG)}
+              alt="Logo Pemda Kiri"
+              referrerPolicy="no-referrer"
+              className="w-20 h-20 object-contain shrink-0"
+            />
           </div>
 
           <div className="text-center flex-1 leading-tight">
@@ -177,19 +171,12 @@ export const KisiKisiMatrix: React.FC<KisiKisiMatrixProps> = ({ profile, exams }
 
           {/* Logo Sekolah (Kanan) */}
           <div className="w-20 h-20 flex items-center justify-center shrink-0">
-            {profile.logoUrl ? (
-              <img
-                src={profile.logoUrl}
-                alt="Logo Sekolah"
-                referrerPolicy="no-referrer"
-                className="w-20 h-20 object-contain shrink-0"
-              />
-            ) : (
-              <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
-                <span>SEKOLAH</span>
-                <span className="text-[8px] font-normal">KANAN</span>
-              </div>
-            )}
+            <img
+              src={sanitizeLogoUrl(profile.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)}
+              alt="Logo Sekolah"
+              referrerPolicy="no-referrer"
+              className="w-20 h-20 object-contain shrink-0"
+            />
           </div>
         </div>
 

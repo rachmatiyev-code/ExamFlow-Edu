@@ -87,8 +87,13 @@ import {
   RotateCcw,
   FastForward,
   ImageIcon,
-  MessageSquare
+  MessageSquare,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
+import { sanitizeLogoUrl, PEMKOT_MALANG_LOGO_SVG, SDN_PISANGCANDI_1_LOGO_SVG } from '../services/logoAssets';
+import { QuestionTypeBreakdown } from '../services/aiGenerator';
 
 interface TeacherDashboardProps {
   profile: SchoolProfile;
@@ -155,6 +160,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [selectedExamId, setSelectedExamId] = useState<string>(exams[0]?.id || '');
   const [isExamModalOpen, setIsExamModalOpen] = useState(false);
   const [editingExam, setEditingExam] = useState<Partial<Exam> | null>(null);
+  const [examViewMode, setExamViewMode] = useState<'cluster' | 'grid'>('cluster');
+  const [examSubjectFilter, setExamSubjectFilter] = useState<string>('all');
+  const [examGradeFilter, setExamGradeFilter] = useState<string>('all');
+
+  // Exam Scheduling State
+  const [schedulingExam, setSchedulingExam] = useState<Exam | null>(null);
+  const [scheduleStartsAt, setScheduleStartsAt] = useState<string>('');
+  const [scheduleEndsAt, setScheduleEndsAt] = useState<string>('');
+
+  // Analytics Submissions Sorting State
+  const [analyticsSortKey, setAnalyticsSortKey] = useState<string>('submittedAt');
+  const [analyticsSortDir, setAnalyticsSortDir] = useState<'asc' | 'desc'>('desc');
 
   // Question Management State
   const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false);
@@ -175,6 +192,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [aiDifficulty, setAiDifficulty] = useState<'Mudah' | 'Sedang' | 'Sukar'>('Sedang');
   const [aiTaxonomy, setAiTaxonomy] = useState<'bloom' | 'solo'>('bloom');
   const [aiQuestionType, setAiQuestionType] = useState<'multiple_choice' | 'checkbox' | 'true_false' | 'essay' | 'mixed'>('multiple_choice');
+  const [aiTypeBreakdown, setAiTypeBreakdown] = useState<QuestionTypeBreakdown>({
+    multipleChoice: 5,
+    checkbox: 0,
+    trueFalse: 0,
+    essay: 0
+  });
+  const [aiUseCustomBreakdown, setAiUseCustomBreakdown] = useState<boolean>(false);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
 
@@ -730,6 +754,76 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     setTimeout(() => setSessionToast(null), 5000);
   };
 
+  const handleOpenScheduleModal = (exam: Exam) => {
+    setSchedulingExam(exam);
+    if (exam.startsAt) {
+      const dt = new Date(exam.startsAt);
+      if (!isNaN(dt.getTime())) {
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const d = String(dt.getDate()).padStart(2, '0');
+        const hh = String(dt.getHours()).padStart(2, '0');
+        const mm = String(dt.getMinutes()).padStart(2, '0');
+        setScheduleStartsAt(`${y}-${m}-${d}T${hh}:${mm}`);
+      } else {
+        setScheduleStartsAt(exam.startsAt.replace(' ', 'T'));
+      }
+    } else {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const d = String(now.getDate()).padStart(2, '0');
+      setScheduleStartsAt(`${y}-${m}-${d}T08:00`);
+    }
+
+    if (exam.endsAt) {
+      const dt = new Date(exam.endsAt);
+      if (!isNaN(dt.getTime())) {
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const d = String(dt.getDate()).padStart(2, '0');
+        const hh = String(dt.getHours()).padStart(2, '0');
+        const mm = String(dt.getMinutes()).padStart(2, '0');
+        setScheduleEndsAt(`${y}-${m}-${d}T${hh}:${mm}`);
+      } else {
+        setScheduleEndsAt(exam.endsAt.replace(' ', 'T'));
+      }
+    } else {
+      const end = new Date(Date.now() + (exam.durationMinutes || 60) * 60 * 1000);
+      const y = end.getFullYear();
+      const m = String(end.getMonth() + 1).padStart(2, '0');
+      const d = String(end.getDate()).padStart(2, '0');
+      const hh = String(end.getHours()).padStart(2, '0');
+      const mm = String(end.getMinutes()).padStart(2, '0');
+      setScheduleEndsAt(`${y}-${m}-${d}T${hh}:${mm}`);
+    }
+  };
+
+  const handleSaveSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!schedulingExam) return;
+
+    const startsFormatted = scheduleStartsAt.replace('T', ' ');
+    const endsFormatted = scheduleEndsAt.replace('T', ' ');
+
+    const updated: Exam = {
+      ...schedulingExam,
+      startsAt: startsFormatted,
+      endsAt: endsFormatted,
+      sessionStatus: new Date(startsFormatted).getTime() > Date.now() ? 'scheduled' : 'active'
+    };
+
+    StorageService.upsertExam(updated);
+    const qs = StorageService.getQuestionsByExamId(schedulingExam.id);
+    await GasClient.pushExam(updated, qs);
+
+    setSessionToast(`Jadwal ujian "${schedulingExam.title}" berhasil disimpan (${startsFormatted} s.d. ${endsFormatted})!`);
+    StorageService.addLog('EXAM', `Jadwal ujian "${schedulingExam.title}" diatur: ${startsFormatted} - ${endsFormatted}`, undefined, 'info');
+    setSchedulingExam(null);
+    onRefreshData();
+    setTimeout(() => setSessionToast(null), 5000);
+  };
+
   const handleDeleteQuestion = async (qId: string) => {
     if (confirm('Hapus butir soal ini?')) {
       const currentQs = StorageService.getQuestionsByExamId(selectedExamId).filter(q => q.id !== qId);
@@ -765,16 +859,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     setAiMessage(null);
 
     const cleanObjectives = aiLearningObjectives.filter(Boolean).slice(0, 15);
+    const effectiveCount = aiUseCustomBreakdown
+      ? Math.max(1, (aiTypeBreakdown.multipleChoice || 0) + (aiTypeBreakdown.checkbox || 0) + (aiTypeBreakdown.trueFalse || 0) + (aiTypeBreakdown.essay || 0))
+      : aiCount;
 
     try {
       const res = await AiGeneratorService.generateQuestions(
         currentExam.id, 
         {
           topic: topicToUse,
-          count: aiCount,
+          count: effectiveCount,
           difficulty: aiDifficulty,
           taxonomy: aiTaxonomy,
           questionType: aiQuestionType,
+          typeBreakdown: aiUseCustomBreakdown ? aiTypeBreakdown : undefined,
           subject: currentExam.subject,
           grade: (aiGrade && aiGrade !== 'Semua') ? aiGrade : currentExam.grade,
           learningObjectives: cleanObjectives,
@@ -822,14 +920,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // School Profile Save
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    const sanitized: SchoolProfile = {
+      ...profileForm,
+      regionalGovLogoUrl: sanitizeLogoUrl(profileForm.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG),
+      logoUrl: sanitizeLogoUrl(profileForm.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)
+    };
     // 1. Simpan ke local storage
-    StorageService.saveProfile(profileForm);
+    StorageService.saveProfile(sanitized);
+    setProfileForm(sanitized);
     // 2. Simpan ke Google Sheets
-    await GasClient.pushSchoolProfile(profileForm);
+    await GasClient.pushSchoolProfile(sanitized);
     // 3. Notifikasi parent component agar state seluruh aplikasi terupdate seketika
-    onUpdateProfile(profileForm);
-    if (currentUser && profileForm.teacherName) {
-      const updatedUser = { ...currentUser, fullName: profileForm.teacherName };
+    onUpdateProfile(sanitized);
+    if (currentUser && sanitized.teacherName) {
+      const updatedUser = { ...currentUser, fullName: sanitized.teacherName };
       setCurrentUser(updatedUser);
       StorageService.setCurrentUser(updatedUser);
     }
@@ -1454,6 +1558,72 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
     return true;
   });
+
+  const sortedAnalyticsSubmissions = useMemo(() => {
+    return [...filteredAnalyticsSubmissions].sort((a, b) => {
+      let valA: any = '';
+      let valB: any = '';
+
+      switch (analyticsSortKey) {
+        case 'studentNo':
+          valA = a.studentNo || '';
+          valB = b.studentNo || '';
+          break;
+        case 'studentName':
+          valA = a.studentName || '';
+          valB = b.studentName || '';
+          break;
+        case 'classGrade':
+          valA = a.classGrade || '';
+          valB = b.classGrade || '';
+          break;
+        case 'examTitle': {
+          const exA = exams.find(e => e.id === a.examId);
+          const exB = exams.find(e => e.id === b.examId);
+          valA = a.examTitle || exA?.title || a.examId || '';
+          valB = b.examTitle || exB?.title || b.examId || '';
+          break;
+        }
+        case 'percentage':
+          valA = Number(a.percentage) || 0;
+          valB = Number(b.percentage) || 0;
+          break;
+        case 'passed':
+          valA = a.passed ? 1 : 0;
+          valB = b.passed ? 1 : 0;
+          break;
+        case 'tabSwitchCount':
+          valA = Number(a.tabSwitchCount) || 0;
+          valB = Number(b.tabSwitchCount) || 0;
+          break;
+        case 'timeSpentSeconds':
+          valA = Number(a.timeSpentSeconds) || 0;
+          valB = Number(b.timeSpentSeconds) || 0;
+          break;
+        case 'submittedAt':
+        default:
+          valA = new Date(a.submittedAt || 0).getTime();
+          valB = new Date(b.submittedAt || 0).getTime();
+          break;
+      }
+
+      if (typeof valA === 'number' && typeof valB === 'number') {
+        return analyticsSortDir === 'asc' ? valA - valB : valB - valA;
+      }
+      const strA = String(valA).toLowerCase();
+      const strB = String(valB).toLowerCase();
+      return analyticsSortDir === 'asc' ? strA.localeCompare(strB) : strB.localeCompare(strA);
+    });
+  }, [filteredAnalyticsSubmissions, analyticsSortKey, analyticsSortDir, exams]);
+
+  const handleAnalyticsSort = (key: string) => {
+    if (analyticsSortKey === key) {
+      setAnalyticsSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setAnalyticsSortKey(key);
+      setAnalyticsSortDir('asc');
+    }
+  };
 
   const analyticsTotalCount = filteredAnalyticsSubmissions.length;
   const analyticsAvgScore = analyticsTotalCount > 0
@@ -2789,10 +2959,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     <th className="p-3 w-10 text-center no-print">
                       <input
                         type="checkbox"
-                        checked={filteredAnalyticsSubmissions.length > 0 && selectedSubmissionIds.length === filteredAnalyticsSubmissions.length}
+                        checked={sortedAnalyticsSubmissions.length > 0 && selectedSubmissionIds.length === sortedAnalyticsSubmissions.length}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setSelectedSubmissionIds(filteredAnalyticsSubmissions.map(s => s.id));
+                            setSelectedSubmissionIds(sortedAnalyticsSubmissions.map(s => s.id));
                           } else {
                             setSelectedSubmissionIds([]);
                           }
@@ -2801,20 +2971,137 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         title="Pilih Semua Nilai"
                       />
                     </th>
-                    <th className="p-3">NIS</th>
-                    <th className="p-3">Nama Siswa</th>
-                    <th className="p-3">Kelas</th>
-                    <th className="p-3">Paket Ujian</th>
-                    <th className="p-3 text-center">Nilai (%)</th>
-                    <th className="p-3 text-center">Status</th>
-                    <th className="p-3 text-center font-mono">Pindah Tab</th>
-                    <th className="p-3 text-center font-mono">Durasi</th>
-                    <th className="p-3 font-mono text-slate-400">Waktu Kirim</th>
+                    <th 
+                      onClick={() => handleAnalyticsSort('studentNo')}
+                      className="p-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
+                      title="Urutkan berdasarkan NIS"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>NIS</span>
+                        {analyticsSortKey === 'studentNo' ? (
+                          analyticsSortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleAnalyticsSort('studentName')}
+                      className="p-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
+                      title="Urutkan berdasarkan Nama Siswa"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Nama Siswa</span>
+                        {analyticsSortKey === 'studentName' ? (
+                          analyticsSortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleAnalyticsSort('classGrade')}
+                      className="p-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
+                      title="Urutkan berdasarkan Kelas"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Kelas</span>
+                        {analyticsSortKey === 'classGrade' ? (
+                          analyticsSortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleAnalyticsSort('examTitle')}
+                      className="p-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
+                      title="Urutkan berdasarkan Nama Paket Ujian"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Nama Paket Ujian</span>
+                        {analyticsSortKey === 'examTitle' ? (
+                          analyticsSortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleAnalyticsSort('percentage')}
+                      className="p-3 text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
+                      title="Urutkan berdasarkan Nilai Akhir"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Nilai (%)</span>
+                        {analyticsSortKey === 'percentage' ? (
+                          analyticsSortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleAnalyticsSort('passed')}
+                      className="p-3 text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
+                      title="Urutkan berdasarkan Status Kelulusan"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Status</span>
+                        {analyticsSortKey === 'passed' ? (
+                          analyticsSortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleAnalyticsSort('tabSwitchCount')}
+                      className="p-3 text-center font-mono cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
+                      title="Urutkan berdasarkan Pelanggaran Pindah Tab"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Pindah Tab</span>
+                        {analyticsSortKey === 'tabSwitchCount' ? (
+                          analyticsSortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleAnalyticsSort('timeSpentSeconds')}
+                      className="p-3 text-center font-mono cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
+                      title="Urutkan berdasarkan Durasi Pengerjaan"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Durasi</span>
+                        {analyticsSortKey === 'timeSpentSeconds' ? (
+                          analyticsSortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
+                    <th 
+                      onClick={() => handleAnalyticsSort('submittedAt')}
+                      className="p-3 font-mono cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none"
+                      title="Urutkan berdasarkan Waktu Pengiriman"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Waktu Kirim</span>
+                        {analyticsSortKey === 'submittedAt' ? (
+                          analyticsSortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+                    </th>
                     <th className="p-3 text-right no-print">Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAnalyticsSubmissions.map(sub => {
+                  {sortedAnalyticsSubmissions.map(sub => {
                     const examObj = exams.find(e => String(e.id || '').trim().toLowerCase() === String(sub.examId || '').trim().toLowerCase());
                     const durationM = Math.floor((Number(sub.timeSpentSeconds) || 0) / 60);
                     const durationS = (Number(sub.timeSpentSeconds) || 0) % 60;
@@ -2847,11 +3134,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                         <td className="p-3 font-mono font-medium">{sub.studentNo}</td>
                         <td className="p-3 font-semibold text-slate-900 dark:text-white">{sub.studentName}</td>
                         <td className="p-3 text-slate-500">{sub.classGrade}</td>
-                        <td className="p-3 text-slate-600 dark:text-slate-300 max-w-[200px] truncate" title={examObj?.title || sub.examId}>
+                        <td className="p-3 text-slate-600 dark:text-slate-300 max-w-[220px] truncate" title={sub.examTitle || examObj?.title || sub.examId}>
                           <span className="font-semibold text-indigo-600 dark:text-indigo-400 mr-1">
                             {examObj?.subject || 'Ujian'}:
                           </span>
-                          {examObj?.title || sub.examId}
+                          {sub.examTitle || examObj?.title || sub.examId}
                         </td>
                         <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm">
                           {sub.statusNote === 'Mengulang Ujian' ? (

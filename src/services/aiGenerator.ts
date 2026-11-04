@@ -1,12 +1,20 @@
 import { StorageService } from './storage';
 import { Question } from '../types';
 
+export interface QuestionTypeBreakdown {
+  multipleChoice: number;
+  checkbox: number;
+  trueFalse: number;
+  essay: number;
+}
+
 export interface GenerateParams {
   topic: string;
   count: number;
   difficulty: 'Mudah' | 'Sedang' | 'Sukar';
   taxonomy: 'bloom' | 'solo';
   questionType?: 'multiple_choice' | 'checkbox' | 'true_false' | 'essay' | 'mixed';
+  typeBreakdown?: QuestionTypeBreakdown;
   subject: string;
   grade: string;
   learningObjectives?: string[]; // Hingga 15 Tujuan Pembelajaran (TP)
@@ -228,12 +236,22 @@ export class AiGeneratorService {
     for (let bIdx = 0; bIdx < batchSizes.length; bIdx++) {
       const batchCount = batchSizes[bIdx];
       const qType = params.questionType || 'multiple_choice';
-      const typeInstruction = 
-        qType === 'multiple_choice' ? 'Semua butir soal berbentuk Pilihan Ganda Tunggal ("type": "multiple_choice") dengan 4 atau 5 pilihan ("options") dan 1 kunci benar ("correctKey": "opt_a").' :
-        qType === 'checkbox' ? 'Semua butir soal berbentuk Pilihan Ganda Kompleks ("type": "checkbox") dengan 4 atau 5 pilihan di mana terdapat 2 atau lebih jawaban yang benar ("correctKey": ["opt_a", "opt_c"]).' :
-        qType === 'true_false' ? 'Semua butir soal berbentuk Benar/Salah ("type": "multiple_choice") dengan 2 opsi ("opt_a": "Benar", "opt_b": "Salah") dan "correctKey" berupa "opt_a" atau "opt_b".' :
-        qType === 'essay' ? 'Semua butir soal berbentuk Uraian / Isian Singkat ("type": "essay") dengan "options": [] dan "correctKey" berupa rangkuman jawaban/kata kunci esai.' :
-        'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), dan Uraian ("type": "essay").';
+      let typeInstruction = '';
+      if (params.typeBreakdown && (params.typeBreakdown.multipleChoice > 0 || params.typeBreakdown.checkbox > 0 || params.typeBreakdown.trueFalse > 0 || params.typeBreakdown.essay > 0)) {
+        const tb = params.typeBreakdown;
+        typeInstruction = `Distribusi Kuantitas per Bentuk Soal (Wajib Ditaati Persis Total ${batchCount} butir):\n` +
+          (tb.multipleChoice > 0 ? `- Buat persis ${tb.multipleChoice} butir Pilihan Ganda Tunggal ("type": "multiple_choice", 4 pilihan opsi opt_a..opt_d, 1 kunci benar)\n` : '') +
+          (tb.checkbox > 0 ? `- Buat persis ${tb.checkbox} butir Pilihan Ganda Kompleks ("type": "checkbox", 4 pilihan opsi opt_a..opt_d, 2 atau lebih kunci benar)\n` : '') +
+          (tb.trueFalse > 0 ? `- Buat persis ${tb.trueFalse} butir Benar/Salah ("type": "multiple_choice", 2 pilihan: Benar & Salah, 1 kunci benar)\n` : '') +
+          (tb.essay > 0 ? `- Buat persis ${tb.essay} butir Uraian / Isian Singkat ("type": "essay", "options": [], kunci berupa teks acuan)\n` : '');
+      } else {
+        typeInstruction = 
+          qType === 'multiple_choice' ? 'Semua butir soal berbentuk Pilihan Ganda Tunggal ("type": "multiple_choice") dengan 4 atau 5 pilihan ("options") dan 1 kunci benar ("correctKey": "opt_a").' :
+          qType === 'checkbox' ? 'Semua butir soal berbentuk Pilihan Ganda Kompleks ("type": "checkbox") dengan 4 atau 5 pilihan di mana terdapat 2 atau lebih jawaban yang benar ("correctKey": ["opt_a", "opt_c"]).' :
+          qType === 'true_false' ? 'Semua butir soal berbentuk Benar/Salah ("type": "multiple_choice") dengan 2 opsi ("opt_a": "Benar", "opt_b": "Salah") dan "correctKey" berupa "opt_a" atau "opt_b".' :
+          qType === 'essay' ? 'Semua butir soal berbentuk Uraian / Isian Singkat ("type": "essay") dengan "options": [] dan "correctKey" berupa rangkuman jawaban/kata kunci esai.' :
+          'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), dan Uraian ("type": "essay").';
+      }
 
       const validObjectives = Array.isArray(params.learningObjectives) ? params.learningObjectives.filter(Boolean).slice(0, 15) : [];
       const tpSection = validObjectives.length > 0
@@ -332,6 +350,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
             difficulty: params.difficulty,
             taxonomy: params.taxonomy,
             questionType: params.questionType,
+            typeBreakdown: params.typeBreakdown,
             subject: params.subject,
             grade: params.grade,
             customApiKey,

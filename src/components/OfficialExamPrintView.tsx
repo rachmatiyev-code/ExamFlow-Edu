@@ -19,6 +19,7 @@ import { MathRenderer } from '../services/mathRenderer';
 import { exportExamToDocx } from '../services/exportDocxService';
 import { exportExamToExcel } from '../services/exportExcelService';
 import { PrintSetupModal } from './PrintSetupModal';
+import { sanitizeLogoUrl, PEMKOT_MALANG_LOGO_SVG, SDN_PISANGCANDI_1_LOGO_SVG } from '../services/logoAssets';
 
 interface OfficialExamPrintViewProps {
   profile: SchoolProfile;
@@ -201,19 +202,12 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
           <div className="flex items-center justify-between gap-4">
             {/* Logo Pemda (Kiri) */}
             <div className="w-20 h-20 flex items-center justify-center shrink-0">
-              {profile.regionalGovLogoUrl ? (
-                <img
-                  src={profile.regionalGovLogoUrl}
-                  alt="Logo Pemda Kiri"
-                  referrerPolicy="no-referrer"
-                  className="w-20 h-20 object-contain shrink-0"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
-                  <span>PEMDA</span>
-                  <span className="text-[8px] font-normal">KIRI</span>
-                </div>
-              )}
+              <img
+                src={sanitizeLogoUrl(profile.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG)}
+                alt="Logo Pemda Kiri"
+                referrerPolicy="no-referrer"
+                className="w-20 h-20 object-contain shrink-0"
+              />
             </div>
 
             {/* Hirarki Kedinasan: Pemda -> OPD -> Satuan Pendidikan */}
@@ -239,19 +233,12 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
 
             {/* Logo Sekolah (Kanan) */}
             <div className="w-20 h-20 flex items-center justify-center shrink-0">
-              {profile.logoUrl ? (
-                <img
-                  src={profile.logoUrl}
-                  alt={profile.name}
-                  referrerPolicy="no-referrer"
-                  className="w-20 h-20 object-contain shrink-0"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
-                  <span>SEKOLAH</span>
-                  <span className="text-[8px] font-normal">KANAN</span>
-                </div>
-              )}
+              <img
+                src={sanitizeLogoUrl(profile.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)}
+                alt={profile.name}
+                referrerPolicy="no-referrer"
+                className="w-20 h-20 object-contain shrink-0"
+              />
             </div>
           </div>
 

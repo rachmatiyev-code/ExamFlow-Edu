@@ -114,6 +114,7 @@ export interface Student {
 export interface Submission {
   id: string;
   examId: string;
+  examTitle?: string; // Nama Paket Ujian
   studentNo: string;
   studentName: string;
   classGrade: string;

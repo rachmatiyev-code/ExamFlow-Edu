@@ -36,6 +36,7 @@ const SHEETS = {
   LAPORAN_INDIVIDU: 'Laporan_Individu',
   USERS: 'Users',
   CURRICULUM: 'Curriculum',
+  CHAT: 'Chat_Bantuan',
   LOGS: 'Logs'
 };
 
@@ -58,6 +59,16 @@ const CANONICAL_EX_HEADERS = [
   'token', 'instructions', 'sessionStatus', 'sessionStartedAt', 'sessionEndedAt', 
   'allowLateSubmission', 'lateExtensionMinutes', 'learningObjectives', 'attemptMode', 
   'createdAt', 'redeployCount'
+];
+
+const CANONICAL_SUBMISSION_HEADERS = [
+  'id', 'examId', 'examTitle', 'studentNo', 'studentName', 'classGrade', 'answersJson', 
+  'score', 'maxScore', 'percentage', 'passed', 'submittedAt', 'tabSwitchCount', 
+  'timeSpentSeconds', 'feedback', 'statusNote', 'allowRepeat'
+];
+
+const CANONICAL_CHAT_HEADERS = [
+  'id', 'senderNis', 'senderName', 'senderRole', 'targetNis', 'message', 'timestamp', 'examId'
 ];
 
 /**
@@ -169,11 +180,24 @@ function initDatabase() {
     formatHeaderRow(shStudents);
   }
 
-  // 5. Submissions (Mendukung statusNote & allowRepeat untuk Mengulang Ujian)
+  // 5. Submissions (Kolom ke-3: examTitle "Nama Paket Ujian", statusNote & allowRepeat)
   let shSubmissions = ss.getSheetByName(SHEETS.SUBMISSIONS);
   if (!shSubmissions) {
     shSubmissions = ss.insertSheet(SHEETS.SUBMISSIONS);
-    shSubmissions.appendRow(['id', 'examId', 'studentNo', 'studentName', 'classGrade', 'answersJson', 'score', 'maxScore', 'percentage', 'passed', 'submittedAt', 'tabSwitchCount', 'timeSpentSeconds', 'feedback', 'statusNote', 'allowRepeat']);
+    shSubmissions.appendRow(CANONICAL_SUBMISSION_HEADERS);
+    formatHeaderRow(shSubmissions);
+  } else {
+    ensureMinColumns(shSubmissions, CANONICAL_SUBMISSION_HEADERS.length);
+    const subData = shSubmissions.getDataRange().getValues();
+    if (subData.length > 0) {
+      const headers = subData[0].map(String);
+      const exTitleIdx = headers.indexOf('examTitle');
+      if (exTitleIdx === -1) {
+        // Auto-healing: sisipkan kolom 'examTitle' di posisi ke-3 (setelah examId)
+        shSubmissions.insertColumnAfter(2);
+        shSubmissions.getRange(1, 3).setValue('examTitle');
+      }
+    }
     formatHeaderRow(shSubmissions);
   }
 
@@ -260,6 +284,17 @@ function initDatabase() {
     formatHeaderRow(shCurriculum);
   }
 
+  // 9. Chat_Bantuan (Pesan Bantuan / Live Chat antara Guru dan Siswa)
+  let shChat = ss.getSheetByName(SHEETS.CHAT);
+  if (!shChat) {
+    shChat = ss.insertSheet(SHEETS.CHAT);
+    shChat.appendRow(CANONICAL_CHAT_HEADERS);
+    formatHeaderRow(shChat);
+  } else {
+    ensureMinColumns(shChat, CANONICAL_CHAT_HEADERS.length);
+    formatHeaderRow(shChat);
+  }
+
   return 'Database initialized successfully!';
 }
 
@@ -296,7 +331,8 @@ function doGet(e) {
         students: getSheetDataAsObjects(ss.getSheetByName(SHEETS.STUDENTS)),
         submissions: getSheetDataAsObjects(ss.getSheetByName(SHEETS.SUBMISSIONS)),
         users: getSheetDataAsObjects(ss.getSheetByName(SHEETS.USERS)),
-        curriculum: getSheetDataAsObjects(getCurriculumSheet(ss))
+        curriculum: getSheetDataAsObjects(getCurriculumSheet(ss)),
+        chat: getSheetDataAsObjects(ss.getSheetByName(SHEETS.CHAT))
       };
       return jsonResponse({ status: 'success', data: data });
     }
@@ -324,6 +360,10 @@ function doGet(e) {
 
     if (action === 'getCurriculum') {
       return jsonResponse({ status: 'success', data: getSheetDataAsObjects(getCurriculumSheet(ss)) });
+    }
+
+    if (action === 'getChatMessages' || action === 'getChat') {
+      return jsonResponse({ status: 'success', data: getSheetDataAsObjects(ss.getSheetByName(SHEETS.CHAT)) });
     }
 
     return jsonResponse({ status: 'error', message: 'Action tidak dikenal: ' + action });
@@ -354,7 +394,8 @@ function doPost(e) {
         students: getSheetDataAsObjects(ss.getSheetByName(SHEETS.STUDENTS)),
         submissions: getSheetDataAsObjects(ss.getSheetByName(SHEETS.SUBMISSIONS)),
         users: getSheetDataAsObjects(ss.getSheetByName(SHEETS.USERS)),
-        curriculum: getSheetDataAsObjects(getCurriculumSheet(ss))
+        curriculum: getSheetDataAsObjects(getCurriculumSheet(ss)),
+        chat: getSheetDataAsObjects(ss.getSheetByName(SHEETS.CHAT))
       };
       return jsonResponse({ status: 'success', data: data });
     }
@@ -372,22 +413,31 @@ function doPost(e) {
         sh = ss.getSheetByName(SHEETS.SUBMISSIONS);
       }
       
+      ensureMinColumns(sh, CANONICAL_SUBMISSION_HEADERS.length);
+      const subHeaderVals = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0].map(String);
+      if (subHeaderVals.indexOf('examTitle') === -1) {
+        sh.insertColumnAfter(2);
+        sh.getRange(1, 3).setValue('examTitle');
+        formatHeaderRow(sh);
+      }
+      
       sh.appendRow([
-        sub.id,
-        sub.examId,
-        sub.studentNo,
-        sub.studentName,
-        sub.classGrade || '',
-        JSON.stringify(sub.answers || {}),
-        sub.score,
-        sub.maxScore,
-        sub.percentage,
-        sub.passed,
-        sub.submittedAt || new Date().toISOString(),
-        sub.tabSwitchCount || 0,
-        sub.timeSpentSeconds || 0,
-        sub.feedback || '',
-        sub.statusNote || 'Selesai',
+        String(sub.id || ('SUB-' + Utilities.getUuid().slice(0, 8))),
+        String(sub.examId || ''),
+        String(sub.examTitle || ''),
+        String(sub.studentNo || ''),
+        String(sub.studentName || ''),
+        String(sub.classGrade || ''),
+        typeof sub.answers === 'string' ? sub.answers : JSON.stringify(sub.answers || {}),
+        Number(sub.score || 0),
+        Number(sub.maxScore || 100),
+        Number(sub.percentage || 0),
+        Boolean(sub.passed),
+        String(sub.submittedAt || new Date().toISOString()),
+        Number(sub.tabSwitchCount || 0),
+        Number(sub.timeSpentSeconds || 0),
+        String(sub.feedback || ''),
+        String(sub.statusNote || 'Selesai'),
         sub.allowRepeat ? true : false
       ]);
 
@@ -395,20 +445,20 @@ function doPost(e) {
       let shDataMentah = ss.getSheetByName(SHEETS.DATA_MENTAH);
       if (shDataMentah) {
         shDataMentah.appendRow([
-          sub.studentNo,
-          sub.studentName,
-          sub.classGrade || '',
-          sub.examId || '',
-          sub.percentage,
+          String(sub.studentNo || ''),
+          String(sub.studentName || ''),
+          String(sub.classGrade || ''),
+          String(sub.examTitle || sub.examId || ''),
+          Number(sub.percentage || 0),
           sub.passed ? 'Lulus' : 'Remedial',
-          sub.tabSwitchCount || 0,
-          sub.timeSpentSeconds || 0,
-          sub.statusNote || 'Selesai',
-          sub.submittedAt || new Date().toISOString()
+          Number(sub.tabSwitchCount || 0),
+          Number(sub.timeSpentSeconds || 0),
+          String(sub.statusNote || 'Selesai'),
+          String(sub.submittedAt || new Date().toISOString())
         ]);
       }
       
-      logAction('SYNC', 'Jawaban ujian disimpan: ' + sub.studentName + ' (Nilai: ' + sub.percentage + '%, Status: ' + (sub.statusNote || 'Selesai') + ')');
+      logAction('SYNC', 'Jawaban ujian disimpan: ' + sub.studentName + ' - Paket: ' + (sub.examTitle || sub.examId) + ' (Nilai: ' + sub.percentage + '%, Status: ' + (sub.statusNote || 'Selesai') + ')');
       return jsonResponse({ status: 'success', message: 'Jawaban tersimpan di Google Sheets (Submissions & Data_Mentah)', submissionId: sub.id });
     }
 
@@ -420,8 +470,16 @@ function doPost(e) {
         shSub = ss.getSheetByName(SHEETS.SUBMISSIONS);
       }
       
+      ensureMinColumns(shSub, CANONICAL_SUBMISSION_HEADERS.length);
+      const subHeaderVals = shSub.getRange(1, 1, 1, Math.max(1, shSub.getLastColumn())).getValues()[0].map(String);
+      if (subHeaderVals.indexOf('examTitle') === -1) {
+        shSub.insertColumnAfter(2);
+        shSub.getRange(1, 3).setValue('examTitle');
+        formatHeaderRow(shSub);
+      }
+
       const lastRow = shSub.getLastRow();
-      const lastCol = Math.max(16, shSub.getLastColumn());
+      const lastCol = Math.max(CANONICAL_SUBMISSION_HEADERS.length, shSub.getLastColumn());
       if (lastRow > 1) {
         shSub.getRange(2, 1, lastRow - 1, lastCol).clearContent();
       }
@@ -431,6 +489,7 @@ function doPost(e) {
           return [
             String(s.id || ('SUB-' + Utilities.getUuid().slice(0, 8))),
             String(s.examId || ''),
+            String(s.examTitle || ''),
             String(s.studentNo || ''),
             String(s.studentName || ''),
             String(s.classGrade || ''),
@@ -969,19 +1028,97 @@ function doPost(e) {
       return jsonResponse({ status: 'success', message: 'Data ' + items.length + ' kurikulum (CP/Elemen/TP) berhasil disimpan ke Google Sheets', count: items.length });
     }
 
+    if (action === 'saveChatMessage') {
+      const msg = payload.message || payload;
+      let shChat = ss.getSheetByName(SHEETS.CHAT);
+      if (!shChat) {
+        initDatabase();
+        shChat = ss.getSheetByName(SHEETS.CHAT);
+      }
+      ensureMinColumns(shChat, CANONICAL_CHAT_HEADERS.length);
+      shChat.appendRow([
+        String(msg.id || ('MSG-' + Date.now())),
+        String(msg.senderNis || ''),
+        String(msg.senderName || ''),
+        String(msg.senderRole || 'student'),
+        String(msg.targetNis || 'all'),
+        String(msg.message || ''),
+        String(msg.timestamp || new Date().toISOString()),
+        String(msg.examId || '')
+      ]);
+      return jsonResponse({ status: 'success', message: 'Pesan chat disimpan di Google Sheets' });
+    }
+
+    if (action === 'getChatMessages') {
+      let shChat = ss.getSheetByName(SHEETS.CHAT);
+      if (!shChat) {
+        initDatabase();
+        shChat = ss.getSheetByName(SHEETS.CHAT);
+      }
+      const messages = getSheetDataAsObjects(shChat);
+      return jsonResponse({ status: 'success', data: messages });
+    }
+
+    if (action === 'syncChatMessages') {
+      const msgs = payload.messages || [];
+      let shChat = ss.getSheetByName(SHEETS.CHAT);
+      if (!shChat) {
+        initDatabase();
+        shChat = ss.getSheetByName(SHEETS.CHAT);
+      }
+      if (msgs.length > 0) {
+        ensureMinColumns(shChat, CANONICAL_CHAT_HEADERS.length);
+        const rows = msgs.map(function(m) {
+          return [
+            String(m.id || ('MSG-' + Utilities.getUuid().slice(0, 8))),
+            String(m.senderNis || ''),
+            String(m.senderName || ''),
+            String(m.senderRole || 'student'),
+            String(m.targetNis || 'all'),
+            String(m.message || ''),
+            String(m.timestamp || new Date().toISOString()),
+            String(m.examId || '')
+          ];
+        });
+        const lastRow = shChat.getLastRow();
+        if (lastRow > 1) {
+          shChat.getRange(2, 1, lastRow - 1, CANONICAL_CHAT_HEADERS.length).clearContent();
+        }
+        shChat.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+      }
+      return jsonResponse({ status: 'success', message: msgs.length + ' pesan chat disinkronkan ke Google Sheets' });
+    }
+
+    if (action === 'clearChatMessages') {
+      let shChat = ss.getSheetByName(SHEETS.CHAT);
+      if (shChat) {
+        const lastRow = shChat.getLastRow();
+        if (lastRow > 1) {
+          shChat.getRange(2, 1, lastRow - 1, shChat.getLastColumn()).clearContent();
+        }
+      }
+      return jsonResponse({ status: 'success', message: 'Riwayat chat dibersihkan' });
+    }
+
     if (action === 'syncAll') {
       // Menyinkronkan paket data lengkap dari aplikasi
       if (payload.profile) {
-        clearAndSetSingleRow(ss.getSheetByName(SHEETS.PROFILE), [
-          payload.profile.name,
-          payload.profile.npsn,
-          payload.profile.address,
-          payload.profile.logoUrl,
-          payload.profile.academicYear,
-          payload.profile.semester,
-          payload.profile.principalName,
-          payload.profile.principalNip,
-          payload.profile.teacherName,
+        let shProf = ss.getSheetByName(SHEETS.PROFILE);
+        if (!shProf) { initDatabase(); shProf = ss.getSheetByName(SHEETS.PROFILE); }
+        ensureMinColumns(shProf, CANONICAL_PROFILE_HEADERS.length);
+        clearAndSetSingleRow(shProf, [
+          payload.profile.name || '',
+          payload.profile.npsn || '',
+          payload.profile.address || '',
+          payload.profile.logoUrl || '',
+          payload.profile.regionalGovLogoUrl || '',
+          payload.profile.regionalGovName || '',
+          payload.profile.regionalGovDepartment || '',
+          payload.profile.academicYear || '',
+          payload.profile.semester || 'Ganjil',
+          payload.profile.principalName || '',
+          payload.profile.principalNip || '',
+          payload.profile.teacherName || '',
           payload.profile.teacherNip || '',
           payload.profile.teacherSubject || '',
           payload.profile.teacherEmail || '',
@@ -1038,6 +1175,7 @@ function normalizeGasHeader(h) {
   if (['tujuanpembelajaran', 'tp', 'learningobjectives', 'learningobjectivesjson', 'daftartp'].includes(clean)) return 'learningObjectivesJson';
   if (['namasiswa', 'studentname', 'nama', 'namalengkap'].includes(clean)) return 'studentName';
   if (['nis', 'nisn', 'nomorinduk', 'studentno'].includes(clean)) return 'studentNo';
+  if (['namapaketujian', 'paketujian', 'judulujian', 'examtitle', 'title'].includes(clean)) return 'examTitle';
   if (['namapemerintahdaerah', 'pemda', 'pemkot', 'regionalgovname'].includes(clean)) return 'regionalGovName';
   if (['namadinas', 'opd', 'dinas', 'organisasiperangkatdaerah', 'regionalgovdepartment'].includes(clean)) return 'regionalGovDepartment';
   if (['logopemda', 'logopemkot', 'regionalgovlogourl'].includes(clean)) return 'regionalGovLogoUrl';

@@ -28,12 +28,14 @@ const STORAGE_KEYS = {
   INITIALIZED: 'examflow_initialized_v1'
 };
 
+import { PEMKOT_MALANG_LOGO_SVG } from './logoAssets';
+
 const DEFAULT_PROFILE: SchoolProfile = {
   name: 'SD NEGERI PISANGCANDI 1 MALANG',
   npsn: '20533857',
   address: 'Jl. Raya Pisang Candi No. 1, Kec. Sukun, Kota Malang, Jawa Timur 65146',
   logoUrl: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=160&auto=format&fit=crop&q=80',
-  regionalGovLogoUrl: '', // Logo Pemerintah Daerah / Kota di sebelah kiri kop
+  regionalGovLogoUrl: PEMKOT_MALANG_LOGO_SVG, // Logo Pemerintah Kota Malang di sebelah kiri kop
   regionalGovName: 'PEMERINTAH KOTA MALANG',
   regionalGovDepartment: 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
   academicYear: '2026/2027',
@@ -294,7 +296,13 @@ export class StorageService {
 
   // School Profile
   static getProfile(): SchoolProfile {
-    return this.getItem<SchoolProfile>(STORAGE_KEYS.PROFILE, DEFAULT_PROFILE);
+    const prof = this.getItem<SchoolProfile>(STORAGE_KEYS.PROFILE, DEFAULT_PROFILE);
+    return {
+      ...prof,
+      regionalGovLogoUrl: prof.regionalGovLogoUrl || PEMKOT_MALANG_LOGO_SVG,
+      regionalGovName: prof.regionalGovName || 'PEMERINTAH KOTA MALANG',
+      regionalGovDepartment: prof.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'
+    };
   }
 
   static saveProfile(profile: SchoolProfile): void {

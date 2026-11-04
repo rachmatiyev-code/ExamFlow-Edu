@@ -21,6 +21,7 @@ import { StorageService } from '../services/storage';
 import { exportGradeRecapToDocx } from '../services/exportDocxService';
 import { exportGradeRecapToExcel } from '../services/exportExcelService';
 import { PrintSetupModal } from './PrintSetupModal';
+import { sanitizeLogoUrl, PEMKOT_MALANG_LOGO_SVG, SDN_PISANGCANDI_1_LOGO_SVG } from '../services/logoAssets';
 
 interface OfficialReportPrintViewProps {
   profile: SchoolProfile;
@@ -387,19 +388,12 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
           <div className="flex items-center justify-between gap-4">
             {/* Logo Pemerintah Daerah (SEBELAH KIRI KOP SURAT) */}
             <div className="w-20 h-20 flex items-center justify-center shrink-0">
-              {profile.regionalGovLogoUrl ? (
-                <img
-                  src={profile.regionalGovLogoUrl}
-                  alt="Logo Pemda Kiri"
-                  referrerPolicy="no-referrer"
-                  className="w-20 h-20 object-contain shrink-0"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
-                  <span>PEMDA</span>
-                  <span className="text-[8px] font-normal">KIRI</span>
-                </div>
-              )}
+              <img
+                src={sanitizeLogoUrl(profile.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG)}
+                alt="Logo Pemda Kiri"
+                referrerPolicy="no-referrer"
+                className="w-20 h-20 object-contain shrink-0"
+              />
             </div>
 
             {/* Hirarki Teks Kedinasan: Pemda -> OPD -> Nama Sekolah -> Alamat */}
@@ -423,19 +417,12 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
 
             {/* Logo Satuan Pendidikan / Sekolah (SEBELAH KANAN KOP SURAT) */}
             <div className="w-20 h-20 flex items-center justify-center shrink-0">
-              {profile.logoUrl ? (
-                <img
-                  src={profile.logoUrl}
-                  alt="Logo Sekolah Kanan"
-                  referrerPolicy="no-referrer"
-                  className="w-20 h-20 object-contain shrink-0"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded border border-black flex flex-col items-center justify-center text-[10px] font-bold text-center shrink-0 leading-tight">
-                  <span>SEKOLAH</span>
-                  <span className="text-[8px] font-normal">KANAN</span>
-                </div>
-              )}
+              <img
+                src={sanitizeLogoUrl(profile.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)}
+                alt="Logo Sekolah Kanan"
+                referrerPolicy="no-referrer"
+                className="w-20 h-20 object-contain shrink-0"
+              />
             </div>
           </div>
           {/* Double underline standard Kop Surat Resmi */}

@@ -7,6 +7,7 @@ import { QuestionMedia, QuestionPromptRenderer } from './QuestionMedia';
 import { StudentChatWidget } from './StudentChatWidget';
 import { MathRenderer } from '../services/mathRenderer';
 import confetti from 'canvas-confetti';
+import { sanitizeLogoUrl, PEMKOT_MALANG_LOGO_SVG, SDN_PISANGCANDI_1_LOGO_SVG } from '../services/logoAssets';
 import { 
   Clock, 
   Calendar, 
@@ -270,9 +271,43 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     const freshExam = StorageService.getExamById(selectedExam.id) || selectedExam;
 
     // 1. Verifikasi Status Sesi Ujian (Hentikan Ujian)
-    if (freshExam.sessionStatus === 'stopped' || freshExam.status === 'stopped' || freshExam.sessionStatus === 'ended') {
+    if (freshExam.sessionStatus === 'stopped' || freshExam.status === 'stopped') {
       setLoginError('Sesi ujian ini telah DIHENTIKAN PERMANEN oleh guru pengawas. Akses pengerjaan telah ditutup hingga sesi dibuka kembali oleh guru dengan tombol "Lanjutkan".');
       return;
+    }
+
+    // 1b. Cek apakah ujian dijadwalkan di masa depan (startsAt)
+    if (freshExam.startsAt) {
+      const startTime = new Date(freshExam.startsAt).getTime();
+      const now = Date.now();
+      if (!isNaN(startTime) && now < startTime) {
+        const formattedStart = new Date(freshExam.startsAt).toLocaleString('id-ID', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        setLoginError(`Ujian ini TERJADWAL dan belum dibuka. Sesi ujian akan dimulai pada: ${formattedStart}. Silakan tunggu instruksi pengawas.`);
+        return;
+      }
+    }
+
+    // 1c. Cek waktu berakhir dan status selesai (Kecuali jika toleransi terlambat aktif!)
+    const isLateAllowed = Boolean(freshExam.allowLateSubmission) || (Number(freshExam.lateExtensionMinutes) || 0) > 0;
+    if (!isLateAllowed) {
+      if (freshExam.sessionStatus === 'ended') {
+        setLoginError('Sesi ujian ini telah ditutup oleh pengawas ruangan.');
+        return;
+      }
+      if (freshExam.endsAt) {
+        const endTime = new Date(freshExam.endsAt).getTime();
+        if (!isNaN(endTime) && Date.now() > endTime) {
+          setLoginError('Batas waktu pelaksanaan ujian ini telah berakhir.');
+          return;
+        }
+      }
     }
 
     // 2. Verifikasi Mode Pengerjaan ("Sekali" vs "Berulang")
@@ -1042,31 +1077,34 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8 animate-fadeIn">
       {/* School Kop & Branding Banner */}
       <div className="bg-gradient-to-r from-indigo-700 via-indigo-800 to-indigo-900 rounded-2xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
-        <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-start gap-5 text-center sm:text-left">
-          {profile.logoUrl ? (
-            <img
-              src={profile.logoUrl}
-              alt={profile.name}
-              referrerPolicy="no-referrer"
-              className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover bg-white p-1 border-2 border-white/20 shadow-md shrink-0"
-            />
-          ) : (
-            <div className="w-20 h-20 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-2xl font-black">
-              {profile.name.charAt(0)}
-            </div>
-          )}
+        <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-center justify-between gap-5 text-center sm:text-left">
+          {/* Logo Pemda (Kiri) */}
+          <img
+            src={sanitizeLogoUrl(profile.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG)}
+            alt="Logo Pemda"
+            referrerPolicy="no-referrer"
+            className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-contain bg-white p-1.5 border-2 border-white/20 shadow-md shrink-0"
+          />
 
           <div className="flex-1 space-y-1">
-            <div className="text-xs uppercase font-bold tracking-widest text-indigo-200">
-              Portal Ujian Berbasis Komputer & Google Sheets
+            <div className="text-[11px] sm:text-xs uppercase font-bold tracking-widest text-indigo-200">
+              {profile.regionalGovName || 'PEMERINTAH KOTA MALANG'} · {profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'}
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              {profile.name}
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+              {profile.name || 'SDN PISANGCANDI 1'}
             </h1>
             <p className="text-xs sm:text-sm text-indigo-100 max-w-2xl">
-              {profile.address} · NPSN: {profile.npsn} · Tahun Pelajaran: {profile.academicYear} ({profile.semester})
+              {profile.address} · NPSN: {profile.npsn} · TP: {profile.academicYear} ({profile.semester})
             </p>
           </div>
+
+          {/* Logo Sekolah (Kanan) */}
+          <img
+            src={sanitizeLogoUrl(profile.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)}
+            alt={profile.name}
+            referrerPolicy="no-referrer"
+            className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-contain bg-white p-1.5 border-2 border-white/20 shadow-md shrink-0"
+          />
         </div>
       </div>
 
@@ -1122,7 +1160,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       <span>Kelas {exam.grade}</span>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         exam.attemptMode === 'unlimited'
                           ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
@@ -1131,22 +1169,53 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         {exam.attemptMode === 'unlimited' ? 'Mode: Berulang' : 'Mode: Sekali (1x)'}
                       </span>
 
-                      {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1">
-                          <StopCircle className="w-3 h-3 text-rose-500" />
-                          <span>Sesi Dihentikan Permanen</span>
-                        </span>
-                      ) : exam.sessionStatus === 'ended' ? (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 flex items-center gap-1">
-                          <StopCircle className="w-3 h-3 text-slate-500" />
-                          <span>Sesi Ditutup</span>
-                        </span>
-                      ) : exam.sessionStatus === 'active' ? (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                          <span>Aktif</span>
-                        </span>
-                      ) : null}
+                      {(() => {
+                        const isLate = Boolean(exam.allowLateSubmission) || (Number(exam.lateExtensionMinutes) || 0) > 0;
+                        const isFuture = exam.startsAt && !isNaN(new Date(exam.startsAt).getTime()) && new Date(exam.startsAt).getTime() > Date.now();
+
+                        if (exam.sessionStatus === 'stopped' || exam.status === 'stopped') {
+                          return (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1">
+                              <StopCircle className="w-3 h-3 text-rose-500" />
+                              <span>Sesi Dihentikan Permanen</span>
+                            </span>
+                          );
+                        }
+
+                        if (isLate) {
+                          return (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-amber-600" />
+                              <span>Toleransi Terlambat (+{exam.lateExtensionMinutes || 30}m)</span>
+                            </span>
+                          );
+                        }
+
+                        if (isFuture) {
+                          return (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800 flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-blue-600" />
+                              <span>Terjadwal: {new Date(exam.startsAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+                            </span>
+                          );
+                        }
+
+                        if (exam.sessionStatus === 'ended') {
+                          return (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 flex items-center gap-1">
+                              <StopCircle className="w-3 h-3 text-slate-500" />
+                              <span>Sesi Ditutup</span>
+                            </span>
+                          );
+                        }
+
+                        return (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                            <span>Sesi Aktif</span>
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -1160,6 +1229,15 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       <span className="text-slate-400">Durasi Pengerjaan:</span>
                       <span className="font-semibold font-mono">{exam.durationMinutes} Menit</span>
                     </div>
+                    {exam.startsAt && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400">Jadwal Pelaksanaan:</span>
+                        <span className="font-semibold font-mono text-indigo-600 dark:text-indigo-400">
+                          {new Date(exam.startsAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} {new Date(exam.startsAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                          {exam.endsAt ? ` - ${new Date(exam.endsAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Jumlah Soal:</span>
                       <span className="font-semibold font-mono">{exam.totalQuestions} Butir</span>
@@ -1195,33 +1273,81 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 </div>
 
                 {/* Action button */}
-                {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
-                  <button
-                    type="button"
-                    disabled
-                    className="w-full py-2.5 px-4 bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    <StopCircle className="w-3.5 h-3.5 text-rose-600" />
-                    <span>Sesi Ujian Dihentikan oleh Pengawas</span>
-                  </button>
-                ) : exam.sessionStatus === 'ended' ? (
-                  <button
-                    type="button"
-                    disabled
-                    className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    <StopCircle className="w-3.5 h-3.5" />
-                    <span>Sesi Ujian Telah Ditutup</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handleStartExamClick(exam)}
-                    className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Mulai Kerjakan Ujian</span>
-                  </button>
-                )}
+                {(() => {
+                  const isLate = Boolean(exam.allowLateSubmission) || (Number(exam.lateExtensionMinutes) || 0) > 0;
+                  const isFuture = exam.startsAt && !isNaN(new Date(exam.startsAt).getTime()) && new Date(exam.startsAt).getTime() > Date.now();
+
+                  if (exam.sessionStatus === 'stopped' || exam.status === 'stopped') {
+                    return (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full py-2.5 px-4 bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        <StopCircle className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Sesi Ujian Dihentikan oleh Pengawas</span>
+                      </button>
+                    );
+                  }
+
+                  if (isLate) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => handleStartExamClick(exam)}
+                        className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                        title="Toleransi keterlambatan aktif oleh guru pengawas"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        <span>Lanjutkan (Siswa Terlambat)</span>
+                      </button>
+                    );
+                  }
+
+                  if (isFuture) {
+                    const startFormatted = new Date(exam.startsAt).toLocaleString('id-ID', {
+                      weekday: 'short',
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    });
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => alert(`Ujian "${exam.title}" dijadwalkan pada ${startFormatted}. Ruang ujian akan dibuka secara otomatis pada waktu tersebut.`)}
+                        className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2"
+                      >
+                        <Clock className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Terjadwal: {startFormatted}</span>
+                      </button>
+                    );
+                  }
+
+                  if (exam.sessionStatus === 'ended') {
+                    return (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        <StopCircle className="w-3.5 h-3.5" />
+                        <span>Sesi Ujian Telah Ditutup</span>
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => handleStartExamClick(exam)}
+                      className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Mulai Kerjakan Ujian</span>
+                    </button>
+                  );
+                })()}
               </div>
             );
           })}

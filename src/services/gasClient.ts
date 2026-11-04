@@ -179,11 +179,12 @@ export class GasClient {
       let count = 0;
 
       if (profile && profile.name) {
+        const local = StorageService.getProfile();
         StorageService.saveProfile({
           ...profile,
-          regionalGovLogoUrl: profile.regionalGovLogoUrl || '',
-          regionalGovName: profile.regionalGovName || 'PEMERINTAH KOTA MALANG',
-          regionalGovDepartment: profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'
+          regionalGovLogoUrl: profile.regionalGovLogoUrl || local.regionalGovLogoUrl || '',
+          regionalGovName: profile.regionalGovName || local.regionalGovName || 'PEMERINTAH KOTA MALANG',
+          regionalGovDepartment: profile.regionalGovDepartment || local.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'
         });
       }
       if (Array.isArray(exams) && exams.length > 0) {
@@ -275,9 +276,12 @@ export class GasClient {
           if (typeof ans === 'string') {
             try { ans = JSON.parse(ans); } catch { ans = {}; }
           }
+          const allExams = StorageService.getExams();
+          const matchedExam = allExams.find(e => String(e.id).trim().toLowerCase() === String(s.examId || '').trim().toLowerCase());
           return {
             id: String(s.id || `SUB-${Date.now()}`),
             examId: String(s.examId || ''),
+            examTitle: String(s.examTitle || s['Nama Paket Ujian'] || s['Paket Ujian'] || matchedExam?.title || ''),
             studentNo: String(s.studentNo || ''),
             studentName: String(s.studentName || ''),
             classGrade: String(s.classGrade || ''),
@@ -506,10 +510,13 @@ export class GasClient {
     }
 
     try {
+      const examObj = StorageService.getExamById(submission.examId);
+      const examTitle = submission.examTitle || examObj?.title || '';
       const res = await this.postToGas({
         action: 'saveSubmission',
         submission: {
           ...submission,
+          examTitle,
           syncStatus: 'synced'
         }
       });
@@ -817,12 +824,17 @@ export class GasClient {
     }
 
     try {
+      const allExams = StorageService.getExams();
       const res = await this.postToGas({
         action: 'syncSubmissions',
-        submissions: submissions.map(s => ({
-          ...s,
-          syncStatus: 'synced'
-        }))
+        submissions: submissions.map(s => {
+          const ex = allExams.find(e => String(e.id).trim().toLowerCase() === String(s.examId || '').trim().toLowerCase());
+          return {
+            ...s,
+            examTitle: s.examTitle || ex?.title || '',
+            syncStatus: 'synced'
+          };
+        })
       });
       return {
         success: true,
@@ -831,6 +843,34 @@ export class GasClient {
       };
     } catch (err: any) {
       return { success: true, message: 'Rekaman nilai tersimpan di lokal.' };
+    }
+  }
+
+  /**
+   * Menyimpan pesan bantuan / chat ke tab Chat_Bantuan di Google Sheets
+   */
+  static async pushChatMessage(message: any): Promise<{ success: boolean; message: string }> {
+    const url = this.getWebAppUrl();
+    if (!url) return { success: true, message: 'Pesan chat disimpan secara lokal.' };
+    try {
+      return await this.postToGas({ action: 'saveChatMessage', message });
+    } catch {
+      return { success: true, message: 'Pesan chat tersimpan di lokal.' };
+    }
+  }
+
+  /**
+   * Mengambil pesan live chat dari sheet Chat_Bantuan
+   */
+  static async getChatMessages(): Promise<any[]> {
+    const url = this.getWebAppUrl();
+    if (!url) return [];
+    try {
+      const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}action=getChatMessages&_t=${Date.now()}`);
+      const data = await res.json();
+      return Array.isArray(data?.data) ? data.data : [];
+    } catch {
+      return [];
     }
   }
 

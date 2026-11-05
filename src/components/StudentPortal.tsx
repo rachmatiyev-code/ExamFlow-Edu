@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Exam, Question, SchoolProfile, Student, Submission } from '../types';
+import { Exam, Question, SchoolProfile, Student, Submission, normalizeQuestionOptions } from '../types';
 import { StorageService } from '../services/storage';
 import { GasClient } from '../services/gasClient';
 import { MediaViewer } from './MediaViewer';
@@ -866,80 +866,86 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 </div>
 
                 {/* Option Choices */}
-                {currentQ.type === 'multiple_choice' && (
-                  <div className="space-y-3">
-                    {currentQ.options.map((opt, optIdx) => {
-                      const isSelected = userAnswers[currentQ.id] === opt.id;
-                      const optionLetters = ['A', 'B', 'C', 'D', 'E'];
-                      const letter = optionLetters[optIdx] || String(optIdx + 1);
+                {currentQ.type === 'multiple_choice' && (() => {
+                  const safeOpts = normalizeQuestionOptions(currentQ.options);
+                  return (
+                    <div className="space-y-3">
+                      {safeOpts.map((opt, optIdx) => {
+                        const isSelected = userAnswers[currentQ.id] === opt.id;
+                        const optionLetters = ['A', 'B', 'C', 'D', 'E'];
+                        const letter = optionLetters[optIdx] || String(optIdx + 1);
 
-                      return (
-                        <label
-                          key={opt.id}
-                          className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition-all ${
-                            isSelected
-                              ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500 dark:border-indigo-500 shadow-xs'
-                              : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name={`q_${currentQ.id}`}
-                            value={opt.id}
-                            checked={isSelected}
-                            onChange={() => handleSelectOption(currentQ.id, opt.id, false)}
-                            className="mt-1 w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
-                          />
-                          <div className="flex-1 text-sm text-slate-800 dark:text-slate-200">
-                            <span className="font-bold text-slate-900 dark:text-white mr-2">
-                              {letter}.
-                            </span>
-                            <span dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(opt.text) }} />
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {currentQ.type === 'checkbox' && (
-                  <div className="space-y-3">
-                    <div className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                      * Pilih satu atau lebih jawaban yang menurut Anda benar.
+                        return (
+                          <label
+                            key={opt.id}
+                            className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500 dark:border-indigo-500 shadow-xs'
+                                : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`q_${currentQ.id}`}
+                              value={opt.id}
+                              checked={isSelected}
+                              onChange={() => handleSelectOption(currentQ.id, opt.id, false)}
+                              className="mt-1 w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                            />
+                            <div className="flex-1 text-sm text-slate-800 dark:text-slate-200">
+                              <span className="font-bold text-slate-900 dark:text-white mr-2">
+                                {letter}.
+                              </span>
+                              <span dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(opt.text) }} />
+                            </div>
+                          </label>
+                        );
+                      })}
                     </div>
-                    {currentQ.options.map((opt, optIdx) => {
-                      const selectedList = (userAnswers[currentQ.id] as string[]) || [];
-                      const isSelected = selectedList.includes(opt.id);
-                      const optionLetters = ['A', 'B', 'C', 'D', 'E'];
-                      const letter = optionLetters[optIdx] || String(optIdx + 1);
+                  );
+                })()}
 
-                      return (
-                        <label
-                          key={opt.id}
-                          className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition-all ${
-                            isSelected
-                              ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500 dark:border-indigo-500 shadow-xs'
-                              : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            value={opt.id}
-                            checked={isSelected}
-                            onChange={() => handleSelectOption(currentQ.id, opt.id, true)}
-                            className="mt-1 w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
-                          />
-                          <div className="flex-1 text-sm text-slate-800 dark:text-slate-200">
-                            <span className="font-bold text-slate-900 dark:text-white mr-2">
-                              {letter}.
-                            </span>
-                            <span dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(opt.text) }} />
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
+                {currentQ.type === 'checkbox' && (() => {
+                  const safeOpts = normalizeQuestionOptions(currentQ.options);
+                  return (
+                    <div className="space-y-3">
+                      <div className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                        * Pilih satu atau lebih jawaban yang menurut Anda benar.
+                      </div>
+                      {safeOpts.map((opt, optIdx) => {
+                        const selectedList = (userAnswers[currentQ.id] as string[]) || [];
+                        const isSelected = selectedList.includes(opt.id);
+                        const optionLetters = ['A', 'B', 'C', 'D', 'E'];
+                        const letter = optionLetters[optIdx] || String(optIdx + 1);
+
+                        return (
+                          <label
+                            key={opt.id}
+                            className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500 dark:border-indigo-500 shadow-xs'
+                                : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              value={opt.id}
+                              checked={isSelected}
+                              onChange={() => handleSelectOption(currentQ.id, opt.id, true)}
+                              className="mt-1 w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                            />
+                            <div className="flex-1 text-sm text-slate-800 dark:text-slate-200">
+                              <span className="font-bold text-slate-900 dark:text-white mr-2">
+                                {letter}.
+                              </span>
+                              <span dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(opt.text) }} />
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
 
                 {currentQ.type === 'essay' && (
                   <div className="space-y-2">

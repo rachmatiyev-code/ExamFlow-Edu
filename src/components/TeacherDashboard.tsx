@@ -8,7 +8,10 @@ import {
   UserAccount, 
   BloomLevel, 
   SoloLevel,
-  CurriculumItem
+  CurriculumItem,
+  QuestionOption,
+  normalizeQuestionOptions,
+  normalizeLearningObjectives
 } from '../types';
 import { StorageService } from '../services/storage';
 import { GasClient } from '../services/gasClient';
@@ -434,20 +437,21 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       ? detectMediaType(rawMediaUrl, 'image')
       : (editingQuestion.mediaType || 'none');
 
+    const safeOptions = normalizeQuestionOptions(editingQuestion.options);
     const newQuestion: Question = {
       id: qId,
       examId: selectedExamId,
       order: editingQuestion.order || currentQs.length + 1,
-      prompt: editingQuestion.prompt,
+      prompt: editingQuestion.prompt || '',
       type: editingQuestion.type || 'multiple_choice',
       mediaType: resolvedMediaType,
       mediaUrl: rawMediaUrl,
-      options: editingQuestion.options || [
+      options: safeOptions.length > 0 ? safeOptions : (editingQuestion.type === 'essay' ? [] : [
         { id: 'opt_a', text: 'Pilihan A' },
         { id: 'opt_b', text: 'Pilihan B' },
         { id: 'opt_c', text: 'Pilihan C' },
         { id: 'opt_d', text: 'Pilihan D' }
-      ],
+      ]),
       correctKey: editingQuestion.correctKey || 'opt_a',
       points: Number(editingQuestion.points) || 20,
       explanation: editingQuestion.explanation || '',
@@ -2532,7 +2536,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => {
-                        setEditingQuestion(q);
+                        const safeOptions = normalizeQuestionOptions(q.options);
+                        setEditingQuestion({
+                          ...q,
+                          options: safeOptions.length > 0 ? safeOptions : (q.type === 'essay' ? [] : [
+                            { id: 'opt_a', text: '' },
+                            { id: 'opt_b', text: '' },
+                            { id: 'opt_c', text: '' },
+                            { id: 'opt_d', text: '' }
+                          ])
+                        });
                         setIsQuestionModalOpen(true);
                       }}
                       className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -2569,29 +2582,33 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 )}
 
                 {/* Options preview for multiple_choice and checkbox */}
-                {(q.type === 'multiple_choice' || q.type === 'checkbox') && q.options && q.options.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300">
-                    {q.options.map(opt => {
-                      const isCorrect = Array.isArray(q.correctKey)
-                        ? q.correctKey.includes(opt.id)
-                        : opt.id === q.correctKey;
+                {(q.type === 'multiple_choice' || q.type === 'checkbox') && (() => {
+                  const safePreviewOpts = normalizeQuestionOptions(q.options);
+                  if (safePreviewOpts.length === 0) return null;
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300">
+                      {safePreviewOpts.map(opt => {
+                        const isCorrect = Array.isArray(q.correctKey)
+                          ? q.correctKey.includes(opt.id)
+                          : opt.id === q.correctKey;
 
-                      return (
-                        <div
-                          key={opt.id}
-                          className={`p-2 rounded-lg border flex items-center gap-2 ${
-                            isCorrect
-                              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 font-semibold'
-                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-                          }`}
-                        >
-                          <span className="w-4 text-center font-bold">{isCorrect ? '✓' : '•'}</span>
-                          <span className="truncate" dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(opt.text) }} />
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        return (
+                          <div
+                            key={opt.id}
+                            className={`p-2 rounded-lg border flex items-center gap-2 ${
+                              isCorrect
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 font-semibold'
+                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                            }`}
+                          >
+                            <span className="w-4 text-center font-bold">{isCorrect ? '✓' : '•'}</span>
+                            <span className="truncate" dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(opt.text) }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
 
                 {/* Essay Answer Key preview */}
                 {q.type === 'essay' && q.correctKey && (
@@ -5038,87 +5055,90 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               </div>
 
               {/* Tujuan Pembelajaran (TP) — Hingga 15 TP */}
-              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                    <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    <span>Tujuan Pembelajaran (TP) Ujian (Maks. 15 TP)</span>
-                  </label>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-bold">
-                    {(editingExam.learningObjectives || []).length}/15 TP
-                  </span>
-                </div>
+              {(() => {
+                const currentExamTps = normalizeLearningObjectives(editingExam.learningObjectives);
+                return (
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                        <span>Tujuan Pembelajaran (TP) Ujian (Maks. 15 TP)</span>
+                      </label>
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-bold">
+                        {currentExamTps.length}/15 TP
+                      </span>
+                    </div>
 
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="Tambah TP baru (misal: Menganalisis cara kerja transformator)"
-                    value={newExamTpInput}
-                    onChange={(e) => setNewExamTpInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (newExamTpInput.trim()) {
-                          const currentList = editingExam.learningObjectives || [];
-                          if (currentList.length < 15) {
-                            setEditingExam({ ...editingExam, learningObjectives: [...currentList, newExamTpInput.trim()] });
-                            setNewExamTpInput('');
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Tambah TP baru (misal: Menganalisis cara kerja transformator)"
+                        value={newExamTpInput}
+                        onChange={(e) => setNewExamTpInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (newExamTpInput.trim()) {
+                              if (currentExamTps.length < 15) {
+                                setEditingExam({ ...editingExam, learningObjectives: [...currentExamTps, newExamTpInput.trim()] });
+                                setNewExamTpInput('');
+                              }
+                            }
                           }
-                        }
-                      }
-                    }}
-                    disabled={(editingExam.learningObjectives || []).length >= 15}
-                    className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (newExamTpInput.trim()) {
-                        const currentList = editingExam.learningObjectives || [];
-                        if (currentList.length < 15) {
-                          setEditingExam({ ...editingExam, learningObjectives: [...currentList, newExamTpInput.trim()] });
-                          setNewExamTpInput('');
-                        }
-                      }
-                    }}
-                    disabled={(editingExam.learningObjectives || []).length >= 15 || !newExamTpInput.trim()}
-                    className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1 shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Tambah</span>
-                  </button>
-                </div>
-
-                {/* List of TP */}
-                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                  {(editingExam.learningObjectives || []).map((tp, idx) => (
-                    <div key={idx} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
-                      <span className="font-bold text-indigo-600 dark:text-indigo-400 shrink-0 font-mono text-[10px] bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded">
-                        TP {idx + 1}
-                      </span>
-                      <span className="flex-1 text-slate-800 dark:text-slate-200 text-[11px] leading-tight">
-                        {tp}
-                      </span>
+                        }}
+                        disabled={currentExamTps.length >= 15}
+                        className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      />
                       <button
                         type="button"
                         onClick={() => {
-                          const updated = (editingExam.learningObjectives || []).filter((_, i) => i !== idx);
-                          setEditingExam({ ...editingExam, learningObjectives: updated });
+                          if (newExamTpInput.trim()) {
+                            if (currentExamTps.length < 15) {
+                              setEditingExam({ ...editingExam, learningObjectives: [...currentExamTps, newExamTpInput.trim()] });
+                              setNewExamTpInput('');
+                            }
+                          }
                         }}
-                        className="text-slate-400 hover:text-rose-500 transition-colors p-0.5"
-                        title="Hapus TP ini"
+                        disabled={currentExamTps.length >= 15 || !newExamTpInput.trim()}
+                        className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1 shrink-0"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Tambah</span>
                       </button>
                     </div>
-                  ))}
-                  {(!editingExam.learningObjectives || editingExam.learningObjectives.length === 0) && (
-                    <p className="text-[11px] text-slate-400 italic py-1">
-                      Belum ada TP spesifik. TP dapat ditambahkan sekarang atau otomatis tersinkron saat men-generate soal AI.
-                    </p>
-                  )}
-                </div>
-              </div>
+
+                    {/* List of TP */}
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                      {currentExamTps.map((tp, idx) => (
+                        <div key={idx} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
+                          <span className="font-bold text-indigo-600 dark:text-indigo-400 shrink-0 font-mono text-[10px] bg-indigo-50 dark:bg-indigo-950/80 px-1.5 py-0.5 rounded">
+                            TP {idx + 1}
+                          </span>
+                          <span className="flex-1 text-slate-800 dark:text-slate-200 text-[11px] leading-tight">
+                            {tp}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = currentExamTps.filter((_, i) => i !== idx);
+                              setEditingExam({ ...editingExam, learningObjectives: updated });
+                            }}
+                            className="text-slate-400 hover:text-rose-500 transition-colors p-0.5"
+                            title="Hapus TP ini"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      {currentExamTps.length === 0 && (
+                        <p className="text-[11px] text-slate-400 italic py-1">
+                          Belum ada TP spesifik. TP dapat ditambahkan sekarang atau otomatis tersinkron saat men-generate soal AI.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Opsi Pengerjaan Murid (Berulang vs Sekali) */}
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -5258,9 +5278,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   Bentuk Soal
                 </label>
                 <select
-                  value={editingQuestion.type === 'multiple_choice' && editingQuestion.options?.length === 2 && editingQuestion.options[0]?.text === 'Benar' ? 'true_false' : editingQuestion.type || 'multiple_choice'}
+                  value={(() => {
+                    const opts = normalizeQuestionOptions(editingQuestion.options);
+                    return editingQuestion.type === 'multiple_choice' && opts.length === 2 && opts[0]?.text === 'Benar' ? 'true_false' : editingQuestion.type || 'multiple_choice';
+                  })()}
                   onChange={(e) => {
                     const newType = e.target.value;
+                    const existingOpts = normalizeQuestionOptions(editingQuestion.options);
                     if (newType === 'essay') {
                       setEditingQuestion({
                         ...editingQuestion,
@@ -5272,7 +5296,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       setEditingQuestion({
                         ...editingQuestion,
                         type: 'checkbox',
-                        options: (editingQuestion.options && editingQuestion.options.length > 0 && editingQuestion.options[0]?.text !== 'Benar') ? editingQuestion.options : [
+                        options: (existingOpts.length > 0 && existingOpts[0]?.text !== 'Benar') ? existingOpts : [
                           { id: 'opt_a', text: 'Pilihan A' },
                           { id: 'opt_b', text: 'Pilihan B' },
                           { id: 'opt_c', text: 'Pilihan C' },
@@ -5294,7 +5318,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       setEditingQuestion({
                         ...editingQuestion,
                         type: 'multiple_choice',
-                        options: (editingQuestion.options && editingQuestion.options.length > 0 && editingQuestion.options[0]?.text !== 'Benar') ? editingQuestion.options : [
+                        options: (existingOpts.length > 0 && existingOpts[0]?.text !== 'Benar') ? existingOpts : [
                           { id: 'opt_a', text: 'Pilihan A' },
                           { id: 'opt_b', text: 'Pilihan B' },
                           { id: 'opt_c', text: 'Pilihan C' },
@@ -5333,100 +5357,38 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               />
 
               {/* Multiple Choice Options (Single Correct) */}
-              {editingQuestion.type === 'multiple_choice' && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Pilihan Jawaban (Klik radio untuk menandai kunci benar):
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const currentOpts = editingQuestion.options || [];
-                        const nextLetter = String.fromCharCode(65 + currentOpts.length);
-                        const nextId = `opt_${nextLetter.toLowerCase()}`;
-                        setEditingQuestion({
-                          ...editingQuestion,
-                          options: [...currentOpts, { id: nextId, text: '' }]
-                        });
-                      }}
-                      className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold"
-                    >
-                      + Tambah Opsi
-                    </button>
-                  </div>
-                  {(editingQuestion.options || []).map((opt, i) => (
-                    <div key={opt.id} className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="correctAnswerKey"
-                        checked={editingQuestion.correctKey === opt.id}
-                        onChange={() => setEditingQuestion({ ...editingQuestion, correctKey: opt.id })}
-                        className="text-indigo-600 w-4 h-4"
-                        title="Tandai sebagai kunci benar"
-                      />
-                      <span className="w-5 text-xs font-bold text-slate-400 font-mono">
-                        {String.fromCharCode(65 + i)}.
-                      </span>
-                      <input
-                        type="text"
-                        value={opt.text}
-                        onChange={(e) => {
-                          const newOpts = [...(editingQuestion.options || [])];
-                          newOpts[i] = { ...newOpts[i], text: e.target.value };
-                          setEditingQuestion({ ...editingQuestion, options: newOpts });
+              {editingQuestion.type === 'multiple_choice' && (() => {
+                const currentOpts = normalizeQuestionOptions(editingQuestion.options);
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Pilihan Jawaban (Klik radio untuk menandai kunci benar):
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextLetter = String.fromCharCode(65 + currentOpts.length);
+                          const nextId = `opt_${nextLetter.toLowerCase()}`;
+                          setEditingQuestion({
+                            ...editingQuestion,
+                            options: [...currentOpts, { id: nextId, text: '' }]
+                          });
                         }}
-                        placeholder={`Teks Opsi ${String.fromCharCode(65 + i)}`}
-                        className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
-                      />
+                        className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold"
+                      >
+                        + Tambah Opsi
+                      </button>
                     </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Checkbox Options (Multi Correct) */}
-              {editingQuestion.type === 'checkbox' && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Pilihan Jawaban Kompleks (Centang satu atau lebih opsi sebagai kunci benar):
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const currentOpts = editingQuestion.options || [];
-                        const nextLetter = String.fromCharCode(65 + currentOpts.length);
-                        const nextId = `opt_${nextLetter.toLowerCase()}`;
-                        setEditingQuestion({
-                          ...editingQuestion,
-                          options: [...currentOpts, { id: nextId, text: '' }]
-                        });
-                      }}
-                      className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold"
-                    >
-                      + Tambah Opsi
-                    </button>
-                  </div>
-                  {(editingQuestion.options || []).map((opt, i) => {
-                    const currentKeys = Array.isArray(editingQuestion.correctKey) ? editingQuestion.correctKey : [editingQuestion.correctKey || 'opt_a'];
-                    const isChecked = currentKeys.includes(opt.id);
-
-                    return (
+                    {currentOpts.map((opt, i) => (
                       <div key={opt.id} className="flex items-center gap-2">
                         <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            let nextKeys: string[];
-                            if (e.target.checked) {
-                              nextKeys = [...currentKeys, opt.id];
-                            } else {
-                              nextKeys = currentKeys.filter(k => k !== opt.id);
-                            }
-                            setEditingQuestion({ ...editingQuestion, correctKey: nextKeys });
-                          }}
-                          className="text-indigo-600 w-4 h-4 rounded"
-                          title="Tandai sebagai salah satu kunci benar"
+                          type="radio"
+                          name="correctAnswerKey"
+                          checked={editingQuestion.correctKey === opt.id}
+                          onChange={() => setEditingQuestion({ ...editingQuestion, correctKey: opt.id })}
+                          className="text-indigo-600 w-4 h-4"
+                          title="Tandai sebagai kunci benar"
                         />
                         <span className="w-5 text-xs font-bold text-slate-400 font-mono">
                           {String.fromCharCode(65 + i)}.
@@ -5435,7 +5397,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           type="text"
                           value={opt.text}
                           onChange={(e) => {
-                            const newOpts = [...(editingQuestion.options || [])];
+                            const newOpts = [...currentOpts];
                             newOpts[i] = { ...newOpts[i], text: e.target.value };
                             setEditingQuestion({ ...editingQuestion, options: newOpts });
                           }}
@@ -5443,10 +5405,79 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                           className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                         />
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Checkbox Options (Multi Correct) */}
+              {editingQuestion.type === 'checkbox' && (() => {
+                const currentOpts = normalizeQuestionOptions(editingQuestion.options);
+                const currentKeys = Array.isArray(editingQuestion.correctKey)
+                  ? editingQuestion.correctKey
+                  : (typeof editingQuestion.correctKey === 'string' && editingQuestion.correctKey ? [editingQuestion.correctKey] : ['opt_a']);
+
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Pilihan Jawaban Kompleks (Centang satu atau lebih opsi sebagai kunci benar):
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextLetter = String.fromCharCode(65 + currentOpts.length);
+                          const nextId = `opt_${nextLetter.toLowerCase()}`;
+                          setEditingQuestion({
+                            ...editingQuestion,
+                            options: [...currentOpts, { id: nextId, text: '' }]
+                          });
+                        }}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold"
+                      >
+                        + Tambah Opsi
+                      </button>
+                    </div>
+                    {currentOpts.map((opt, i) => {
+                      const isChecked = currentKeys.includes(opt.id);
+
+                      return (
+                        <div key={opt.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              let nextKeys: string[];
+                              if (e.target.checked) {
+                                nextKeys = [...currentKeys, opt.id];
+                              } else {
+                                nextKeys = currentKeys.filter(k => k !== opt.id);
+                              }
+                              setEditingQuestion({ ...editingQuestion, correctKey: nextKeys });
+                            }}
+                            className="text-indigo-600 w-4 h-4 rounded"
+                            title="Tandai sebagai salah satu kunci benar"
+                          />
+                          <span className="w-5 text-xs font-bold text-slate-400 font-mono">
+                            {String.fromCharCode(65 + i)}.
+                          </span>
+                          <input
+                            type="text"
+                            value={opt.text}
+                            onChange={(e) => {
+                              const newOpts = [...currentOpts];
+                              newOpts[i] = { ...newOpts[i], text: e.target.value };
+                              setEditingQuestion({ ...editingQuestion, options: newOpts });
+                            }}
+                            placeholder={`Teks Opsi ${String.fromCharCode(65 + i)}`}
+                            className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {/* Essay Sample Key */}
               {editingQuestion.type === 'essay' && (
@@ -5626,7 +5657,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                     >
                       <option value="">-- Pilih Tujuan Pembelajaran (TP) dari Database --</option>
-                      {curriculumList.flatMap(c => c.learningObjectives.map((tp, idx) => ({ key: `${c.id}-${idx}`, label: `[${c.subject} - ${c.element}] ${tp}`, text: tp }))).map(item => (
+                      {curriculumList.flatMap(c => {
+                        const cTps = normalizeLearningObjectives(c.learningObjectives);
+                        return cTps.map((tp, idx) => ({ key: `${c.id}-${idx}`, label: `[${c.subject} - ${c.element}] ${tp}`, text: tp }));
+                      }).map(item => (
                         <option key={item.key} value={item.text}>
                           {item.label.length > 85 ? item.label.slice(0, 85) + '...' : item.label}
                         </option>
@@ -5670,10 +5704,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                     </label>
                     {(() => {
                       const examObj = exams.find(e => e.id === selectedExamId);
-                      if (examObj?.learningObjectives && examObj.learningObjectives.length > 0) {
+                      const examTps = normalizeLearningObjectives(examObj?.learningObjectives);
+                      if (examTps.length > 0) {
                         return (
                           <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
-                            Tersedia {examObj.learningObjectives.length} TP Ujian
+                            Tersedia {examTps.length} TP Ujian
                           </span>
                         );
                       }
@@ -5683,7 +5718,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                   {(() => {
                     const examObj = exams.find(e => e.id === selectedExamId);
-                    const examTps = examObj?.learningObjectives || [];
+                    const examTps = normalizeLearningObjectives(examObj?.learningObjectives);
                     return (
                       <div className="space-y-1.5">
                         {examTps.length > 0 && (

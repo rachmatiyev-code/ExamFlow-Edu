@@ -7,7 +7,9 @@ import {
   UserAccount, 
   AppLog, 
   AppSettings,
-  CurriculumItem
+  CurriculumItem,
+  normalizeQuestionOptions,
+  normalizeLearningObjectives
 } from '../types';
 import { detectMediaType } from './mediaHelper';
 
@@ -320,7 +322,12 @@ export class StorageService {
 
   // Exams
   static getExams(): Exam[] {
-    return this.getItem<Exam[]>(STORAGE_KEYS.EXAMS, DEFAULT_EXAMS);
+    const list = this.getItem<Exam[]>(STORAGE_KEYS.EXAMS, DEFAULT_EXAMS);
+    if (!Array.isArray(list)) return DEFAULT_EXAMS;
+    return list.map(e => ({
+      ...e,
+      learningObjectives: normalizeLearningObjectives(e.learningObjectives)
+    }));
   }
 
   static saveExams(exams: Exam[]): void {
@@ -369,7 +376,12 @@ export class StorageService {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           // Bersihkan soal dummy agar tidak membebani dan mengaburkan ujian nyata
-          return parsed.filter(q => !this.isDummyQuestion(q.id));
+          return parsed
+            .filter(q => !this.isDummyQuestion(q.id))
+            .map(q => ({
+              ...q,
+              options: normalizeQuestionOptions(q.options)
+            }));
         }
       } catch {}
     }
@@ -779,7 +791,10 @@ export class StorageService {
       this.setItem(STORAGE_KEYS.CURRICULUM, DEFAULT_CURRICULUM);
       return DEFAULT_CURRICULUM;
     }
-    return list;
+    return list.map(c => ({
+      ...c,
+      learningObjectives: normalizeLearningObjectives(c.learningObjectives)
+    }));
   }
 
   static saveCurriculum(items: CurriculumItem[]): void {

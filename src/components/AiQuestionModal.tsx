@@ -12,7 +12,7 @@ import {
   Sliders,
   CheckCircle2
 } from 'lucide-react';
-import { Exam, CurriculumItem } from '../types';
+import { Exam, CurriculumItem, normalizeLearningObjectives } from '../types';
 import { StorageService } from '../services/storage';
 import { QuestionTypeBreakdown } from '../services/aiGenerator';
 
@@ -357,8 +357,9 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                     const cur = (filteredCurriculumList.length > 0 ? filteredCurriculumList : curriculumList).find(c => c.id === selectedId);
                     if (cur) {
                       setAiTopic(`${cur.subject}: ${cur.element}`);
-                      if (cur.learningObjectives && cur.learningObjectives.length > 0) {
-                        setAiLearningObjectives(cur.learningObjectives.slice(0, 15));
+                      const curTps = normalizeLearningObjectives(cur.learningObjectives);
+                      if (curTps.length > 0) {
+                        setAiLearningObjectives(curTps.slice(0, 15));
                       }
                     }
                   }}
@@ -411,19 +412,23 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                   <span>2. Tujuan Pembelajaran (TP)</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {targetExamObj?.learningObjectives && targetExamObj.learningObjectives.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAiLearningObjectives(targetExamObj.learningObjectives!.slice(0, 15));
-                      }}
-                      className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
-                      title="Ambil daftar TP dari konfigurasi data ujian ini"
-                    >
-                      <Download className="w-3 h-3" />
-                      <span>Dari Ujian</span>
-                    </button>
-                  )}
+                  {(() => {
+                    const examTps = normalizeLearningObjectives(targetExamObj?.learningObjectives);
+                    if (examTps.length === 0) return null;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAiLearningObjectives(examTps.slice(0, 15));
+                        }}
+                        className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                        title="Ambil daftar TP dari konfigurasi data ujian ini"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Dari Ujian</span>
+                      </button>
+                    );
+                  })()}
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold">
                     {aiLearningObjectives.length}/15 TP
                   </span>
@@ -445,7 +450,10 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                   className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                 >
                   <option value="">-- Pilih TP dari Kurikulum {activeGrade !== 'Semua' ? `(${activeGrade})` : ''} --</option>
-                  {(filteredCurriculumList.length > 0 ? filteredCurriculumList : curriculumList).flatMap(c => (c.learningObjectives || []).map((tp, idx) => ({ key: `${c.id}-${idx}`, label: `[${c.subject} - ${c.grade || 'Umum'}] ${tp}`, text: tp }))).map(item => (
+                  {(filteredCurriculumList.length > 0 ? filteredCurriculumList : curriculumList).flatMap(c => {
+                    const cTps = normalizeLearningObjectives(c.learningObjectives);
+                    return cTps.map((tp, idx) => ({ key: `${c.id}-${idx}`, label: `[${c.subject} - ${c.grade || 'Umum'}] ${tp}`, text: tp }));
+                  }).map(item => (
                     <option key={item.key} value={item.text} disabled={aiLearningObjectives.includes(item.text)}>
                       {item.label.length > 55 ? item.label.slice(0, 55) + '...' : item.label} {aiLearningObjectives.includes(item.text) ? '(Sudah Ada)' : ''}
                     </option>

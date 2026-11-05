@@ -231,3 +231,71 @@ export interface ChatConversation {
   updatedAt: string;
 }
 
+export function normalizeQuestionOptions(opts: any): QuestionOption[] {
+  if (!opts) return [];
+  
+  let target = opts;
+  if (typeof target === 'string') {
+    const trimmed = target.trim();
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        target = JSON.parse(trimmed);
+      } catch {
+        target = [];
+      }
+    } else {
+      return [];
+    }
+  }
+
+  if (Array.isArray(target)) {
+    return target.map((item, idx) => {
+      const defaultId = `opt_${String.fromCharCode(97 + idx)}`;
+      if (typeof item === 'string') {
+        return { id: defaultId, text: item };
+      }
+      if (item && typeof item === 'object') {
+        return {
+          id: String(item.id || defaultId),
+          text: String(item.text ?? item.label ?? item.title ?? '')
+        };
+      }
+      return { id: defaultId, text: String(item || '') };
+    });
+  }
+
+  if (typeof target === 'object' && target !== null) {
+    return Object.entries(target).map(([k, v], idx) => ({
+      id: k || `opt_${String.fromCharCode(97 + idx)}`,
+      text: typeof v === 'object' && v !== null ? String((v as any).text || '') : String(v || '')
+    }));
+  }
+
+  return [];
+}
+
+export function normalizeLearningObjectives(objs: any): string[] {
+  if (!objs) return [];
+  let target = objs;
+  if (typeof target === 'string') {
+    const trimmed = target.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        target = JSON.parse(trimmed);
+      } catch {
+        target = [trimmed];
+      }
+    } else if (trimmed.includes('\n')) {
+      return trimmed.split('\n').map(s => s.trim()).filter(Boolean);
+    } else if (trimmed.includes(';') || trimmed.includes('|')) {
+      return trimmed.split(/[;|]/).map(s => s.trim()).filter(Boolean);
+    } else {
+      return [trimmed];
+    }
+  }
+  if (Array.isArray(target)) {
+    return target.map(t => typeof t === 'string' ? t : (t?.text || t?.name || JSON.stringify(t))).filter(Boolean);
+  }
+  return [];
+}
+

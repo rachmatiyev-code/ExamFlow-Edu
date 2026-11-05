@@ -18,7 +18,7 @@ import {
   ChevronRight,
   GraduationCap
 } from 'lucide-react';
-import { CurriculumItem, Exam } from '../types';
+import { CurriculumItem, Exam, normalizeLearningObjectives } from '../types';
 import { StorageService } from '../services/storage';
 
 interface CurriculumManagementProps {
@@ -110,7 +110,7 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
     setGrade(item.grade || 'Fase B (Kelas 3 - 4)');
     setElement(item.element);
     setLearningOutcome(item.learningOutcome);
-    setObjectives([...(item.learningObjectives || [])]);
+    setObjectives([...normalizeLearningObjectives(item.learningObjectives)]);
     setTpInput('');
     window.scrollTo({ top: 120, behavior: 'smooth' });
   };
@@ -200,7 +200,7 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
       item.subject.toLowerCase().includes(query) ||
       item.element.toLowerCase().includes(query) ||
       item.learningOutcome.toLowerCase().includes(query) ||
-      (item.learningObjectives || []).some(tp => tp.toLowerCase().includes(query));
+      normalizeLearningObjectives(item.learningObjectives).some(tp => tp.toLowerCase().includes(query));
     return matchSubject && matchQuery;
   });
 
@@ -551,43 +551,48 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
               </div>
 
               {/* Tujuan Pembelajaran (TP) List */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                    Tujuan Pembelajaran ({item.learningObjectives?.length || 0} Butir):
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 gap-1.5">
-                  {(item.learningObjectives || []).map((tp, tpIdx) => (
-                    <div
-                      key={tpIdx}
-                      className="flex items-start justify-between gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800/80 text-xs hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
-                    >
-                      <div className="flex items-start gap-2 flex-1">
-                        <span className="w-5 h-5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5 font-mono">
-                          {tpIdx + 1}
-                        </span>
-                        <span className="text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-                          {tp}
-                        </span>
-                      </div>
-
-                      {onUseForQuestion && (
-                        <button
-                          type="button"
-                          onClick={() => onUseForQuestion(item, tp)}
-                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0 flex items-center gap-1 transition-colors"
-                          title="Gunakan butir TP ini untuk pembuatan soal baru"
-                        >
-                          <Plus className="w-2.5 h-2.5" />
-                          <span>Buat Soal</span>
-                        </button>
-                      )}
+              {(() => {
+                const itemTps = normalizeLearningObjectives(item.learningObjectives);
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        Tujuan Pembelajaran ({itemTps.length} Butir):
+                      </span>
                     </div>
-                  ))}
-                </div>
-              </div>
+
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {itemTps.map((tp, tpIdx) => (
+                        <div
+                          key={tpIdx}
+                          className="flex items-start justify-between gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800/80 text-xs hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
+                        >
+                          <div className="flex items-start gap-2 flex-1">
+                            <span className="w-5 h-5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5 font-mono">
+                              {tpIdx + 1}
+                            </span>
+                            <span className="text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                              {tp}
+                            </span>
+                          </div>
+
+                          {onUseForQuestion && (
+                            <button
+                              type="button"
+                              onClick={() => onUseForQuestion(item, tp)}
+                              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0 flex items-center gap-1 transition-colors"
+                              title="Gunakan butir TP ini untuk pembuatan soal baru"
+                            >
+                              <Plus className="w-2.5 h-2.5" />
+                              <span>Buat Soal</span>
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Card Footer Actions */}
               <div className="pt-2 flex flex-wrap items-center justify-between gap-2 text-xs border-t border-slate-100 dark:border-slate-800">

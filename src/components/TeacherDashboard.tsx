@@ -1641,6 +1641,41 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     ? Math.min(...filteredAnalyticsSubmissions.map(s => Number(s.percentage) || 0))
     : 0;
 
+  // Exam Clustering & Filtering
+  const examDistinctSubjects = useMemo(() => {
+    return Array.from(new Set(exams.map(e => e.subject).filter(Boolean))).sort();
+  }, [exams]);
+
+  const examDistinctGrades = useMemo(() => {
+    return Array.from(new Set(exams.map(e => e.grade).filter(Boolean))).sort();
+  }, [exams]);
+
+  const filteredExams = useMemo(() => {
+    return exams.filter(e => {
+      const matchSubject = examSubjectFilter === 'all' || e.subject === examSubjectFilter;
+      const matchGrade = examGradeFilter === 'all' || e.grade === examGradeFilter;
+      return matchSubject && matchGrade;
+    });
+  }, [exams, examSubjectFilter, examGradeFilter]);
+
+  const examClusters = useMemo(() => {
+    const map = new Map<string, { subject: string; grade: string; exams: Exam[] }>();
+    filteredExams.forEach(exam => {
+      const sub = exam.subject || 'Umum';
+      const grd = exam.grade || 'Semua Kelas';
+      const key = `${sub}__${grd}`;
+      if (!map.has(key)) {
+        map.set(key, { subject: sub, grade: grd, exams: [] });
+      }
+      map.get(key)!.exams.push(exam);
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      const cmpSubject = a.subject.localeCompare(b.subject);
+      if (cmpSubject !== 0) return cmpSubject;
+      return a.grade.localeCompare(b.grade);
+    });
+  }, [filteredExams]);
+
   // Filter submissions for current exam (for quick stats on exams tab)
   const examSubmissions = safeSubmissions.filter(s => {
     return String(s.examId || '').trim().toLowerCase() === String(currentExam?.id || '').trim().toLowerCase();
@@ -1689,6 +1724,320 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     }
     return true;
   });
+
+  const renderExamCard = (exam: Exam) => {
+    const qCount = StorageService.getQuestionsByExamId(exam.id).length;
+    const subCount = submissions.filter(s => s.examId === exam.id).length;
+
+    return (
+      <div
+        key={exam.id}
+        className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between"
+      >
+        <div>
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+            <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+              {exam.subject} · Kelas {exam.grade}
+            </span>
+            <span className="font-mono">{qCount} Butir Soal</span>
+          </div>
+
+          {/* Scheduled Banner if startsAt is present */}
+          {exam.startsAt && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 mb-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300">
+              <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+              <span className="truncate">Jadwal: {exam.startsAt}{exam.endsAt ? ` s.d. ${exam.endsAt}` : ''}</span>
+            </div>
+          )}
+
+          <h4 className="text-base font-bold text-slate-900 dark:text-white mb-2 line-clamp-2">
+            {exam.title}
+          </h4>
+
+          <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400 mb-4 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg font-mono">
+            <div className="flex justify-between">
+              <span>Durasi:</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">{exam.durationMinutes} Menit</span>
+            </div>
+            <div className="flex justify-between">
+              <span>KKM:</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-300">{exam.passingScore}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Jawaban Siswa Masuk:</span>
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">{subCount} Siswa</span>
+            </div>
+            {exam.redeployCount && exam.redeployCount > 0 ? (
+              <div className="flex justify-between text-indigo-600 dark:text-indigo-400">
+                <span>Dideploy Ulang:</span>
+                <span>{exam.redeployCount}x</span>
+              </div>
+            ) : null}
+
+            {/* Token Row with Quick Randomizer & Copy */}
+            <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-slate-200 dark:border-slate-700/80">
+              <div className="flex items-center gap-1.5">
+                <Key className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="font-sans text-slate-400">Token:</span>
+                <span className="font-bold text-slate-900 dark:text-white">
+                  {exam.token || 'Tanpa Token'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleRandomizeExamToken(exam)}
+                  className="px-2 py-0.5 rounded text-[11px] font-sans font-medium bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1 cursor-pointer"
+                  title="Acak token baru"
+                >
+                  <Dices className="w-3 h-3" />
+                  <span>Acak</span>
+                </button>
+                {exam.token && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(exam.token || '');
+                      alert(`Token "${exam.token}" disalin!`);
+                    }}
+                    className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+                    title="Salin token"
+                  >
+                    <Copy className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Live Exam Session Control Section */}
+            <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-700/80">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="font-sans text-slate-400 font-semibold">Sesi:</span>
+                  {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                      <StopCircle className="w-3.5 h-3.5 text-rose-600" />
+                      Sesi Dihentikan Permanen
+                    </span>
+                  ) : exam.sessionStatus === 'active' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      Sesi Berlangsung
+                    </span>
+                  ) : exam.sessionStatus === 'ended' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                      <StopCircle className="w-3.5 h-3.5 text-slate-500" />
+                      Sesi Ditutup
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300">
+                      <Clock className="w-3.5 h-3.5 text-blue-500" />
+                      Dijadwalkan
+                    </span>
+                  )}
+                </div>
+
+                {exam.allowLateSubmission && (
+                  <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700" title="Toleransi perpanjangan sesi untuk siswa terlambat">
+                    +{exam.lateExtensionMinutes || 30}m Terlambat
+                  </span>
+                )}
+              </div>
+
+              {/* Session Control Buttons */}
+              <div className="grid grid-cols-2 gap-1.5">
+                {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
+                  <button
+                    type="button"
+                    onClick={() => handleResumeExamPermanently(exam)}
+                    className="col-span-2 px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                    title="Buka kembali sesi ujian yang dihentikan secara permanen"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Lanjutkan Sesi Ujian (Buka Akses)</span>
+                  </button>
+                ) : exam.sessionStatus === 'active' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleStopExamPermanently(exam)}
+                      className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                      title="Hentikan sesi ujian secara permanen (Siswa terputus)"
+                    >
+                      <StopCircle className="w-3.5 h-3.5" />
+                      <span>Hentikan Ujian</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenLateExtension(exam)}
+                      className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                      title="Perpanjang sesi untuk siswa terlambat"
+                    >
+                      <FastForward className="w-3 h-3 text-amber-600" />
+                      <span>Perpanjang Waktu</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleStartExamSession(exam)}
+                      className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                      title="Buka dan mulai sesi ujian sekarang"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Mulai Sesi Ujian</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenLateExtension(exam)}
+                      className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                      title="Lanjutkan sesi untuk siswa terlambat"
+                    >
+                      <FastForward className="w-3 h-3 text-amber-600" />
+                      <span>Lanjutkan (Terlambat)</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tombol Aksi Pokok */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+          {/* Baris 1: Pilih & Edit */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedExamId(exam.id);
+                setSessionToast(`Paket ujian "${exam.title}" terpilih sebagai paket aktif.`);
+              }}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                selectedExamId === exam.id
+                  ? 'bg-indigo-600 text-white shadow-xs ring-2 ring-indigo-400'
+                  : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+              }`}
+              title="Pilih ujian ini sebagai paket aktif di sistem"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>{selectedExamId === exam.id ? 'Ujian Terpilih' : 'Pilih Ujian'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setEditingExam(exam);
+                setIsExamModalOpen(true);
+              }}
+              className="px-3 py-1.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Edit pengaturan, durasi, KKM, atau token ujian ini"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>Edit Ujian</span>
+            </button>
+          </div>
+
+          {/* Baris 2: Jadwalkan Waktu Ujian & Hapus */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => handleOpenScheduleModal(exam)}
+              className="px-3 py-1.5 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Atur jadwal buka & tutup ujian pada tanggal dan jam tertentu"
+            >
+              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+              <span>{exam.startsAt ? 'Ubah Jadwal' : 'Jadwalkan'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleDeleteExam(exam.id)}
+              className="px-3 py-1.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Hapus ujian dan seluruh butir soalnya"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Hapus</span>
+            </button>
+          </div>
+
+          {/* Baris 3: Cetak Dokumen Resmi & Analisis Butir Soal */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedExamId(exam.id);
+                onSelectTab('naskah-soal', exam.id);
+              }}
+              className="px-3 py-1.5 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Cetak format naskah soal resmi berstandar sekolah"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Cetak Naskah</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedExamId(exam.id);
+                onSelectTab('analisis-butir', exam.id);
+              }}
+              className="px-3 py-1.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Buka analisis butir soal per siswa format lampiran PDF"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Analisis Butir</span>
+            </button>
+          </div>
+
+          {/* Baris 4: Kelola Butir Soal & Deploy Ulang */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedExamId(exam.id);
+                setActiveTab('questions');
+              }}
+              className="px-3 py-1.5 text-xs font-semibold bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>Kelola Soal</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleRedeployExam(exam)}
+              className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Perbarui jadwal aktif ujian untuk hari ini"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Deploy Ulang</span>
+            </button>
+          </div>
+
+          {/* Baris 5: Bagikan ke Siswa */}
+          <button
+            type="button"
+            onClick={() => {
+              setSharingExam(exam);
+              setHasCopiedShareLink(false);
+              setHasCopiedShareMsg(false);
+              const qs = StorageService.getQuestionsByExamId(exam.id);
+              if (qs.length > 0) {
+                GasClient.pushExam(exam, qs);
+              }
+            }}
+            className="w-full px-3 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+            title="Dapatkan Link Langsung Siswa & QR Code ujian ini"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>Bagikan ke Siswa (Link Langsung & QR Code)</span>
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
@@ -1879,367 +2228,185 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-slate-900 dark:text-white">
                 Daftar Ujian & Kontrol Sesi Ujian
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Kelola jadwal ujian, edit butir soal, aktifkan kembali (redeploy), atau cetak spesifikasi kisi-kisi.
+                Kelola kluster mata pelajaran & kelas, atur jadwal ujian, kontrol henti sesi permanen, atau cetak spesifikasi.
               </p>
             </div>
 
-            <button
-              onClick={() => {
-                setEditingExam({
-                  title: '',
-                  subject: '',
-                  grade: 'X MIPA',
-                  durationMinutes: 45,
-                  passingScore: 75,
-                  isStrict: true,
-                  allowReview: true,
-                  token: '',
-                  status: 'active'
-                });
-                setIsExamModalOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors self-start sm:self-auto"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Buat Ujian Baru</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+              {/* Mode Tampilan Kluster vs Grid */}
+              <div className="inline-flex rounded-xl p-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setExamViewMode('cluster')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+                    examViewMode === 'cluster'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Kelompokkan ujian berdasarkan Mata Pelajaran dan Kelas"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Kluster Mapel & Kelas</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExamViewMode('grid')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+                    examViewMode === 'grid'
+                      ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Tampilkan seluruh kartu ujian dalam satu grid"
+                >
+                  <BarChart3 className="w-3.5 h-3.5" />
+                  <span>Semua Grid</span>
+                </button>
+              </div>
+
+              <button
+                onClick={() => {
+                  setEditingExam({
+                    title: '',
+                    subject: '',
+                    grade: 'X MIPA',
+                    durationMinutes: 45,
+                    passingScore: 75,
+                    isStrict: true,
+                    allowReview: true,
+                    token: '',
+                    status: 'active'
+                  });
+                  setIsExamModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors self-start sm:self-auto cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Buat Ujian Baru</span>
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {exams.map(exam => {
-              const qCount = StorageService.getQuestionsByExamId(exam.id).length;
-              const subCount = submissions.filter(s => s.examId === exam.id).length;
+          {/* Bar Filter Mata Pelajaran & Kelas */}
+          <div className="p-3.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                <Filter className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Filter Kluster:</span>
+              </div>
 
-              return (
-                <div
-                  key={exam.id}
-                  className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between"
+              <div className="flex items-center gap-1.5">
+                <label className="text-[11px] text-slate-400">Mapel:</label>
+                <select
+                  value={examSubjectFilter}
+                  onChange={(e) => setExamSubjectFilter(e.target.value)}
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium"
                 >
-                  <div>
-                    <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                      <span className="font-semibold text-indigo-600 dark:text-indigo-400">
-                        {exam.subject} · Kelas {exam.grade}
-                      </span>
-                      <span className="font-mono">{qCount} Butir Soal</span>
-                    </div>
+                  <option value="all">Semua Mata Pelajaran ({exams.length})</option>
+                  {examDistinctSubjects.map(sub => (
+                    <option key={sub} value={sub}>{sub}</option>
+                  ))}
+                </select>
+              </div>
 
-                    <h4 className="text-base font-bold text-slate-900 dark:text-white mb-2 line-clamp-2">
-                      {exam.title}
-                    </h4>
+              <div className="flex items-center gap-1.5">
+                <label className="text-[11px] text-slate-400">Kelas:</label>
+                <select
+                  value={examGradeFilter}
+                  onChange={(e) => setExamGradeFilter(e.target.value)}
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-medium"
+                >
+                  <option value="all">Semua Kelas</option>
+                  {examDistinctGrades.map(grd => (
+                    <option key={grd} value={grd}>Kelas {grd}</option>
+                  ))}
+                </select>
+              </div>
 
-                    <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400 mb-4 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg font-mono">
-                      <div className="flex justify-between">
-                        <span>Durasi:</span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">{exam.durationMinutes} Menit</span>
+              {(examSubjectFilter !== 'all' || examGradeFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExamSubjectFilter('all');
+                    setExamGradeFilter('all');
+                  }}
+                  className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:underline px-1.5 py-1"
+                >
+                  Reset Filter
+                </button>
+              )}
+            </div>
+
+            <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+              Menampilkan <strong>{filteredExams.length}</strong> dari <strong>{exams.length}</strong> paket ujian
+            </div>
+          </div>
+
+          {/* Render Kluster atau Grid */}
+          {filteredExams.length === 0 ? (
+            <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8">
+              <Layers className="w-10 h-10 text-slate-400 mx-auto mb-3 opacity-60" />
+              <h4 className="text-sm font-bold text-slate-800 dark:text-white mb-1">
+                Tidak Ada Paket Ujian yang Sesuai
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 max-w-sm mx-auto">
+                Silakan sesuaikan filter mata pelajaran atau kelas untuk menemukan ujian yang dicari.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setExamSubjectFilter('all');
+                  setExamGradeFilter('all');
+                }}
+                className="px-3.5 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 dark:bg-indigo-950 dark:text-indigo-400 cursor-pointer"
+              >
+                Tampilkan Semua Ujian
+              </button>
+            </div>
+          ) : examViewMode === 'cluster' ? (
+            <div className="space-y-8">
+              {examClusters.map(cluster => (
+                <div key={`${cluster.subject}__${cluster.grade}`} className="space-y-4">
+                  {/* Cluster Header Banner */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 bg-gradient-to-r from-slate-100 to-indigo-50/50 dark:from-slate-800/90 dark:to-indigo-950/30 rounded-xl border border-slate-200 dark:border-slate-700/80 shadow-2xs">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-indigo-600 text-white shadow-xs">
+                        <Layers className="w-4 h-4" />
                       </div>
-                      <div className="flex justify-between">
-                        <span>KKM:</span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-300">{exam.passingScore}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Jawaban Siswa Masuk:</span>
-                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">{subCount} Siswa</span>
-                      </div>
-                      {exam.redeployCount && exam.redeployCount > 0 ? (
-                        <div className="flex justify-between text-indigo-600 dark:text-indigo-400">
-                          <span>Dideploy Ulang:</span>
-                          <span>{exam.redeployCount}x</span>
-                        </div>
-                      ) : null}
-
-                      {/* Token Row with Quick Randomizer & Copy */}
-                      <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-slate-200 dark:border-slate-700/80">
-                        <div className="flex items-center gap-1.5">
-                          <Key className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                          <span className="font-sans text-slate-400">Token:</span>
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            {exam.token || 'Tanpa Token'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleRandomizeExamToken(exam)}
-                            className="px-2 py-0.5 rounded text-[11px] font-sans font-medium bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1"
-                            title="Acak token baru"
-                          >
-                            <Dices className="w-3 h-3" />
-                            <span>Acak</span>
-                          </button>
-                          {exam.token && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                navigator.clipboard.writeText(exam.token || '');
-                                alert(`Token "${exam.token}" disalin!`);
-                              }}
-                              className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
-                              title="Salin token"
-                            >
-                              <Copy className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Live Exam Session Control Section */}
-                      <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-700/80">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-1.5 text-xs">
-                            <span className="font-sans text-slate-400 font-semibold">Sesi:</span>
-                            {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
-                                <StopCircle className="w-3 h-3 text-rose-600" />
-                                Sesi Dihentikan Permanen
-                              </span>
-                            ) : exam.sessionStatus === 'active' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 animate-pulse">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                Sesi Berlangsung
-                              </span>
-                            ) : exam.sessionStatus === 'ended' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                                <StopCircle className="w-3 h-3 text-slate-500" />
-                                Sesi Ditutup
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300">
-                                <Clock className="w-3 h-3 text-blue-500" />
-                                Dijadwalkan
-                              </span>
-                            )}
-                          </div>
-
-                          {exam.allowLateSubmission && (
-                            <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700" title="Toleransi perpanjangan sesi untuk siswa terlambat">
-                              +{exam.lateExtensionMinutes || 30}m Terlambat
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Session Control Buttons */}
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleResumeExamPermanently(exam)}
-                              className="col-span-2 px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                              title="Buka kembali sesi ujian yang dihentikan secara permanen"
-                            >
-                              <Play className="w-3.5 h-3.5 fill-current" />
-                              <span>Lanjutkan Sesi Ujian (Buka Akses)</span>
-                            </button>
-                          ) : exam.sessionStatus === 'active' ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleStopExamPermanently(exam)}
-                                className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
-                                title="Hentikan sesi ujian secara permanen (Siswa terputus)"
-                              >
-                                <StopCircle className="w-3.5 h-3.5" />
-                                <span>Hentikan Ujian</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenLateExtension(exam)}
-                                className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs"
-                                title="Perpanjang sesi untuk siswa terlambat"
-                              >
-                                <FastForward className="w-3 h-3 text-amber-600" />
-                                <span>Perpanjang Waktu</span>
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleStartExamSession(exam)}
-                                className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
-                                title="Buka dan mulai sesi ujian sekarang"
-                              >
-                                <Play className="w-3.5 h-3.5 fill-current" />
-                                <span>Mulai Sesi Ujian</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenLateExtension(exam)}
-                                className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs"
-                                title="Lanjutkan sesi untuk siswa terlambat"
-                              >
-                                <FastForward className="w-3 h-3 text-amber-600" />
-                                <span>Lanjutkan (Terlambat)</span>
-                              </button>
-                            </>
-                          )}
-                        </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <span>{cluster.subject}</span>
+                          <span className="text-slate-400 dark:text-slate-500 font-normal">·</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">Kelas {cluster.grade}</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Kluster kurikulum dan rombongan belajar
+                        </p>
                       </div>
                     </div>
+                    <span className="text-xs font-mono font-bold px-3 py-1 rounded-full bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700 shadow-2xs self-start sm:self-auto">
+                      {cluster.exams.length} Paket Ujian
+                    </span>
                   </div>
 
-                  {/* 4 Tombol Pokok: Pilih, Edit, Hapus, Hentikan Sesi + Fitur Pendukung */}
-                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
-                    {/* Baris 1: Tombol Pokok (PILIH & EDIT) */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedExamId(exam.id);
-                          setSessionToast(`Paket ujian "${exam.title}" terpilih sebagai paket aktif.`);
-                        }}
-                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                          selectedExamId === exam.id
-                            ? 'bg-indigo-600 text-white shadow-xs ring-2 ring-indigo-400'
-                            : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
-                        }`}
-                        title="Pilih ujian ini sebagai paket aktif di sistem"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>{selectedExamId === exam.id ? 'Ujian Terpilih' : 'Pilih Ujian'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingExam(exam);
-                          setIsExamModalOpen(true);
-                        }}
-                        className="px-3 py-1.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                        title="Edit pengaturan, durasi, KKM, atau token ujian ini"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>Edit Ujian</span>
-                      </button>
-                    </div>
-
-                    {/* Baris 2: Tombol Pokok (HENTIKAN PERMANEN / LANJUTKAN & HAPUS) */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
-                        <button
-                          type="button"
-                          onClick={() => handleResumeExamPermanently(exam)}
-                          className="px-3 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                          title="Buka kembali sesi ujian yang dihentikan secara permanen"
-                        >
-                          <Play className="w-3.5 h-3.5" />
-                          <span>Lanjutkan Ujian</span>
-                        </button>
-                      ) : exam.sessionStatus === 'active' ? (
-                        <button
-                          type="button"
-                          onClick={() => handleStopExamPermanently(exam)}
-                          className="px-3 py-1.5 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                          title="Hentikan sesi ujian secara permanen"
-                        >
-                          <StopCircle className="w-3.5 h-3.5" />
-                          <span>Hentikan Ujian</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleStartExamSession(exam)}
-                          className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                          title="Buka sesi ujian ini"
-                        >
-                          <Play className="w-3.5 h-3.5" />
-                          <span>Mulai Sesi Ujian</span>
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteExam(exam.id)}
-                        className="px-3 py-1.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                        title="Hapus ujian dan seluruh butir soalnya"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Hapus</span>
-                      </button>
-                    </div>
-
-                    {/* Baris 3: Tombol Cetak Dokumen Resmi & Kisi-Kisi */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedExamId(exam.id);
-                          onSelectTab('naskah-soal', exam.id);
-                        }}
-                        className="px-3 py-1.5 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                        title="Cetak format naskah soal resmi berstandar sekolah"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                        <span>Cetak Naskah Soal</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedExamId(exam.id);
-                          onSelectTab('analisis-butir', exam.id);
-                        }}
-                        className="px-3 py-1.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                        title="Buka analisis butir soal per siswa format lampiran PDF"
-                      >
-                        <FileSpreadsheet className="w-3.5 h-3.5" />
-                        <span>Analisis Butir Soal</span>
-                      </button>
-                    </div>
-
-                    {/* Baris 4: Kelola Butir Soal & Deploy Ulang */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedExamId(exam.id);
-                          setActiveTab('questions');
-                        }}
-                        className="px-3 py-1.5 text-xs font-semibold bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>Kelola Soal</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleRedeployExam(exam)}
-                        className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                        title="Perbarui jadwal aktif ujian untuk hari ini"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Deploy Ulang</span>
-                      </button>
-                    </div>
-
-                    {/* Baris 5: Bagikan ke Siswa */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSharingExam(exam);
-                        setHasCopiedShareLink(false);
-                        setHasCopiedShareMsg(false);
-                        const qs = StorageService.getQuestionsByExamId(exam.id);
-                        if (qs.length > 0) {
-                          GasClient.pushExam(exam, qs);
-                        }
-                      }}
-                      className="w-full px-3 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-xs"
-                      title="Dapatkan Link Langsung Siswa & QR Code ujian ini"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                      <span>Bagikan ke Siswa (Link Langsung & QR Code)</span>
-                    </button>
+                  {/* Cards inside Cluster */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {cluster.exams.map(exam => renderExamCard(exam))}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          ) : (
+            /* Mode Grid Sederhana */
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {filteredExams.map(exam => renderExamCard(exam))}
+            </div>
+          )}
         </div>
       )}
 
@@ -3901,33 +4068,35 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   </div>
 
                   <div className="flex items-center gap-4">
-                    {profileForm.regionalGovLogoUrl ? (
-                      <img
-                        src={profileForm.regionalGovLogoUrl}
-                        alt="Logo Pemda"
-                        referrerPolicy="no-referrer"
-                        className="w-16 h-16 rounded-xl object-contain bg-white border border-slate-300 dark:border-slate-700 shadow-2xs p-1 shrink-0"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-dashed border-amber-300 dark:border-amber-700 flex flex-col items-center justify-center text-[10px] text-amber-700 dark:text-amber-300 font-bold shrink-0 text-center p-1 leading-tight">
-                        <span>Logo Pemda</span>
-                        <span className="text-[9px] font-normal opacity-80">(Kiri)</span>
-                      </div>
-                    )}
+                    <img
+                      src={sanitizeLogoUrl(profileForm.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG)}
+                      alt="Logo Pemda"
+                      referrerPolicy="no-referrer"
+                      className="w-16 h-16 rounded-xl object-contain bg-white border border-slate-300 dark:border-slate-700 shadow-2xs p-1 shrink-0"
+                    />
 
                     <div className="flex-1 space-y-2 text-xs">
                       <input
-                        type="url"
-                        placeholder="URL Logo Pemda (https://...)"
+                        type="text"
+                        placeholder="URL atau Kode SVG Logo Pemda"
                         value={profileForm.regionalGovLogoUrl || ''}
-                        onChange={(e) => setProfileForm({ ...profileForm, regionalGovLogoUrl: e.target.value })}
+                        onChange={(e) => setProfileForm({ ...profileForm, regionalGovLogoUrl: sanitizeLogoUrl(e.target.value) })}
                         className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                       />
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setProfileForm({ ...profileForm, regionalGovLogoUrl: PEMKOT_MALANG_LOGO_SVG })}
+                          className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 text-[11px] font-bold rounded-lg transition-colors shadow-2xs"
+                          title="Pasang Logo Resmi Pemkot Malang (Segilima Hijau & Bintang Emas)"
+                        >
+                          Gunakan Logo Resmi Pemkot Malang
+                        </button>
+
                         <label className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors shadow-2xs">
                           <Upload className="w-3 h-3" />
-                          <span>Unggah Logo Pemda (Kiri)</span>
+                          <span>Unggah File</span>
                           <input
                             type="file"
                             accept="image/*"
@@ -3959,33 +4128,35 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   </div>
 
                   <div className="flex items-center gap-4">
-                    {profileForm.logoUrl ? (
-                      <img
-                        src={profileForm.logoUrl}
-                        alt="Logo Sekolah"
-                        referrerPolicy="no-referrer"
-                        className="w-16 h-16 rounded-xl object-contain bg-white border border-slate-300 dark:border-slate-700 shadow-2xs p-1 shrink-0"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-dashed border-indigo-300 dark:border-indigo-700 flex flex-col items-center justify-center text-[10px] text-indigo-700 dark:text-indigo-300 font-bold shrink-0 text-center p-1 leading-tight">
-                        <span>Logo Sekolah</span>
-                        <span className="text-[9px] font-normal opacity-80">(Kanan)</span>
-                      </div>
-                    )}
+                    <img
+                      src={sanitizeLogoUrl(profileForm.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)}
+                      alt="Logo Sekolah"
+                      referrerPolicy="no-referrer"
+                      className="w-16 h-16 rounded-xl object-contain bg-white border border-slate-300 dark:border-slate-700 shadow-2xs p-1 shrink-0"
+                    />
 
                     <div className="flex-1 space-y-2 text-xs">
                       <input
-                        type="url"
-                        placeholder="URL Logo Sekolah (https://...)"
+                        type="text"
+                        placeholder="URL atau Kode SVG Logo Sekolah"
                         value={profileForm.logoUrl || ''}
-                        onChange={(e) => setProfileForm({ ...profileForm, logoUrl: e.target.value })}
+                        onChange={(e) => setProfileForm({ ...profileForm, logoUrl: sanitizeLogoUrl(e.target.value) })}
                         className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                       />
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setProfileForm({ ...profileForm, logoUrl: SDN_PISANGCANDI_1_LOGO_SVG })}
+                          className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-200 border border-indigo-300 dark:border-indigo-800 text-[11px] font-bold rounded-lg transition-colors shadow-2xs"
+                          title="Pasang Logo Resmi SDN Pisangcandi 1 Kota Malang"
+                        >
+                          Gunakan Logo Resmi SDN Pisangcandi 1
+                        </button>
+
                         <label className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg cursor-pointer transition-colors shadow-2xs">
                           <Upload className="w-3 h-3" />
-                          <span>Unggah Logo Sekolah (Kanan)</span>
+                          <span>Unggah File</span>
                           <input
                             type="file"
                             accept="image/*"
@@ -4023,17 +4194,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 <div className="flex items-center justify-between gap-3">
                   {/* Logo Pemda (Kiri) */}
                   <div className="w-16 h-16 flex items-center justify-center shrink-0">
-                    {profileForm.regionalGovLogoUrl ? (
-                      <img
-                        src={profileForm.regionalGovLogoUrl}
-                        alt="Logo Pemda Kiri"
-                        className="max-h-16 max-w-16 object-contain"
-                      />
-                    ) : (
-                      <div className="w-14 h-14 rounded border border-black/30 flex items-center justify-center text-[9px] font-bold text-center text-slate-500">
-                        LOGO PEMDA
-                      </div>
-                    )}
+                    <img
+                      src={sanitizeLogoUrl(profileForm.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG)}
+                      alt="Logo Pemda Kiri"
+                      className="max-h-16 max-w-16 object-contain"
+                    />
                   </div>
 
                   {/* Header Teks Kedinasan */}
@@ -4057,17 +4222,11 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
                   {/* Logo Sekolah (Kanan) */}
                   <div className="w-16 h-16 flex items-center justify-center shrink-0">
-                    {profileForm.logoUrl ? (
-                      <img
-                        src={profileForm.logoUrl}
-                        alt="Logo Sekolah Kanan"
-                        className="max-h-16 max-w-16 object-contain"
-                      />
-                    ) : (
-                      <div className="w-14 h-14 rounded border border-black/30 flex items-center justify-center text-[9px] font-bold text-center text-slate-500">
-                        LOGO SEKOLAH
-                      </div>
-                    )}
+                    <img
+                      src={sanitizeLogoUrl(profileForm.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)}
+                      alt="Logo Sekolah Kanan"
+                      className="max-h-16 max-w-16 object-contain"
+                    />
                   </div>
                 </div>
                 {/* Double Border Divider */}
@@ -4748,6 +4907,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           onOpenSettings={onOpenSettings}
           aiGrade={aiGrade}
           setAiGrade={setAiGrade}
+          aiTypeBreakdown={aiTypeBreakdown}
+          setAiTypeBreakdown={setAiTypeBreakdown}
+          aiUseCustomBreakdown={aiUseCustomBreakdown}
+          setAiUseCustomBreakdown={setAiUseCustomBreakdown}
         />
       )}
 
@@ -6567,6 +6730,233 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 Hapus Akun
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Perpanjang / Lanjutkan Sesi Ujian (Siswa Terlambat) */}
+      {lateExtensionExam && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                  <FastForward className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Lanjutkan Sesi (Siswa Terlambat)
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Beri toleransi waktu tambahan bagi siswa yang tertinggal
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLateExtensionExam(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs">
+                <span className="font-semibold text-amber-900 dark:text-amber-200 block mb-0.5">
+                  {lateExtensionExam.title}
+                </span>
+                <span className="text-amber-700 dark:text-amber-300 font-mono text-[11px]">
+                  {lateExtensionExam.subject} · Kelas {lateExtensionExam.grade} · Durasi Standar {lateExtensionExam.durationMinutes}m
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Pilih Tambahan Waktu Toleransi (Menit):
+                </label>
+                <div className="grid grid-cols-4 gap-2 mb-2">
+                  {[15, 30, 45, 60].map(mins => (
+                    <button
+                      key={mins}
+                      type="button"
+                      onClick={() => setLateExtensionMinutes(mins)}
+                      className={`py-2 text-xs font-bold font-mono rounded-lg border transition-all ${
+                        lateExtensionMinutes === mins
+                          ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      +{mins} Menit
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Kustom:</span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={180}
+                    value={lateExtensionMinutes}
+                    onChange={(e) => setLateExtensionMinutes(Math.max(5, Math.min(180, Number(e.target.value) || 30)))}
+                    className="w-24 px-3 py-1.5 text-xs font-bold font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                  />
+                  <span className="text-xs text-slate-500 dark:text-slate-400">menit dari sekarang</span>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                💡 <strong>Catatan:</strong> Tombol ini akan otomatis mengaktifkan status sesi dan mengizinkan siswa yang terlambat atau belum selesai untuk login kembali tanpa terblokir.
+              </p>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setLateExtensionExam(null)}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyLateExtension}
+                  className="px-4 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Aktifkan Sesi (+{lateExtensionMinutes} Menit)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Penjadwalan Waktu Ujian (startsAt & endsAt) */}
+      {schedulingExam && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Jadwalkan Waktu Pelaksanaan Ujian
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Tentukan tanggal dan jam buka serta tutup akses ujian
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSchedulingExam(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSchedule} className="space-y-4">
+              <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs">
+                <span className="font-semibold text-indigo-900 dark:text-indigo-200 block mb-0.5">
+                  {schedulingExam.title}
+                </span>
+                <span className="text-indigo-700 dark:text-indigo-300 font-mono text-[11px]">
+                  {schedulingExam.subject} · Kelas {schedulingExam.grade} · Durasi {schedulingExam.durationMinutes} Menit
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Waktu Mulai Akses Ujian (Tanggal & Jam):
+                </label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={scheduleStartsAt}
+                  onChange={(e) => setScheduleStartsAt(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Waktu Selesai Akses Ujian (Tenggat Penutupan):
+                </label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={scheduleEndsAt}
+                  onChange={(e) => setScheduleEndsAt(e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Preset cepat */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const now = new Date();
+                    const y = now.getFullYear();
+                    const m = String(now.getMonth() + 1).padStart(2, '0');
+                    const d = String(now.getDate()).padStart(2, '0');
+                    const hh = String(now.getHours()).padStart(2, '0');
+                    const mm = String(now.getMinutes()).padStart(2, '0');
+                    setScheduleStartsAt(`${y}-${m}-${d}T${hh}:${mm}`);
+                    const end = new Date(now.getTime() + (schedulingExam.durationMinutes || 60) * 60 * 1000);
+                    const ey = end.getFullYear();
+                    const em = String(end.getMonth() + 1).padStart(2, '0');
+                    const ed = String(end.getDate()).padStart(2, '0');
+                    const ehh = String(end.getHours()).padStart(2, '0');
+                    const emm = String(end.getMinutes()).padStart(2, '0');
+                    setScheduleEndsAt(`${ey}-${em}-${ed}T${ehh}:${emm}`);
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 rounded-lg"
+                >
+                  ⚡ Mulai Sekarang + Durasi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tomorrow = new Date();
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    const y = tomorrow.getFullYear();
+                    const m = String(tomorrow.getMonth() + 1).padStart(2, '0');
+                    const d = String(tomorrow.getDate()).padStart(2, '0');
+                    setScheduleStartsAt(`${y}-${m}-${d}T07:30`);
+                    setScheduleEndsAt(`${y}-${m}-${d}T10:00`);
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 rounded-lg"
+                >
+                  📅 Besok Pagi (07:30 - 10:00)
+                </button>
+              </div>
+
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                🔒 <strong>Proteksi Siswa:</strong> Siswa tidak dapat membuka naskah soal sebelum waktu mulai tiba. Portal siswa akan menampilkan badge "Terjadwal" beserta informasi waktu.
+              </p>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSchedulingExam(null)}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>Simpan Jadwal Ujian</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Exam, CurriculumItem } from '../types';
 import { StorageService } from '../services/storage';
+import { QuestionTypeBreakdown } from '../services/aiGenerator';
 
 interface AiQuestionModalProps {
   isOpen: boolean;
@@ -44,6 +45,10 @@ interface AiQuestionModalProps {
   onOpenSettings?: () => void;
   aiGrade?: string;
   setAiGrade?: (grade: string) => void;
+  aiTypeBreakdown?: QuestionTypeBreakdown;
+  setAiTypeBreakdown?: React.Dispatch<React.SetStateAction<QuestionTypeBreakdown>>;
+  aiUseCustomBreakdown?: boolean;
+  setAiUseCustomBreakdown?: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
@@ -74,7 +79,11 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
   onGenerate,
   onOpenSettings,
   aiGrade,
-  setAiGrade
+  setAiGrade,
+  aiTypeBreakdown,
+  setAiTypeBreakdown,
+  aiUseCustomBreakdown = false,
+  setAiUseCustomBreakdown
 }) => {
   const modalContainerRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -530,63 +539,190 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
 
               {/* Bentuk Soal */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Bentuk Soal
-                </label>
-                <select
-                  value={aiQuestionType}
-                  onChange={(e: any) => setAiQuestionType(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="multiple_choice">Pilihan Ganda Biasa (1 Jawaban Benar)</option>
-                  <option value="checkbox">Pilihan Ganda Kompleks (Multi Jawaban Benar)</option>
-                  <option value="true_false">Benar / Salah (2 Opsi)</option>
-                  <option value="essay">Uraian / Isian Singkat</option>
-                  <option value="mixed">Campuran / Variatif (PG, PG Kompleks & Uraian)</option>
-                </select>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Bentuk Soal
+                  </label>
+                  {setAiUseCustomBreakdown && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !aiUseCustomBreakdown;
+                        setAiUseCustomBreakdown(next);
+                        if (next) {
+                          setAiQuestionType('mixed');
+                        }
+                      }}
+                      className={`text-[11px] font-bold px-2 py-0.5 rounded-md border transition-all ${
+                        aiUseCustomBreakdown
+                          ? 'bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                      }`}
+                    >
+                      {aiUseCustomBreakdown ? '✓ Kuantitas Per Tipe Aktif' : '+ Atur Kuantitas Per Tipe Soal'}
+                    </button>
+                  )}
+                </div>
+
+                {!aiUseCustomBreakdown ? (
+                  <select
+                    value={aiQuestionType}
+                    onChange={(e: any) => setAiQuestionType(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="multiple_choice">Pilihan Ganda Biasa (1 Jawaban Benar)</option>
+                    <option value="checkbox">Pilihan Ganda Kompleks (Multi Jawaban Benar)</option>
+                    <option value="true_false">Benar / Salah (2 Opsi)</option>
+                    <option value="essay">Uraian / Isian Singkat</option>
+                    <option value="mixed">Campuran / Variatif (PG, PG Kompleks & Uraian)</option>
+                  </select>
+                ) : (
+                  <div className="p-3 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/60 space-y-2.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-indigo-950 dark:text-indigo-200">
+                        Kuantitas Spesifik per Jenis Soal:
+                      </span>
+                      <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        Total: {((aiTypeBreakdown?.multipleChoice || 0) + (aiTypeBreakdown?.checkbox || 0) + (aiTypeBreakdown?.trueFalse || 0) + (aiTypeBreakdown?.essay || 0))} Soal
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                          PG Biasa (1 Kunci):
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          value={aiTypeBreakdown?.multipleChoice ?? 5}
+                          onChange={(e) => {
+                            const val = Math.max(0, Math.min(30, Number(e.target.value) || 0));
+                            if (setAiTypeBreakdown && aiTypeBreakdown) {
+                              const updated = { ...aiTypeBreakdown, multipleChoice: val };
+                              setAiTypeBreakdown(updated);
+                              const total = val + (updated.checkbox || 0) + (updated.trueFalse || 0) + (updated.essay || 0);
+                              setAiCount(Math.max(1, total));
+                            }
+                          }}
+                          className="w-full px-2.5 py-1 text-xs font-mono font-bold rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                          PG Kompleks (Multi Kunci):
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          value={aiTypeBreakdown?.checkbox ?? 2}
+                          onChange={(e) => {
+                            const val = Math.max(0, Math.min(30, Number(e.target.value) || 0));
+                            if (setAiTypeBreakdown && aiTypeBreakdown) {
+                              const updated = { ...aiTypeBreakdown, checkbox: val };
+                              setAiTypeBreakdown(updated);
+                              const total = (updated.multipleChoice || 0) + val + (updated.trueFalse || 0) + (updated.essay || 0);
+                              setAiCount(Math.max(1, total));
+                            }
+                          }}
+                          className="w-full px-2.5 py-1 text-xs font-mono font-bold rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                          Benar / Salah (2 Opsi):
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          value={aiTypeBreakdown?.trueFalse ?? 2}
+                          onChange={(e) => {
+                            const val = Math.max(0, Math.min(30, Number(e.target.value) || 0));
+                            if (setAiTypeBreakdown && aiTypeBreakdown) {
+                              const updated = { ...aiTypeBreakdown, trueFalse: val };
+                              setAiTypeBreakdown(updated);
+                              const total = (updated.multipleChoice || 0) + (updated.checkbox || 0) + val + (updated.essay || 0);
+                              setAiCount(Math.max(1, total));
+                            }
+                          }}
+                          className="w-full px-2.5 py-1 text-xs font-mono font-bold rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
+                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                          Uraian / Esai (Isian):
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          value={aiTypeBreakdown?.essay ?? 1}
+                          onChange={(e) => {
+                            const val = Math.max(0, Math.min(30, Number(e.target.value) || 0));
+                            if (setAiTypeBreakdown && aiTypeBreakdown) {
+                              const updated = { ...aiTypeBreakdown, essay: val };
+                              setAiTypeBreakdown(updated);
+                              const total = (updated.multipleChoice || 0) + (updated.checkbox || 0) + (updated.trueFalse || 0) + val;
+                              setAiCount(Math.max(1, total));
+                            }
+                          }}
+                          className="w-full px-2.5 py-1 text-xs font-mono font-bold rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Jumlah Soal */}
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Jumlah Soal
-                  </label>
-                  <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                    {aiCount} Butir Soal
-                  </span>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={aiCount}
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      setAiCount(Math.min(50, Math.max(1, isNaN(val) ? 1 : val)));
-                    }}
-                    className="w-20 px-2.5 py-1 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
-                  />
-                  <div className="flex flex-wrap gap-1 flex-1">
-                    {[5, 10, 15, 20, 25, 30, 40, 50].map(cnt => (
-                      <button
-                        key={cnt}
-                        type="button"
-                        onClick={() => setAiCount(cnt)}
-                        className={`px-2 py-0.5 text-[11px] font-mono rounded border transition-colors ${
-                          aiCount === cnt
-                            ? 'bg-indigo-600 text-white border-indigo-600 font-bold shadow-xs'
-                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400'
-                        }`}
-                      >
-                        {cnt}
-                      </button>
-                    ))}
+              {!aiUseCustomBreakdown && (
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Jumlah Soal
+                    </label>
+                    <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      {aiCount} Butir Soal
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={aiCount}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        setAiCount(Math.min(50, Math.max(1, isNaN(val) ? 1 : val)));
+                      }}
+                      className="w-20 px-2.5 py-1 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                    />
+                    <div className="flex flex-wrap gap-1 flex-1">
+                      {[5, 10, 15, 20, 25, 30, 40, 50].map(cnt => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => setAiCount(cnt)}
+                          className={`px-2 py-0.5 text-[11px] font-mono rounded border transition-colors ${
+                            aiCount === cnt
+                              ? 'bg-indigo-600 text-white border-indigo-600 font-bold shadow-xs'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400'
+                          }`}
+                        >
+                          {cnt}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Tingkat Kesulitan & Kerangka Taksonomi */}
               <div className="grid grid-cols-2 gap-2.5">

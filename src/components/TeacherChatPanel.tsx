@@ -79,13 +79,13 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
   const conversations: ConversationItem[] = React.useMemo(() => {
     const map = new Map<string, ConversationItem>();
 
-    // Always ensure Broadcast is the top conversation
+    // Always ensure Live Feed / Broadcast is the top conversation
     map.set('broadcast', {
       id: 'broadcast',
       nis: '',
-      name: '📢 Siaran Pengawas (Semua Siswa)',
-      classGrade: 'Semua Kelas',
-      lastMessage: 'Pesan akan diterima oleh seluruh siswa aktif',
+      name: '📢 Semua Percakapan & Siaran (Live Feed)',
+      classGrade: 'Semua Siswa',
+      lastMessage: 'Menampilkan seluruh percakapan masuk dari siswa & siaran',
       lastTimestamp: 0,
       unreadCount: 0,
     });
@@ -93,16 +93,19 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
     messages.forEach((msg) => {
       const cleanTarget = String(msg.targetNis || '').trim().toLowerCase();
       const isTeacherBroadcast = (msg.senderRole === 'teacher' || msg.senderType === 'system') && (!cleanTarget || cleanTarget === 'all');
+      const isStudentSender = msg.senderRole === 'student' || msg.senderType === 'student';
 
-      if (isTeacherBroadcast) {
-        const item = map.get('broadcast')!;
-        item.lastMessage = `${msg.senderName}: ${msg.text}`;
-        item.lastTimestamp = Math.max(item.lastTimestamp, Number(msg.timestamp) || 0);
-        return;
+      // Update Live Feed item timestamp and preview
+      const liveFeedItem = map.get('broadcast')!;
+      if (Number(msg.timestamp) >= liveFeedItem.lastTimestamp) {
+        liveFeedItem.lastMessage = `${msg.senderName}: ${msg.text}`;
+        liveFeedItem.lastTimestamp = Number(msg.timestamp);
+      }
+      if (isStudentSender && !msg.isRead) {
+        liveFeedItem.unreadCount += 1;
       }
 
       // Student thread key: NIS or Guest ID
-      const isStudentSender = msg.senderRole === 'student' || msg.senderType === 'student';
       const studentNis = isStudentSender ? (msg.senderNis || 'Tamu') : (msg.targetNis || '');
       if (!studentNis || studentNis === 'all') return;
 
@@ -140,7 +143,7 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
     });
 
     const items = Array.from(map.values());
-    // Sort: Broadcast first, then by lastTimestamp desc
+    // Sort: Broadcast/Live Feed first, then by lastTimestamp desc
     return [
       items[0],
       ...items.slice(1).sort((a, b) => b.lastTimestamp - a.lastTimestamp),
@@ -166,12 +169,14 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
     const cleanSender = String(m.senderNis || '').trim().toLowerCase();
     const threadId = selectedThreadId.trim().toLowerCase();
 
-    if (threadId === 'broadcast') {
-      return (m.senderRole === 'teacher' || m.senderType === 'system') && (!cleanTarget || cleanTarget === 'all');
+    if (threadId === 'broadcast' || threadId === 'all') {
+      // In Live Feed: show ALL messages (announcements + all student questions)
+      return true;
     }
     return (
-      ((m.senderRole === 'student' || m.senderType === 'student') && cleanSender === threadId) ||
-      ((m.senderRole === 'teacher' || m.senderType === 'teacher') && cleanTarget === threadId)
+      ((m.senderRole === 'student' || m.senderType === 'student') && (cleanSender === threadId || cleanSender.toLowerCase() === threadId.toLowerCase())) ||
+      ((m.senderRole === 'teacher' || m.senderType === 'teacher') && (cleanTarget === threadId || cleanTarget.toLowerCase() === threadId.toLowerCase())) ||
+      cleanSender === threadId || cleanTarget === threadId
     );
   });
 
@@ -546,6 +551,24 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
                       {msg.quickAction?.type === 'grant_retake' && (
                         <div className="mt-2 pt-2 border-t border-emerald-600/60 text-[11px] font-semibold text-emerald-100 flex items-center gap-1">
                           <span>✅ Status Ulang Diaktifkan</span>
+                        </div>
+                      )}
+
+                      {!isTeacher && selectedThreadId === 'broadcast' && (
+                        <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-slate-400">
+                            {msg.classGrade ? `Kelas: ${msg.classGrade}` : ''}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const targetId = msg.senderNis || msg.senderName;
+                              setSelectedThreadId(targetId);
+                            }}
+                            className="text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold px-2 py-0.5 rounded border border-emerald-200 transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            💬 Balas Pribadi
+                          </button>
                         </div>
                       )}
                     </div>

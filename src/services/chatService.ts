@@ -14,6 +14,7 @@ class ChatService {
   private reconnectTimeout: any = null;
   private pollInterval: any = null;
   private knownMessageIds: Set<string> = new Set();
+  private channel: BroadcastChannel | null = null;
   private currentUser: {
     role: 'teacher' | 'student';
     name: string;
@@ -22,7 +23,49 @@ class ChatService {
   } | null = null;
 
   constructor() {
+    this.setupBroadcastChannel();
     this.startBackgroundSync();
+  }
+
+  private setupBroadcastChannel() {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        this.channel = new BroadcastChannel('examflow_live_chat_channel');
+        this.channel.onmessage = (event) => {
+          if (event.data?.type === 'chat:message' && event.data.data) {
+            this.notifyMessage(event.data.data, false);
+          }
+        };
+      } catch (err) {
+        console.warn('[ChatService] BroadcastChannel not supported:', err);
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'examflow_chat_event_v1' && e.newValue) {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            if (parsed && parsed.data) {
+              this.notifyMessage(parsed.data, false);
+            }
+          } catch {}
+        }
+      });
+    }
+  }
+
+  private broadcastLocal(msg: ChatMessage) {
+    if (this.channel) {
+      try {
+        this.channel.postMessage({ type: 'chat:message', data: msg });
+      } catch {}
+    }
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem('examflow_chat_event_v1', JSON.stringify({ data: msg, ts: Date.now() }));
+      } catch {}
+    }
   }
 
   public initialize(user: {
@@ -33,9 +76,11 @@ class ChatService {
   }) {
     this.currentUser = user;
     this.connect();
+
+    const guestNis = typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') || undefined : undefined;
     // Trigger immediate history fetch
-    this.getHistory({ nis: user.nis, role: user.role }).then((msgs) => {
-      msgs.forEach((m) => this.notifyMessage(m));
+    this.getHistory({ nis: user.nis, role: user.role, guestNis }).then((msgs) => {
+      msgs.forEach((m) => this.notifyMessage(m, false));
     });
   }
 
@@ -93,10 +138,10 @@ class ChatService {
 
           if (payload.type === 'chat:message' && payload.data) {
             this.playNotificationSound();
-            this.notifyMessage(payload.data);
+            this.notifyMessage(payload.data, true);
           } else if ((payload.type === 'chat:history' || payload.type === 'chat:init') && payload.data) {
             const list = Array.isArray(payload.data) ? payload.data : (payload.data.messages || []);
-            list.forEach((msg: ChatMessage) => this.notifyMessage(msg));
+            list.forEach((msg: ChatMessage) => this.notifyMessage(msg, false));
           } else if (payload.type === 'chat:presence' && payload.data) {
             const d = payload.data;
             this.notifyPresence({
@@ -115,13 +160,11 @@ class ChatService {
         this.scheduleReconnect();
       };
 
-      this.ws.onerror = (err) => {
-        console.warn('[ChatService] WebSocket error, fallback to REST sync active', err);
+      this.ws.onerror = () => {
         this.isConnected = false;
         this.notifyStatus(false);
       };
-    } catch (e) {
-      console.warn('[ChatService] Failed to establish WebSocket connection:', e);
+    } catch {
       this.scheduleReconnect();
     }
   }
@@ -135,27 +178,30 @@ class ChatService {
 
   private startBackgroundSync() {
     if (this.pollInterval) clearInterval(this.pollInterval);
-    // Poll every 3 seconds to guarantee 100% sync reliability
+    // Poll every 2 seconds to guarantee 100% sync reliability across all devices
     this.pollInterval = setInterval(async () => {
       if (!this.currentUser) return;
       try {
+        const guestNis = typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') || undefined : undefined;
         const msgs = await this.getHistory({
           nis: this.currentUser.nis,
           role: this.currentUser.role,
+          guestNis
         });
         if (Array.isArray(msgs) && msgs.length > 0) {
-          msgs.forEach((m) => this.notifyMessage(m));
+          msgs.forEach((m) => this.notifyMessage(m, false));
         }
       } catch {
         // Silently ignore background poll errors
       }
-    }, 3000);
+    }, 2000);
   }
 
-  public async getHistory(params?: { nis?: string; role?: string }): Promise<ChatMessage[]> {
+  public async getHistory(params?: { nis?: string; role?: string; guestNis?: string }): Promise<ChatMessage[]> {
     try {
       const query = new URLSearchParams();
       if (params?.nis) query.append('nis', params.nis);
+      if (params?.guestNis) query.append('guestNis', params.guestNis);
       if (params?.role) query.append('role', params.role);
 
       const res = await fetch(`/api/chat/messages?${query.toString()}`);
@@ -196,11 +242,10 @@ class ChatService {
       isRead: senderRole === 'teacher',
     };
 
-    // 1. Optimistically notify local listeners immediately (zero UI lag)
-    this.notifyMessage(fullMessage);
+    // 1. Optimistically notify local listeners and cross-tab BroadcastChannel immediately
+    this.notifyMessage(fullMessage, true);
 
-    // 2. Try sending via WebSocket
-    let sentWs = false;
+    // 2. Try sending via WebSocket (low latency)
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(
@@ -209,31 +254,21 @@ class ChatService {
             data: fullMessage,
           })
         );
-        sentWs = true;
       } catch (err) {
-        console.warn('[ChatService] WS send error, falling back to REST:', err);
+        console.warn('[ChatService] WS send error:', err);
       }
     }
 
-    // 3. Fallback to / backup with REST API
-    if (!sentWs) {
-      try {
-        const res = await fetch('/api/chat/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(fullMessage),
-        });
-        if (res.ok) {
-          const result = await res.json();
-          if (result.message) {
-            this.notifyMessage(result.message);
-            return result.message;
-          }
-        }
-      } catch (e) {
-        console.error('[ChatService] Failed to send message via REST fallback:', e);
-      }
-    }
+    // 3. ALWAYS backup / persist with REST API to guarantee delivery even if WebSocket is blocked or disconnected
+    try {
+      fetch('/api/chat/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fullMessage),
+      }).catch((e) => {
+        console.warn('[ChatService] REST send backup failed:', e);
+      });
+    } catch {}
 
     // 4. Mirror to Google Sheets (Chat_Bantuan sheet) in background
     GasClient.pushChatMessage({
@@ -285,15 +320,20 @@ class ChatService {
     };
   }
 
-  private notifyMessage(msg: ChatMessage) {
-    // Normalize timestamp to number
+  private notifyMessage(msg: ChatMessage, broadcastToLocal: boolean = true) {
     const normalized: ChatMessage = {
       ...msg,
       timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : (Date.parse(String(msg.timestamp)) || Date.now()),
     };
 
-    // Track known IDs to prevent duplications
+    if (this.knownMessageIds.has(normalized.id)) {
+      return;
+    }
     this.knownMessageIds.add(normalized.id);
+
+    if (broadcastToLocal) {
+      this.broadcastLocal(normalized);
+    }
 
     this.messageListeners.forEach((fn) => {
       try {

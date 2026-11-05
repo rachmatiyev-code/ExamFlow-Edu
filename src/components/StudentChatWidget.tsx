@@ -57,23 +57,31 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
       classGrade: grade || currentExam?.grade || '',
     });
 
-    // Fetch message history
-    chatService.getHistory({ nis: studentIdentifier }).then((history) => {
+    const storedGuestNis = (localStorage.getItem('guest_student_nis') || '').trim().toLowerCase();
+
+    // Fetch message history with both nis and guestNis
+    chatService.getHistory({ nis: studentIdentifier, guestNis: storedGuestNis }).then((history) => {
       setMessages(history);
     });
 
     const unsubscribeMsg = chatService.subscribeMessages((msg) => {
       // Check if message is for this student or is a broadcast or sent by this student
-      const myNis = String(nis || localStorage.getItem('guest_student_nis') || '').trim().toLowerCase();
-      const myName = String(name || localStorage.getItem('guest_student_name') || '').trim().toLowerCase();
+      const currentGuestNis = (localStorage.getItem('guest_student_nis') || '').trim().toLowerCase();
+      const currentMyNis = String(nis || currentGuestNis).trim().toLowerCase();
+      const currentMyName = String(name || localStorage.getItem('guest_student_name') || '').trim().toLowerCase();
       
       const targetNis = String(msg.targetNis || '').trim().toLowerCase();
       const senderNis = String(msg.senderNis || '').trim().toLowerCase();
       const targetName = String(msg.targetName || '').trim().toLowerCase();
 
       const isBroadcast = !targetNis || targetNis === 'all';
-      const isTargetedToMe = Boolean(myNis && targetNis === myNis) || Boolean(myName && targetName === myName);
-      const isSentByMe = Boolean(myNis && senderNis === myNis);
+      const isTargetedToMe = 
+        Boolean(currentMyNis && targetNis === currentMyNis) ||
+        Boolean(currentGuestNis && targetNis === currentGuestNis) ||
+        Boolean(currentMyName && targetName && targetName === currentMyName);
+      const isSentByMe = 
+        Boolean(currentMyNis && senderNis === currentMyNis) ||
+        Boolean(currentGuestNis && senderNis === currentGuestNis);
 
       const isForMe = isBroadcast || isTargetedToMe || isSentByMe;
 

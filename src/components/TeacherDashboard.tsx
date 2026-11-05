@@ -24,6 +24,7 @@ import { MediaUploaderInput } from './MediaUploaderInput';
 import { CurriculumManagement } from './CurriculumManagement';
 import { AiQuestionModal } from './AiQuestionModal';
 import { RichTextEditor } from './RichTextEditor';
+import { OptionRichTextEditor } from './OptionRichTextEditor';
 import { TeacherChatPanel } from './TeacherChatPanel';
 import { chatService } from '../services/chatService';
 import { MathRenderer } from '../services/mathRenderer';
@@ -5360,11 +5361,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
               {editingQuestion.type === 'multiple_choice' && (() => {
                 const currentOpts = normalizeQuestionOptions(editingQuestion.options);
                 return (
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     <div className="flex items-center justify-between">
-                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Pilihan Jawaban (Klik radio untuk menandai kunci benar):
-                      </label>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Pilihan Jawaban (Mendukung Rumus KaTeX, Simbol, Sub/Superskrip & Format Teks):
+                        </label>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Klik bulatan untuk menandai kunci jawaban benar. Gunakan toolbar rumus (Σ) & simbol (Ω) di tiap opsi.
+                        </p>
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -5375,37 +5381,37 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             options: [...currentOpts, { id: nextId, text: '' }]
                           });
                         }}
-                        className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold"
+                        className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 shrink-0"
                       >
-                        + Tambah Opsi
+                        + Tambah Opsi {String.fromCharCode(65 + currentOpts.length)}
                       </button>
                     </div>
-                    {currentOpts.map((opt, i) => (
-                      <div key={opt.id} className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="correctAnswerKey"
-                          checked={editingQuestion.correctKey === opt.id}
-                          onChange={() => setEditingQuestion({ ...editingQuestion, correctKey: opt.id })}
-                          className="text-indigo-600 w-4 h-4"
-                          title="Tandai sebagai kunci benar"
-                        />
-                        <span className="w-5 text-xs font-bold text-slate-400 font-mono">
-                          {String.fromCharCode(65 + i)}.
-                        </span>
-                        <input
-                          type="text"
-                          value={opt.text}
-                          onChange={(e) => {
+
+                    <div className="space-y-2">
+                      {currentOpts.map((opt, i) => (
+                        <OptionRichTextEditor
+                          key={opt.id || `opt_${i}`}
+                          option={opt}
+                          index={i}
+                          isCorrect={editingQuestion.correctKey === opt.id}
+                          type="multiple_choice"
+                          totalOptions={currentOpts.length}
+                          onToggleCorrect={() => setEditingQuestion({ ...editingQuestion, correctKey: opt.id })}
+                          onChangeText={(newText) => {
                             const newOpts = [...currentOpts];
-                            newOpts[i] = { ...newOpts[i], text: e.target.value };
+                            newOpts[i] = { ...newOpts[i], text: newText };
                             setEditingQuestion({ ...editingQuestion, options: newOpts });
                           }}
-                          placeholder={`Teks Opsi ${String.fromCharCode(65 + i)}`}
-                          className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                          onDelete={() => {
+                            const filtered = currentOpts.filter((_, idx) => idx !== i);
+                            const nextKey = editingQuestion.correctKey === opt.id 
+                              ? (filtered[0]?.id || 'opt_a') 
+                              : editingQuestion.correctKey;
+                            setEditingQuestion({ ...editingQuestion, options: filtered, correctKey: nextKey });
+                          }}
                         />
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 );
               })()}
@@ -5418,11 +5424,16 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                   : (typeof editingQuestion.correctKey === 'string' && editingQuestion.correctKey ? [editingQuestion.correctKey] : ['opt_a']);
 
                 return (
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     <div className="flex items-center justify-between">
-                      <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Pilihan Jawaban Kompleks (Centang satu atau lebih opsi sebagai kunci benar):
-                      </label>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Pilihan Jawaban Kompleks (Centang satu atau lebih opsi sebagai kunci benar):
+                        </label>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Mendukung rumus matematika KaTeX ($...$), simbol ilmiah (Ω), dan pratinjau langsung.
+                        </p>
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -5433,64 +5444,60 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                             options: [...currentOpts, { id: nextId, text: '' }]
                           });
                         }}
-                        className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold"
+                        className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 shrink-0"
                       >
-                        + Tambah Opsi
+                        + Tambah Opsi {String.fromCharCode(65 + currentOpts.length)}
                       </button>
                     </div>
-                    {currentOpts.map((opt, i) => {
-                      const isChecked = currentKeys.includes(opt.id);
 
-                      return (
-                        <div key={opt.id} className="flex items-center gap-2">
-                          <input
+                    <div className="space-y-2">
+                      {currentOpts.map((opt, i) => {
+                        const isChecked = currentKeys.includes(opt.id);
+
+                        return (
+                          <OptionRichTextEditor
+                            key={opt.id || `opt_${i}`}
+                            option={opt}
+                            index={i}
+                            isCorrect={isChecked}
                             type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) => {
+                            totalOptions={currentOpts.length}
+                            onToggleCorrect={() => {
                               let nextKeys: string[];
-                              if (e.target.checked) {
-                                nextKeys = [...currentKeys, opt.id];
-                              } else {
+                              if (isChecked) {
                                 nextKeys = currentKeys.filter(k => k !== opt.id);
+                              } else {
+                                nextKeys = [...currentKeys, opt.id];
                               }
                               setEditingQuestion({ ...editingQuestion, correctKey: nextKeys });
                             }}
-                            className="text-indigo-600 w-4 h-4 rounded"
-                            title="Tandai sebagai salah satu kunci benar"
-                          />
-                          <span className="w-5 text-xs font-bold text-slate-400 font-mono">
-                            {String.fromCharCode(65 + i)}.
-                          </span>
-                          <input
-                            type="text"
-                            value={opt.text}
-                            onChange={(e) => {
+                            onChangeText={(newText) => {
                               const newOpts = [...currentOpts];
-                              newOpts[i] = { ...newOpts[i], text: e.target.value };
+                              newOpts[i] = { ...newOpts[i], text: newText };
                               setEditingQuestion({ ...editingQuestion, options: newOpts });
                             }}
-                            placeholder={`Teks Opsi ${String.fromCharCode(65 + i)}`}
-                            className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                            onDelete={() => {
+                              const filtered = currentOpts.filter((_, idx) => idx !== i);
+                              const nextKeys = currentKeys.filter(k => k !== opt.id);
+                              setEditingQuestion({ ...editingQuestion, options: filtered, correctKey: nextKeys });
+                            }}
                           />
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })()}
 
-              {/* Essay Sample Key */}
+              {/* Essay Sample Key with RichTextEditor */}
               {editingQuestion.type === 'essay' && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Kunci / Rangkuman Jawaban Benar (Esai / Uraian)
-                  </label>
-                  <textarea
-                    rows={2}
-                    placeholder="Tuliskan kata kunci atau contoh jawaban benar..."
+                  <RichTextEditor
                     value={typeof editingQuestion.correctKey === 'string' ? editingQuestion.correctKey : ''}
-                    onChange={(e) => setEditingQuestion({ ...editingQuestion, correctKey: e.target.value })}
-                    className="w-full p-2.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                    onChange={(val) => setEditingQuestion({ ...editingQuestion, correctKey: val })}
+                    placeholder="Tuliskan kata kunci, indikator penskoran, rumus atau contoh jawaban benar..."
+                    rows={4}
+                    label="Kunci / Rangkuman Jawaban & Pedoman Penskoran (Esai / Uraian)"
                   />
                 </div>
               )}

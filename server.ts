@@ -625,6 +625,7 @@ function broadcastOnlineCount() {
 // 1. GET /api/chat/messages
 apiRouter.get('/chat/messages', (req, res) => {
   const nis = req.query.nis ? String(req.query.nis).trim().toLowerCase() : '';
+  const guestNis = req.query.guestNis ? String(req.query.guestNis).trim().toLowerCase() : '';
   const role = req.query.role ? String(req.query.role).trim().toLowerCase() : 'student';
 
   const sanitized = chatMessages.map(m => ({
@@ -637,13 +638,13 @@ apiRouter.get('/chat/messages', (req, res) => {
     return res.json({ success: true, messages: sanitized });
   }
 
-  // Siswa hanya melihat pesan miliknya dan pengumuman umum ('all')
+  // Siswa melihat pesan miliknya (NIS terdaftar atau ID Tamu) dan pengumuman umum ('all')
   const filtered = sanitized.filter(m => {
     const cleanTarget = String(m.targetNis || '').trim().toLowerCase();
     const cleanSender = String(m.senderNis || '').trim().toLowerCase();
     if (!cleanTarget || cleanTarget === 'all') return true;
-    if (nis && cleanTarget === nis) return true;
-    if (nis && cleanSender === nis) return true;
+    if (nis && (cleanTarget === nis || cleanSender === nis)) return true;
+    if (guestNis && (cleanTarget === guestNis || cleanSender === guestNis)) return true;
     return false;
   });
 
@@ -661,8 +662,9 @@ apiRouter.post('/chat/messages', (req, res) => {
       return res.status(400).json({ success: false, message: 'Isi pesan tidak boleh kosong.' });
     }
 
+    const msgId = d.id || `MSG-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const newMsg: ServerChatMessage = {
-      id: d.id || `MSG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: msgId,
       senderType: sRole,
       senderRole: sRole,
       senderName: String(d.senderName || (sRole === 'teacher' ? 'Guru Pengawas' : 'Siswa')).trim(),
@@ -673,15 +675,19 @@ apiRouter.post('/chat/messages', (req, res) => {
       targetNis: (!d.targetNis || d.targetNis === 'all') ? 'all' : String(d.targetNis).trim(),
       targetName: d.targetName ? String(d.targetName).trim() : undefined,
       text: text,
-      timestamp: Date.now(),
+      timestamp: d.timestamp ? sanitizeTimestamp(d.timestamp) : Date.now(),
       isRead: sRole === 'teacher',
       quickAction: d.quickAction || 'general'
     };
 
-    chatMessages.push(newMsg);
-    // Batasi memori pesan maksimal 500 riwayat
-    if (chatMessages.length > 500) {
-      chatMessages.shift();
+    const existingIndex = chatMessages.findIndex(m => m.id === newMsg.id);
+    if (existingIndex >= 0) {
+      chatMessages[existingIndex] = newMsg;
+    } else {
+      chatMessages.push(newMsg);
+      if (chatMessages.length > 500) {
+        chatMessages.shift();
+      }
     }
 
     // Broadcast ke semua WebSocket yang tersambung

@@ -198,7 +198,12 @@ export class GasClient {
             try {
               opts = typeof q.optionsJson === 'string' ? JSON.parse(q.optionsJson) : q.optionsJson;
             } catch {
-              opts = [];
+              try {
+                const fixed = String(q.optionsJson).replace(/\\([^"\\\/bfnrtu])/g, '\\\\$1');
+                opts = JSON.parse(fixed);
+              } catch {
+                opts = [];
+              }
             }
           }
           let corrKey: any = q.correctKey;
@@ -206,7 +211,12 @@ export class GasClient {
             try {
               corrKey = typeof q.correctKeyJson === 'string' ? JSON.parse(q.correctKeyJson) : q.correctKeyJson;
             } catch {
-              corrKey = q.correctKeyJson;
+              try {
+                const fixed = String(q.correctKeyJson).replace(/\\([^"\\\/bfnrtu])/g, '\\\\$1');
+                corrKey = JSON.parse(fixed);
+              } catch {
+                corrKey = q.correctKeyJson;
+              }
             }
           }
           return {
@@ -669,6 +679,62 @@ export class GasClient {
         success: false,
         message: errMsg
       };
+    }
+  }
+
+  /**
+   * Menyimpan & menyinkronkan rekapitulasi nilai per mapel & kelas ke Google Sheets
+   */
+  static async pushGradeRecap(
+    recaps: Array<{
+      id?: string;
+      studentNo: string;
+      studentName: string;
+      classGrade: string;
+      subject: string;
+      examTitle: string;
+      examId: string;
+      score: number;
+      maxScore: number;
+      percentage: number;
+      passingScore: number;
+      passed: boolean;
+      statusNote?: string;
+      timeSpentSeconds?: number;
+      submittedAt: string;
+    }>,
+    filterMeta?: { subject?: string; classGrade?: string }
+  ): Promise<{ success: boolean; message: string; count?: number }> {
+    const url = this.getWebAppUrl();
+    if (!url) {
+      return {
+        success: false,
+        message: 'URL Google Apps Script belum disetel di menu Pengaturan.'
+      };
+    }
+
+    try {
+      const res = await this.postToGas({
+        action: 'saveGradeRecap',
+        recaps,
+        subject: filterMeta?.subject || 'Semua Mapel',
+        classGrade: filterMeta?.classGrade || 'Semua Kelas'
+      });
+
+      if (!res.success) {
+        throw new Error(res.message);
+      }
+
+      StorageService.addLog('SYNC', `Rekap nilai ${recaps.length} siswa berhasil disimpan ke Google Sheets!`, undefined, 'success');
+      return {
+        success: true,
+        count: recaps.length,
+        message: res.message || `Rekap nilai ${recaps.length} siswa berhasil disimpan ke Google Sheets!`
+      };
+    } catch (err: any) {
+      const msg = `Gagal menyimpan rekap nilai ke Google Sheets: ${err?.message || err}`;
+      StorageService.addLog('SYNC', msg, undefined, 'error');
+      return { success: false, message: msg };
     }
   }
 

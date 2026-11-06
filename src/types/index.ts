@@ -241,7 +241,13 @@ export function normalizeQuestionOptions(opts: any): QuestionOption[] {
       try {
         target = JSON.parse(trimmed);
       } catch {
-        target = [];
+        try {
+          // Normalisasi backslash LaTeX (\sqrt, \alpha, \frac, dll.) agar JSON valid
+          const fixed = trimmed.replace(/\\([^"\\\/bfnrtu])/g, '\\\\$1');
+          target = JSON.parse(fixed);
+        } catch {
+          target = [];
+        }
       }
     } else {
       return [];

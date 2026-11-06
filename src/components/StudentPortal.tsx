@@ -33,7 +33,11 @@ import {
   BarChart3,
   Search,
   StopCircle,
-  X
+  X,
+  Wifi,
+  WifiOff,
+  CheckCircle2,
+  Save
 } from 'lucide-react';
 
 interface StudentPortalProps {
@@ -75,6 +79,21 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
   const [tabSwitchWarning, setTabSwitchWarning] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [restoredProgressNotice, setRestoredProgressNotice] = useState<string | null>(null);
+  const [lastAutoSavedTime, setLastAutoSavedTime] = useState<number>(Date.now());
+
+  // Listen to network connection status (online / offline)
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Result State
   const [completedSubmission, setCompletedSubmission] = useState<Submission | null>(null);
@@ -234,20 +253,88 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     setIsLoginModalOpen(true);
   };
 
+  const getExamProgressKey = (examId: string, sNo: string, sName: string) => {
+    const cleanId = (sNo || sName || 'student').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    return `examflow_progress_${examId}_${cleanId}`;
+  };
+
   const startExamSession = (qs: Question[]) => {
     setExamQuestions(qs);
     setIsLoginModalOpen(false);
-    setUserAnswers({});
-    setFlaggedQuestions({});
     setTabSwitchCount(0);
     setTabSwitchWarning(false);
-    setCurrentQuestionIndex(0);
-    setTimeRemainingSeconds(selectedExam ? selectedExam.durationMinutes * 60 : 3600);
-    setIsExamActive(true);
     setCompletedSubmission(null);
 
-    StorageService.addLog('EXAM', `Siswa ${studentName} (${studentNo}) memulai ujian "${selectedExam?.title}" (${qs.length} butir soal)`);
+    // Cek apakah ada progress jawaban siswa yang tersimpan di perangkat lokal
+    const progressKey = selectedExam ? getExamProgressKey(selectedExam.id, studentNo, studentName) : '';
+    let restoredAnswers: Record<string, string | string[]> = {};
+    let restoredFlagged: Record<string, boolean> = {};
+    let restoredIndex = 0;
+    let hasRestored = false;
+
+    if (progressKey) {
+      try {
+        const raw = localStorage.getItem(progressKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.answers === 'object' && Object.keys(parsed.answers).length > 0) {
+            restoredAnswers = parsed.answers;
+            hasRestored = true;
+          }
+          if (parsed && typeof parsed.flagged === 'object') {
+            restoredFlagged = parsed.flagged;
+          }
+          if (typeof parsed.currentIndex === 'number' && parsed.currentIndex >= 0 && parsed.currentIndex < qs.length) {
+            restoredIndex = parsed.currentIndex;
+          }
+          if (typeof parsed.timeRemaining === 'number' && parsed.timeRemaining > 0) {
+            setTimeRemainingSeconds(parsed.timeRemaining);
+          }
+        }
+      } catch (err) {
+        console.warn('Gagal membaca progress tersimpan:', err);
+      }
+    }
+
+    setUserAnswers(restoredAnswers);
+    setFlaggedQuestions(restoredFlagged);
+    setCurrentQuestionIndex(restoredIndex);
+    if (!hasRestored) {
+      setTimeRemainingSeconds(selectedExam ? selectedExam.durationMinutes * 60 : 3600);
+    }
+    setIsExamActive(true);
+
+    if (hasRestored) {
+      const count = Object.keys(restoredAnswers).length;
+      setRestoredProgressNotice(`Jawaban Anda (${count} butir soal) berhasil dipulihkan dari perangkat ini. Jawaban tersimpan otomatis, Anda dapat langsung melanjutkan pengerjaan!`);
+      setTimeout(() => setRestoredProgressNotice(null), 8000);
+    }
+
+    StorageService.addLog('EXAM', `Siswa ${studentName} (${studentNo}) memulai ujian "${selectedExam?.title}" (${qs.length} butir soal, ${hasRestored ? 'melanjutkan sesi tersimpan' : 'sesi baru'})`);
   };
+
+  // Auto-save jawaban siswa ke penyimpanan lokal perangkat (Offline-Resilient Device Persistence)
+  useEffect(() => {
+    if (isExamActive && selectedExam) {
+      const progressKey = getExamProgressKey(selectedExam.id, studentNo, studentName);
+      try {
+        localStorage.setItem(progressKey, JSON.stringify({
+          examId: selectedExam.id,
+          studentNo: studentNo.trim(),
+          studentName: studentName.trim(),
+          classGrade: studentClass.trim(),
+          answers: userAnswers,
+          flagged: flaggedQuestions,
+          currentIndex: currentQuestionIndex,
+          timeRemaining: timeRemainingSeconds,
+          updatedAt: Date.now()
+        }));
+        setLastAutoSavedTime(Date.now());
+      } catch (e) {
+        console.warn('Gagal menyimpan draft jawaban ke perangkat:', e);
+      }
+    }
+  }, [isExamActive, selectedExam, userAnswers, flaggedQuestions, currentQuestionIndex, timeRemainingSeconds, studentNo, studentName, studentClass]);
 
   const handleConfirmLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -567,6 +654,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     await GasClient.submitAnswer(submission);
     onSubmissionComplete(submission);
 
+    // Bersihkan draft progress di perangkat lokal setelah jawaban berhasil diserahkan
+    try {
+      const progressKey = getExamProgressKey(selectedExam.id, studentNo, studentName);
+      localStorage.removeItem(progressKey);
+    } catch {}
+
     setIsExamActive(false);
     setIsSubmitting(false);
     setCompletedSubmission(submission);
@@ -705,8 +798,31 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               </div>
             </div>
 
-            {/* Countdown Timer with Visual Tone */}
-            <div className="flex items-center gap-3 shrink-0">
+            {/* Status & Countdown Timer */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              {/* Device Auto-Save Status Badge */}
+              <div 
+                className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold shadow-2xs transition-all ${
+                  isOnline
+                    ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                    : 'bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700 animate-pulse'
+                }`}
+                title={isOnline ? 'Jawaban otomatis tersimpan aman di perangkat siswa' : 'Koneksi terputus: jawaban tetap tersimpan offline di perangkat Anda'}
+              >
+                {isOnline ? (
+                  <>
+                    <Save className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Tersimpan di Perangkat</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <span>Offline (Jawaban Aman)</span>
+                  </>
+                )}
+              </div>
+
+              {/* Countdown Timer with Visual Tone */}
               <div
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-mono font-bold text-sm tabular-nums shadow-xs transition-colors ${
                   timeRemainingSeconds <= 300
@@ -722,6 +838,40 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             </div>
           </div>
         </header>
+
+        {/* Offline Notification Banner */}
+        {!isOnline && (
+          <div className="max-w-5xl mx-auto px-4 mt-3">
+            <div className="bg-amber-50 dark:bg-amber-950/90 border border-amber-300 dark:border-amber-700 rounded-xl p-3 flex items-center justify-between text-xs text-amber-900 dark:text-amber-100 shadow-xs animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <WifiOff className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>
+                  <strong>Koneksi internet terputus:</strong> Jawaban Anda tersimpan otomatis di perangkat ini. Anda dapat terus melanjutkan mengerjakan soal berikutnya tanpa khawatir kehilangan jawaban.
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Restored Progress Notification Banner */}
+        {restoredProgressNotice && (
+          <div className="max-w-5xl mx-auto px-4 mt-3">
+            <div className="bg-emerald-50 dark:bg-emerald-950/90 border border-emerald-300 dark:border-emerald-700 rounded-xl p-3 flex items-center justify-between text-xs text-emerald-900 dark:text-emerald-100 shadow-xs animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <span>{restoredProgressNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRestoredProgressNotice(null)}
+                className="text-emerald-700 hover:text-emerald-900 dark:text-emerald-300 p-0.5 ml-2"
+                title="Tutup"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Tab Switch Warning Modal / Bar */}
         {tabSwitchWarning && (

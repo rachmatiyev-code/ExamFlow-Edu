@@ -31,6 +31,7 @@ const SHEETS = {
   QUESTIONS: 'Questions',
   STUDENTS: 'Students',
   SUBMISSIONS: 'Submissions',
+  REKAP: 'Rekap_Nilai',
   DATA_MENTAH: 'Data_Mentah',
   LAPORAN_KLASIKAL: 'Laporan_Klasikal',
   LAPORAN_INDIVIDU: 'Laporan_Individu',
@@ -39,6 +40,12 @@ const SHEETS = {
   CHAT: 'Chat_Bantuan',
   LOGS: 'Logs'
 };
+
+const CANONICAL_REKAP_HEADERS = [
+  'id', 'studentNo', 'studentName', 'classGrade', 'subject', 'examTitle', 'examId', 
+  'score', 'maxScore', 'percentage', 'passingScore', 'passed', 'statusNote', 
+  'timeSpentSeconds', 'submittedAt', 'updatedAt'
+];
 
 // Canonical Headers untuk integritas & auto-healing kolom antar versi
 const CANONICAL_PROFILE_HEADERS = [
@@ -241,6 +248,19 @@ function initDatabase() {
     shLaporanIndividu.appendRow(['Durasi Pengerjaan (Detik):', '=IFERROR(VLOOKUP(B3, Data_Mentah!A2:J, 8, FALSE), 0)']);
     shLaporanIndividu.appendRow([]);
     shLaporanIndividu.appendRow(['Tanda Tangan Guru Pengampu', '', 'Tanda Tangan Orang Tua / Wali']);
+  }
+
+  // 5D. Tab Rekap_Nilai (Rekapitulasi Nilai Asesmen per Mata Pelajaran & Kelas)
+  let shRekap = ss.getSheetByName(SHEETS.REKAP);
+  if (!shRekap) {
+    shRekap = ss.insertSheet(SHEETS.REKAP);
+    shRekap.appendRow(CANONICAL_REKAP_HEADERS);
+    formatHeaderRow(shRekap);
+  } else {
+    ensureMinColumns(shRekap, CANONICAL_REKAP_HEADERS.length);
+    const rekapHeaderRange = shRekap.getRange(1, 1, 1, CANONICAL_REKAP_HEADERS.length);
+    rekapHeaderRange.setValues([CANONICAL_REKAP_HEADERS]);
+    formatHeaderRow(shRekap);
   }
 
   // 6. Users
@@ -538,6 +558,54 @@ function doPost(e) {
 
       logAction('SYNC', 'Data ' + subs.length + ' submission disinkronkan ke Google Sheets');
       return jsonResponse({ status: 'success', message: 'Data ' + subs.length + ' rekaman nilai berhasil disinkronkan ke Google Sheets', count: subs.length });
+    }
+
+    if (action === 'saveGradeRecap' || action === 'syncGradeRecap') {
+      const recaps = payload.recaps || payload.data || [];
+      const filterSubject = payload.subject || 'Semua Mapel';
+      const filterGrade = payload.classGrade || payload.grade || 'Semua Kelas';
+
+      let shRekap = ss.getSheetByName(SHEETS.REKAP);
+      if (!shRekap) {
+        initDatabase();
+        shRekap = ss.getSheetByName(SHEETS.REKAP);
+      }
+      ensureMinColumns(shRekap, CANONICAL_REKAP_HEADERS.length);
+
+      const rekapRows = recaps.map(function(r, idx) {
+        return [
+          String(r.id || ('REKAP-' + (idx + 1))),
+          String(r.studentNo || ''),
+          String(r.studentName || ''),
+          String(r.classGrade || ''),
+          String(r.subject || ''),
+          String(r.examTitle || ''),
+          String(r.examId || ''),
+          Number(r.score || 0),
+          Number(r.maxScore || 100),
+          Number(r.percentage || 0),
+          Number(r.passingScore || 75),
+          r.passed ? 'Tuntas' : 'Belum Tuntas',
+          String(r.statusNote || 'Selesai'),
+          Number(r.timeSpentSeconds || 0),
+          String(r.submittedAt || new Date().toISOString()),
+          new Date().toISOString()
+        ];
+      });
+
+      const finalRows = [CANONICAL_REKAP_HEADERS].concat(rekapRows);
+      shRekap.clearContents();
+      SpreadsheetApp.flush();
+      shRekap.getRange(1, 1, finalRows.length, CANONICAL_REKAP_HEADERS.length).setValues(finalRows);
+      formatHeaderRow(shRekap);
+      SpreadsheetApp.flush();
+
+      logAction('SYNC', 'Rekap nilai ' + recaps.length + ' siswa (' + filterSubject + ' - ' + filterGrade + ') berhasil disimpan ke Google Sheets');
+      return jsonResponse({
+        status: 'success',
+        message: 'Rekap nilai ' + recaps.length + ' siswa (' + filterSubject + ' - ' + filterGrade + ') berhasil disimpan ke sheet "' + SHEETS.REKAP + '" Google Sheets!',
+        count: recaps.length
+      });
     }
 
     if (action === 'deleteSubmission') {
@@ -1167,7 +1235,7 @@ function jsonResponse(data) {
 
 function normalizeGasHeader(h) {
   const raw = String(h || '').trim();
-  const clean = raw.toLowerCase().replace(/[\s_\-]+/g, '');
+  const clean = raw.toLowerCase().replace(/[\\s_\\-]+/g, '');
   if (['matapelajaran', 'mapel', 'subject'].includes(clean)) return 'subject';
   if (['kelas', 'jenjang', 'fase', 'tingkat', 'grade', 'classgrade'].includes(clean)) return 'grade';
   if (['elemen', 'element', 'materi', 'pokokbahasan'].includes(clean)) return 'element';
@@ -1209,8 +1277,8 @@ function getSheetDataAsObjects(sheet) {
           } catch(e) {
             // Jika bukan JSON valid, parse pemisah baris baru atau titik koma
             if (normHeader === 'learningObjectivesJson') {
-              val = val.split(/[\r\n;]+/)
-                .map(function(s) { return s.replace(/^[\s\d\.\-\*•]+/, '').trim(); })
+              val = val.split(/[\\r\\n;]+/)
+                .map(function(s) { return s.replace(/^[\\s\\d\\.\\-\\*•]+/, '').trim(); })
                 .filter(Boolean);
             }
           }

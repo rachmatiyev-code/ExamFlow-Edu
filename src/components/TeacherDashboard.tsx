@@ -127,7 +127,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
 
   // Sub-tabs
-  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>('exams');
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
   // Subscribe to live incoming student messages to update unread badge
@@ -177,7 +177,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [analyticsSortKey, setAnalyticsSortKey] = useState<string>('submittedAt');
   const [analyticsSortDir, setAnalyticsSortDir] = useState<'asc' | 'desc'>('desc');
 
+  // Rekap Nilai per Mapel & per Kelas States
+  const [rekapSubjectFilter, setRekapSubjectFilter] = useState<string>('all');
+  const [rekapGradeFilter, setRekapGradeFilter] = useState<string>('all');
+  const [rekapExamFilter, setRekapExamFilter] = useState<string>('all');
+  const [rekapSearchQuery, setRekapSearchQuery] = useState<string>('');
+  const [rekapSortKey, setRekapSortKey] = useState<string>('percentage');
+  const [rekapSortDir, setRekapSortDir] = useState<'asc' | 'desc'>('desc');
+  const [isSyncingRekapToSheets, setIsSyncingRekapToSheets] = useState(false);
+
   // Question Management State
+  const [questionVersion, setQuestionVersion] = useState(0);
   const [isQuestionModalOpen, setIsQuestionModalOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Partial<Question> | null>(null);
   const [manualTaxonomyMode, setManualTaxonomyMode] = useState<'bloom' | 'solo' | 'both'>('both');
@@ -536,6 +546,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       }
     }
 
+    setQuestionVersion(v => v + 1);
     onRefreshData();
     setTimeout(() => setDraftToast(null), 3500);
   };
@@ -837,6 +848,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       if (exam) {
         await GasClient.pushExam(exam, currentQs);
       }
+      setQuestionVersion(v => v + 1);
       onRefreshData();
     }
   };
@@ -1444,86 +1456,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   };
 
   // -------------------------------------------------------------
-  // LOGIN SCREEN (If teacher is not authenticated)
-  // -------------------------------------------------------------
-  if (!currentUser) {
-    return (
-      <div className="max-w-md mx-auto py-16 px-4">
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
-          <div className="text-center pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
-            {profile.logoUrl && (
-              <img
-                src={profile.logoUrl}
-                alt={profile.name}
-                referrerPolicy="no-referrer"
-                className="w-14 h-14 rounded-xl object-cover mx-auto mb-2 shadow-sm"
-              />
-            )}
-            <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
-              {profile.name}
-            </h3>
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white mt-1">
-              Masuk Portal Pengajar
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Kelola jadwal ujian, butir soal, analitik nilai, dan profil sekolah.
-            </p>
-          </div>
-
-          {loginError && (
-            <div className="mb-4 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs text-rose-600 dark:text-rose-400">
-              {loginError}
-            </div>
-          )}
-
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Nama Pengguna (Username)
-              </label>
-              <input
-                type="text"
-                required
-                value={usernameInput}
-                onChange={(e) => setUsernameInput(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Kata Sandi (Password)
-              </label>
-              <input
-                type="password"
-                required
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              />
-            </div>
-
-            <div className="p-3 bg-indigo-50 dark:bg-indigo-950/50 rounded-lg text-xs text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-              Akun demo bawaan: <span className="font-mono font-bold">guru</span> / <span className="font-mono font-bold">password123</span>
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl shadow-sm transition-colors"
-            >
-              Masuk ke Portal Guru
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  // -------------------------------------------------------------
-  // AUTHENTICATED TEACHER DASHBOARD
+  // AUTHENTICATED TEACHER DASHBOARD LOGIC & MEMOIZED VALUES
+  // (All React hooks must run unconditionally before any early returns)
   // -------------------------------------------------------------
   const currentExam = exams.find(e => e.id === selectedExamId) || exams[0];
-  const currentQuestions = currentExam ? StorageService.getQuestionsByExamId(currentExam.id) : [];
+  const currentQuestions = useMemo(() => {
+    return currentExam ? StorageService.getQuestionsByExamId(currentExam.id) : [];
+  }, [currentExam, questionVersion, exams]);
 
   // Safe sanitized submissions
   const safeSubmissions: Submission[] = (submissions || []).filter((s): s is Submission => Boolean(s && s.id));
@@ -1680,6 +1619,231 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       return a.grade.localeCompare(b.grade);
     });
   }, [filteredExams]);
+
+  // Distinct subjects and grades for Rekap Nilai
+  const rekapDistinctSubjects = useMemo(() => {
+    const subjects = new Set<string>();
+    exams.forEach(e => { if (e.subject) subjects.add(e.subject.trim()); });
+    safeSubmissions.forEach(s => {
+      const ex = exams.find(e => e.id === s.examId);
+      if (ex?.subject) subjects.add(ex.subject.trim());
+    });
+    return Array.from(subjects).sort();
+  }, [exams, safeSubmissions]);
+
+  const rekapDistinctGrades = useMemo(() => {
+    const grades = new Set<string>();
+    exams.forEach(e => { if (e.grade) grades.add(e.grade.trim()); });
+    students.forEach(st => { if (st.classGrade) grades.add(st.classGrade.trim()); });
+    safeSubmissions.forEach(s => {
+      if (s.classGrade) grades.add(s.classGrade.trim());
+    });
+    return Array.from(grades).sort();
+  }, [exams, students, safeSubmissions]);
+
+  const availableRekapExams = useMemo(() => {
+    return exams.filter(e => {
+      const matchSubject = rekapSubjectFilter === 'all' || (e.subject || '').toLowerCase() === rekapSubjectFilter.toLowerCase();
+      const matchGrade = rekapGradeFilter === 'all' || (e.grade || '').toLowerCase() === rekapGradeFilter.toLowerCase();
+      return matchSubject && matchGrade;
+    });
+  }, [exams, rekapSubjectFilter, rekapGradeFilter]);
+
+  const filteredRekapSubmissions = useMemo(() => {
+    return safeSubmissions.filter(sub => {
+      const ex = exams.find(e => e.id === sub.examId);
+      const subSubject = ex?.subject || '';
+      const subGrade = sub.classGrade || ex?.grade || '';
+
+      if (rekapSubjectFilter !== 'all' && subSubject.toLowerCase() !== rekapSubjectFilter.toLowerCase()) {
+        return false;
+      }
+      if (rekapGradeFilter !== 'all' && subGrade.toLowerCase() !== rekapGradeFilter.toLowerCase()) {
+        return false;
+      }
+      if (rekapExamFilter !== 'all' && sub.examId !== rekapExamFilter) {
+        return false;
+      }
+      if (rekapSearchQuery.trim()) {
+        const q = rekapSearchQuery.toLowerCase();
+        const matchName = (sub.studentName || '').toLowerCase().includes(q);
+        const matchNo = (sub.studentNo || '').toLowerCase().includes(q);
+        const matchTitle = (sub.examTitle || ex?.title || '').toLowerCase().includes(q);
+        if (!matchName && !matchNo && !matchTitle) return false;
+      }
+      return true;
+    }).sort((a, b) => {
+      let valA: any = '';
+      let valB: any = '';
+
+      switch (rekapSortKey) {
+        case 'studentNo':
+          valA = a.studentNo || '';
+          valB = b.studentNo || '';
+          break;
+        case 'studentName':
+          valA = a.studentName || '';
+          valB = b.studentName || '';
+          break;
+        case 'classGrade':
+          valA = a.classGrade || '';
+          valB = b.classGrade || '';
+          break;
+        case 'subject': {
+          const exA = exams.find(e => e.id === a.examId);
+          const exB = exams.find(e => e.id === b.examId);
+          valA = exA?.subject || '';
+          valB = exB?.subject || '';
+          break;
+        }
+        case 'examTitle': {
+          const exA = exams.find(e => e.id === a.examId);
+          const exB = exams.find(e => e.id === b.examId);
+          valA = a.examTitle || exA?.title || '';
+          valB = b.examTitle || exB?.title || '';
+          break;
+        }
+        case 'percentage':
+          valA = Number(a.percentage) || 0;
+          valB = Number(b.percentage) || 0;
+          break;
+        case 'score':
+          valA = Number(a.score) || 0;
+          valB = Number(b.score) || 0;
+          break;
+        case 'passed':
+          valA = a.passed ? 1 : 0;
+          valB = b.passed ? 1 : 0;
+          break;
+        case 'timeSpentSeconds':
+          valA = Number(a.timeSpentSeconds) || 0;
+          valB = Number(b.timeSpentSeconds) || 0;
+          break;
+        case 'submittedAt':
+        default:
+          valA = new Date(a.submittedAt || 0).getTime();
+          valB = new Date(b.submittedAt || 0).getTime();
+          break;
+      }
+
+      if (typeof valA === 'number' && typeof valB === 'number') {
+        return rekapSortDir === 'asc' ? valA - valB : valB - valA;
+      }
+      const strA = String(valA).toLowerCase();
+      const strB = String(valB).toLowerCase();
+      return rekapSortDir === 'asc' ? strA.localeCompare(strB) : strB.localeCompare(strA);
+    });
+  }, [safeSubmissions, exams, rekapSubjectFilter, rekapGradeFilter, rekapExamFilter, rekapSearchQuery, rekapSortKey, rekapSortDir]);
+
+  const handleRekapSort = (key: string) => {
+    if (rekapSortKey === key) {
+      setRekapSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setRekapSortKey(key);
+      setRekapSortDir('desc');
+    }
+  };
+
+  const rekapKpiStats = useMemo(() => {
+    const total = filteredRekapSubmissions.length;
+    if (total === 0) {
+      return { total: 0, avg: 0, highest: 0, lowest: 0, passedCount: 0, passedPct: 0 };
+    }
+    const scores = filteredRekapSubmissions.map(s => Number(s.percentage) || 0);
+    const sum = scores.reduce((a, b) => a + b, 0);
+    const avg = Math.round(sum / total);
+    const highest = Math.max(...scores);
+    const lowest = Math.min(...scores);
+    const passedCount = filteredRekapSubmissions.filter(s => {
+      const ex = exams.find(e => e.id === s.examId);
+      const kkm = ex?.passingScore ?? 75;
+      return (Number(s.percentage) || 0) >= kkm;
+    }).length;
+    const passedPct = Math.round((passedCount / total) * 100);
+    return { total, avg, highest, lowest, passedCount, passedPct };
+  }, [filteredRekapSubmissions, exams]);
+
+  const handleSyncRekapToGoogleSheets = async () => {
+    if (filteredRekapSubmissions.length === 0) {
+      alert('Tidak ada data rekap nilai yang memenuhi filter untuk disimpan ke Google Sheets.');
+      return;
+    }
+    setIsSyncingRekapToSheets(true);
+    try {
+      const payload = filteredRekapSubmissions.map(sub => {
+        const ex = exams.find(e => e.id === sub.examId);
+        const st = students.find(s => s.studentNo === sub.studentNo || s.nis === sub.studentNo);
+        const kkm = ex?.passingScore ?? 75;
+        const pct = Number(sub.percentage) || 0;
+        const passed = pct >= kkm;
+        return {
+          id: sub.id,
+          studentNo: sub.studentNo || st?.studentNo || '-',
+          studentName: sub.studentName || st?.fullName || 'Peserta Ujian',
+          classGrade: sub.classGrade || ex?.grade || st?.classGrade || '-',
+          subject: ex?.subject || 'Umum',
+          examTitle: sub.examTitle || ex?.title || 'Paket Asesmen',
+          examId: sub.examId,
+          score: Number(sub.score) || 0,
+          maxScore: Number(sub.maxScore) || 100,
+          percentage: pct,
+          passingScore: kkm,
+          passed: passed,
+          statusNote: passed ? 'TUNTAS' : 'BELUM TUNTAS',
+          timeSpentSeconds: Number(sub.timeSpentSeconds) || 0,
+          submittedAt: sub.submittedAt || new Date().toISOString()
+        };
+      });
+
+      const res = await GasClient.pushGradeRecap(payload, {
+        subject: rekapSubjectFilter !== 'all' ? rekapSubjectFilter : undefined,
+        classGrade: rekapGradeFilter !== 'all' ? rekapGradeFilter : undefined
+      });
+
+      if (res.success) {
+        alert(`Berhasil menyimpan ${res.count || payload.length} baris data Rekap Nilai ke Google Sheets (Sheet "Rekap_Nilai")!`);
+      } else {
+        alert(`Pemberitahuan Sinkronisasi: ${res.message}`);
+      }
+    } catch (err: any) {
+      console.error('Error syncing rekap to Google Sheets:', err);
+      alert(`Gagal menyimpan ke Google Sheets: ${err?.message || err}`);
+    } finally {
+      setIsSyncingRekapToSheets(false);
+    }
+  };
+
+  const handleExportRekapToExcel = () => {
+    if (filteredRekapSubmissions.length === 0) {
+      alert('Tidak ada data rekap nilai untuk diunduh.');
+      return;
+    }
+    const targetExam = exams.find(e => e.id === rekapExamFilter) || exams.find(e => e.subject === rekapSubjectFilter) || exams[0] || {
+      id: 'rekap-semua',
+      title: `Rekap Asesmen ${rekapSubjectFilter !== 'all' ? rekapSubjectFilter : 'Semua Mapel'}`,
+      subject: rekapSubjectFilter !== 'all' ? rekapSubjectFilter : 'Multi Mata Pelajaran',
+      grade: rekapGradeFilter !== 'all' ? rekapGradeFilter : 'Semua Kelas',
+      passingScore: 75
+    } as any;
+    const targetClass = rekapGradeFilter !== 'all' ? rekapGradeFilter : 'Semua Kelas';
+    exportGradeRecapToExcel(targetExam, filteredRekapSubmissions, profile, targetClass);
+  };
+
+  const handleExportRekapToWord = async () => {
+    if (filteredRekapSubmissions.length === 0) {
+      alert('Tidak ada data rekap nilai untuk diunduh.');
+      return;
+    }
+    const targetExam = exams.find(e => e.id === rekapExamFilter) || exams.find(e => e.subject === rekapSubjectFilter) || exams[0] || {
+      id: 'rekap-semua',
+      title: `Rekap Asesmen ${rekapSubjectFilter !== 'all' ? rekapSubjectFilter : 'Semua Mapel'}`,
+      subject: rekapSubjectFilter !== 'all' ? rekapSubjectFilter : 'Multi Mata Pelajaran',
+      grade: rekapGradeFilter !== 'all' ? rekapGradeFilter : 'Semua Kelas',
+      passingScore: 75
+    } as any;
+    const targetClass = rekapGradeFilter !== 'all' ? rekapGradeFilter : 'Semua Kelas';
+    await exportGradeRecapToDocx(targetExam, filteredRekapSubmissions, profile, targetClass);
+  };
 
   // Filter submissions for current exam (for quick stats on exams tab)
   const examSubmissions = safeSubmissions.filter(s => {
@@ -2044,6 +2208,83 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     );
   };
 
+  // -------------------------------------------------------------
+  // LOGIN SCREEN (If teacher is not authenticated)
+  // (Evaluated after all hooks have executed to preserve Hook order)
+  // -------------------------------------------------------------
+  if (!currentUser) {
+    return (
+      <div className="max-w-md mx-auto py-16 px-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 border border-slate-200 dark:border-slate-800 shadow-xl">
+          <div className="text-center pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
+            {profile.logoUrl && (
+              <img
+                src={profile.logoUrl}
+                alt={profile.name}
+                referrerPolicy="no-referrer"
+                className="w-14 h-14 rounded-xl object-cover mx-auto mb-2 shadow-sm"
+              />
+            )}
+            <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+              {profile.name}
+            </h3>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mt-1">
+              Masuk Portal Pengajar
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Kelola jadwal ujian, butir soal, analitik nilai, dan profil sekolah.
+            </p>
+          </div>
+
+          {loginError && (
+            <div className="mb-4 p-3 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs text-rose-600 dark:text-rose-400">
+              {loginError}
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Nama Pengguna (Username)
+              </label>
+              <input
+                type="text"
+                required
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Kata Sandi (Password)
+              </label>
+              <input
+                type="password"
+                required
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="p-3 bg-indigo-50 dark:bg-indigo-950/50 rounded-lg text-xs text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+              Akun demo bawaan: <span className="font-mono font-bold">guru</span> / <span className="font-mono font-bold">password123</span>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl shadow-sm transition-colors"
+            >
+              Masuk ke Portal Guru
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
       {/* Teacher Top Info & User Bar */}
@@ -2124,6 +2365,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         >
           <BarChart3 className="w-3.5 h-3.5" />
           <span>Dasbor Nilai Siswa ({submissions.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('rekap')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+            activeTab === 'rekap'
+              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400 font-bold'
+              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+          <span>Rekap Nilai (Mapel &amp; Kelas)</span>
         </button>
 
         <button
@@ -4042,6 +4295,455 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       )}
     </div>
   )}
+
+      {/* ---------------------------------------------------------
+          SUB-TAB: REKAPITULASI NILAI PER MAPEL & KELAS
+         --------------------------------------------------------- */}
+      {activeTab === 'rekap' && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Header & Main Actions */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                <FileSpreadsheet className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Rekap Nilai per Mata Pelajaran & Kelas
+                  </h3>
+                  <span className="text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                    {filteredRekapSubmissions.length} Data Siswa
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Saring, urutkan, dan unduh perolehan nilai siswa berdasarkan kelompok mata pelajaran dan kelas, serta simpan langsung ke Google Sheets.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSyncRekapToGoogleSheets}
+                disabled={isSyncingRekapToSheets || filteredRekapSubmissions.length === 0}
+                className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
+                title="Simpan seluruh baris rekap nilai yang difilter ke sheet 'Rekap_Nilai' di Google Sheets"
+              >
+                <CloudUpload className={`w-4 h-4 ${isSyncingRekapToSheets ? 'animate-bounce' : ''}`} />
+                <span>{isSyncingRekapToSheets ? 'Menyimpan...' : 'Simpan ke Google Sheets'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportRekapToExcel}
+                disabled={filteredRekapSubmissions.length === 0}
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                title="Ekspor rekapitulasi nilai ini ke file Excel (.xlsx)"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Ekspor .xlsx</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportRekapToWord}
+                disabled={filteredRekapSubmissions.length === 0}
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                title="Ekspor rekapitulasi nilai ini ke file Word (.docx)"
+              >
+                <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span>Ekspor .docx</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Bar */}
+          <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300">
+                <Filter className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Filter & Pencarian Rekap Nilai</span>
+              </div>
+              {(rekapSubjectFilter !== 'all' || rekapGradeFilter !== 'all' || rekapExamFilter !== 'all' || rekapSearchQuery.trim() !== '') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRekapSubjectFilter('all');
+                    setRekapGradeFilter('all');
+                    setRekapExamFilter('all');
+                    setRekapSearchQuery('');
+                  }}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-400 hover:underline cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset Filter</span>
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Mata Pelajaran Filter */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                  Mata Pelajaran
+                </label>
+                <select
+                  value={rekapSubjectFilter}
+                  onChange={(e) => {
+                    setRekapSubjectFilter(e.target.value);
+                    setRekapExamFilter('all');
+                  }}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                >
+                  <option value="all">Semua Mata Pelajaran ({rekapDistinctSubjects.length})</option>
+                  {rekapDistinctSubjects.map(subj => (
+                    <option key={subj} value={subj}>{subj}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Kelas Filter */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                  Kelas / Rombel
+                </label>
+                <select
+                  value={rekapGradeFilter}
+                  onChange={(e) => {
+                    setRekapGradeFilter(e.target.value);
+                    setRekapExamFilter('all');
+                  }}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                >
+                  <option value="all">Semua Kelas ({rekapDistinctGrades.length})</option>
+                  {rekapDistinctGrades.map(grd => (
+                    <option key={grd} value={grd}>{grd}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Paket Ujian Filter */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                  Paket Asesmen
+                </label>
+                <select
+                  value={rekapExamFilter}
+                  onChange={(e) => setRekapExamFilter(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                >
+                  <option value="all">Semua Paket Asesmen ({availableRekapExams.length})</option>
+                  {availableRekapExams.map(ex => (
+                    <option key={ex.id} value={ex.id}>{ex.title} ({ex.subject} - {ex.grade})</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Search query */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                  Pencarian Siswa / Ujian
+                </label>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={rekapSearchQuery}
+                    onChange={(e) => setRekapSearchQuery(e.target.value)}
+                    placeholder="Nama, NIS, atau judul ujian..."
+                    className="w-full pl-8 pr-7 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                  {rekapSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setRekapSearchQuery('')}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* KPI Summary Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Total Peserta</span>
+                <Users className="w-4 h-4 text-indigo-500" />
+              </div>
+              <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">
+                {rekapKpiStats.total}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Siswa terdata</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Rata-rata Nilai</span>
+                <TrendingUp className="w-4 h-4 text-blue-500" />
+              </div>
+              <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">
+                {rekapKpiStats.avg}
+                <span className="text-xs font-normal text-slate-500 ml-1">/ 100</span>
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Skor rata-rata</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Nilai Tertinggi</span>
+                <Award className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div className="mt-2 text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                {rekapKpiStats.highest}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Skor maksimum</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Nilai Terendah</span>
+                <Target className="w-4 h-4 text-amber-500" />
+              </div>
+              <div className="mt-2 text-2xl font-black text-amber-600 dark:text-amber-400">
+                {rekapKpiStats.lowest}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">Skor minimum</div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 col-span-2 sm:col-span-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Ketuntasan</span>
+                <CheckCircle className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div className="mt-2 text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                {rekapKpiStats.passedPct}%
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                {rekapKpiStats.passedCount} dari {rekapKpiStats.total} tuntas
+              </div>
+            </div>
+          </div>
+
+          {/* Table Container */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    <th className="py-3 px-3.5 text-center w-12">No</th>
+                    <th
+                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                      onClick={() => handleRekapSort('studentNo')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>NIS</span>
+                        {rekapSortKey === 'studentNo' ? (
+                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                      onClick={() => handleRekapSort('studentName')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Nama Siswa</span>
+                        {rekapSortKey === 'studentName' ? (
+                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                      onClick={() => handleRekapSort('classGrade')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Kelas</span>
+                        {rekapSortKey === 'classGrade' ? (
+                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                      onClick={() => handleRekapSort('subject')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Mata Pelajaran</span>
+                        {rekapSortKey === 'subject' ? (
+                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                      onClick={() => handleRekapSort('examTitle')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Paket Asesmen</span>
+                        {rekapSortKey === 'examTitle' ? (
+                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      className="py-3 px-3.5 text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                      onClick={() => handleRekapSort('score')}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Skor</span>
+                        {rekapSortKey === 'score' ? (
+                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      className="py-3 px-3.5 text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                      onClick={() => handleRekapSort('percentage')}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>Nilai Akhir</span>
+                        {rekapSortKey === 'percentage' ? (
+                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                        )}
+                      </div>
+                    </th>
+                    <th className="py-3 px-3.5 text-center">Status</th>
+                    <th className="py-3 px-3.5 text-center">Durasi</th>
+                    <th
+                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                      onClick={() => handleRekapSort('submittedAt')}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span>Waktu Pengumpulan</span>
+                        {rekapSortKey === 'submittedAt' ? (
+                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                        )}
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs text-slate-700 dark:text-slate-300">
+                  {filteredRekapSubmissions.map((sub, idx) => {
+                    const ex = exams.find(e => e.id === sub.examId);
+                    const kkm = ex?.passingScore ?? 75;
+                    const pct = Number(sub.percentage) || 0;
+                    const isPassed = pct >= kkm;
+                    const mins = Math.floor((sub.timeSpentSeconds || 0) / 60);
+                    const secs = (sub.timeSpentSeconds || 0) % 60;
+
+                    return (
+                      <tr key={sub.id || idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="py-2.5 px-3.5 text-center text-slate-400 font-mono text-[11px]">
+                          {idx + 1}
+                        </td>
+                        <td className="py-2.5 px-3.5 font-mono text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                          {sub.studentNo || '-'}
+                        </td>
+                        <td className="py-2.5 px-3.5 font-bold text-slate-900 dark:text-white">
+                          {sub.studentName}
+                        </td>
+                        <td className="py-2.5 px-3.5">
+                          <span className="inline-block px-2 py-0.5 text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-md">
+                            {sub.classGrade || ex?.grade || '-'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3.5">
+                          <span className="inline-block px-2 py-0.5 text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-md border border-indigo-100 dark:border-indigo-900">
+                            {ex?.subject || 'Umum'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3.5 max-w-xs truncate" title={sub.examTitle || ex?.title}>
+                          {sub.examTitle || ex?.title || '-'}
+                        </td>
+                        <td className="py-2.5 px-3.5 text-center font-mono text-[11px] text-slate-500">
+                          {sub.score} / {sub.maxScore}
+                        </td>
+                        <td className="py-2.5 px-3.5 text-center">
+                          <span className={`inline-block font-black text-xs font-mono px-2 py-0.5 rounded-md ${
+                            isPassed
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                              : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                          }`}>
+                            {pct}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3.5 text-center">
+                          {isPassed ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>TUNTAS</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                              <AlertCircle className="w-3 h-3" />
+                              <span>REMEDIAL</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3.5 text-center text-slate-500 font-mono text-[11px]">
+                          {mins}m {secs}s
+                        </td>
+                        <td className="py-2.5 px-3.5 text-slate-500 text-[11px] whitespace-nowrap">
+                          {sub.submittedAt ? new Date(sub.submittedAt).toLocaleString('id-ID', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          }) : '-'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              {filteredRekapSubmissions.length === 0 && (
+                <div className="p-12 text-center text-slate-400 dark:text-slate-500">
+                  <FileSpreadsheet className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700 mb-2" />
+                  <p className="text-sm font-semibold">Tidak ada data rekap nilai yang sesuai dengan filter.</p>
+                  <p className="text-xs text-slate-400 mt-1">Coba ubah pilihan mata pelajaran, kelas, paket asesmen, atau kata kunci pencarian.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Table Footer */}
+            <div className="flex flex-col sm:flex-row items-center justify-between p-3.5 bg-slate-50/75 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 gap-2">
+              <div>
+                Menampilkan <span className="font-bold text-slate-700 dark:text-slate-300">{filteredRekapSubmissions.length}</span> dari{' '}
+                <span className="font-bold text-slate-700 dark:text-slate-300">{safeSubmissions.length}</span> total rekaman ujian siswa
+              </div>
+              <div className="flex items-center gap-3">
+                <span>Filter Mapel: <strong className="text-slate-700 dark:text-slate-300">{rekapSubjectFilter}</strong></span>
+                <span>•</span>
+                <span>Filter Kelas: <strong className="text-slate-700 dark:text-slate-300">{rekapGradeFilter}</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ---------------------------------------------------------
           SUB-TAB 4: SCHOOL PROFILE & LOGO EDITOR

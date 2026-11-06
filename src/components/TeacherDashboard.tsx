@@ -1631,73 +1631,64 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     return Array.from(subjects).sort();
   }, [exams, safeSubmissions]);
 
+const safeString = (value: unknown): string => {
+    return typeof value === "string" ? value.trim() : "";
+};
+
 const rekapDistinctGrades = useMemo(() => {
     const grades = new Set<string>();
 
-    // Normalisasi data kelas menjadi string
-    const normalizeGrade = (value: any): string => {
-        if (value === null || value === undefined) return '';
-
-        // Jika angka, ubah menjadi string
-        if (typeof value === 'number') {
-            return String(value);
-        }
-
-        // Jika string, bersihkan spasi
-        if (typeof value === 'string') {
-            return value.trim();
-        }
-
-        // Jika array atau object, abaikan
-        return '';
-    };
-
-    // Ambil kelas dari data ujian
-    (exams || []).forEach(e => {
-        const grade = normalizeGrade(e?.grade);
+    exams.forEach(e => {
+        const grade = safeString(e.grade);
         if (grade) grades.add(grade);
     });
 
-    // Ambil kelas dari data siswa
-    (students || []).forEach(st => {
-        const grade = normalizeGrade(st?.classGrade);
+    students.forEach(st => {
+        const grade = safeString(st.classGrade);
         if (grade) grades.add(grade);
     });
 
-    // Ambil kelas dari data pengumpulan ujian
-    (safeSubmissions || []).forEach(s => {
-        const grade = normalizeGrade(s?.classGrade);
+    safeSubmissions.forEach(s => {
+        const grade = safeString(s.classGrade);
         if (grade) grades.add(grade);
     });
 
-    return Array.from(grades).sort((a, b) =>
-        a.localeCompare(b, undefined, {
-            numeric: true,
-            sensitivity: 'base'
-        })
-    );
-
+    return Array.from(grades).sort();
 }, [exams, students, safeSubmissions]);
 
   const availableRekapExams = useMemo(() => {
     return exams.filter(e => {
-      const matchSubject = rekapSubjectFilter === 'all' || (e.subject || '').toLowerCase() === rekapSubjectFilter.toLowerCase();
-      const matchGrade = rekapGradeFilter === 'all' || (e.grade || '').toLowerCase() === rekapGradeFilter.toLowerCase();
-      return matchSubject && matchGrade;
+        const matchSubject =
+            rekapSubjectFilter === 'all' ||
+            safeString(e.subject).toLowerCase() === safeString(rekapSubjectFilter).toLowerCase();
+
+        const matchGrade =
+            rekapGradeFilter === 'all' ||
+            safeString(e.grade).toLowerCase() === safeString(rekapGradeFilter).toLowerCase();
+
+        return matchSubject && matchGrade;
     });
-  }, [exams, rekapSubjectFilter, rekapGradeFilter]);
+}, [exams, rekapSubjectFilter, rekapGradeFilter]);
 
   const filteredRekapSubmissions = useMemo(() => {
     return safeSubmissions.filter(sub => {
       const ex = exams.find(e => e.id === sub.examId);
-      const subSubject = ex?.subject || '';
-      const subGrade = sub.classGrade || ex?.grade || '';
+      const subSubject = safeString(ex?.subject);
+const subGrade = safeString(sub.classGrade) || safeString(ex?.grade);
 
-      if (rekapSubjectFilter !== 'all' && subSubject.toLowerCase() !== rekapSubjectFilter.toLowerCase()) {
-        return false;
-      }
-      if (rekapGradeFilter !== 'all' && subGrade.toLowerCase() !== rekapGradeFilter.toLowerCase()) {
-        return false;
+      if (
+    rekapSubjectFilter !== 'all' &&
+    subSubject.toLowerCase() !== safeString(rekapSubjectFilter).toLowerCase()
+) {
+    return false;
+}
+
+if (
+    rekapGradeFilter !== 'all' &&
+    subGrade.toLowerCase() !== safeString(rekapGradeFilter).toLowerCase()
+) {
+    return false;
+}
       }
       if (rekapExamFilter !== 'all' && sub.examId !== rekapExamFilter) {
         return false;

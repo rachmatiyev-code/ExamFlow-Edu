@@ -1631,15 +1631,53 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     return Array.from(subjects).sort();
   }, [exams, safeSubmissions]);
 
-  const rekapDistinctGrades = useMemo(() => {
+const rekapDistinctGrades = useMemo(() => {
     const grades = new Set<string>();
-    exams.forEach(e => { if (e.grade) grades.add(e.grade.trim()); });
-    students.forEach(st => { if (st.classGrade) grades.add(st.classGrade.trim()); });
-    safeSubmissions.forEach(s => {
-      if (s.classGrade) grades.add(s.classGrade.trim());
+
+    // Normalisasi data kelas menjadi string
+    const normalizeGrade = (value: any): string => {
+        if (value === null || value === undefined) return '';
+
+        // Jika angka, ubah menjadi string
+        if (typeof value === 'number') {
+            return String(value);
+        }
+
+        // Jika string, bersihkan spasi
+        if (typeof value === 'string') {
+            return value.trim();
+        }
+
+        // Jika array atau object, abaikan
+        return '';
+    };
+
+    // Ambil kelas dari data ujian
+    (exams || []).forEach(e => {
+        const grade = normalizeGrade(e?.grade);
+        if (grade) grades.add(grade);
     });
-    return Array.from(grades).sort();
-  }, [exams, students, safeSubmissions]);
+
+    // Ambil kelas dari data siswa
+    (students || []).forEach(st => {
+        const grade = normalizeGrade(st?.classGrade);
+        if (grade) grades.add(grade);
+    });
+
+    // Ambil kelas dari data pengumpulan ujian
+    (safeSubmissions || []).forEach(s => {
+        const grade = normalizeGrade(s?.classGrade);
+        if (grade) grades.add(grade);
+    });
+
+    return Array.from(grades).sort((a, b) =>
+        a.localeCompare(b, undefined, {
+            numeric: true,
+            sensitivity: 'base'
+        })
+    );
+
+}, [exams, students, safeSubmissions]);
 
   const availableRekapExams = useMemo(() => {
     return exams.filter(e => {

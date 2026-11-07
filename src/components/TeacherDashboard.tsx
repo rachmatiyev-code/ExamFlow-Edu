@@ -960,24 +960,31 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     e.preventDefault();
     setIsSavingProfile(true);
     try {
+      const safeTrim = (val: any, fallback = ''): string => {
+        if (val === null || val === undefined) return fallback;
+        const s = String(val).trim();
+        return s || fallback;
+      };
+
       const sanitized: SchoolProfile = {
         ...profileForm,
-        name: profileForm.name?.trim() || 'SD NEGERI PISANGCANDI 1 MALANG',
-        npsn: profileForm.npsn?.trim() || '20533857',
-        address: profileForm.address?.trim() || 'Jl. Raya Pisang Candi No. 1, Kec. Sukun, Kota Malang, Jawa Timur',
-        regionalGovName: profileForm.regionalGovName?.trim() || 'PEMERINTAH KOTA MALANG',
-        regionalGovDepartment: profileForm.regionalGovDepartment?.trim() || 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
+        name: safeTrim(profileForm.name, 'SD NEGERI PISANGCANDI 1 MALANG'),
+        npsn: safeTrim(profileForm.npsn, '20533857'),
+        address: safeTrim(profileForm.address, 'Jl. Raya Pisang Candi No. 1, Kec. Sukun, Kota Malang, Jawa Timur'),
+        regionalGovName: safeTrim(profileForm.regionalGovName, 'PEMERINTAH KOTA MALANG'),
+        regionalGovDepartment: safeTrim(profileForm.regionalGovDepartment, 'DINAS PENDIDIKAN DAN KEBUDAYAAN'),
         regionalGovLogoUrl: sanitizeLogoUrl(profileForm.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG),
         logoUrl: sanitizeLogoUrl(profileForm.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG),
-        academicYear: profileForm.academicYear || '2026/2027',
-        semester: profileForm.semester || 'Ganjil',
-        principalName: profileForm.principalName || '',
-        principalNip: profileForm.principalNip || '',
-        teacherName: profileForm.teacherName?.trim() || 'Guru Pengampu',
-        teacherNip: profileForm.teacherNip || '',
-        teacherSubject: profileForm.teacherSubject || '',
-        teacherEmail: profileForm.teacherEmail || '',
-        teacherTitle: profileForm.teacherTitle || ''
+        academicYear: safeTrim(profileForm.academicYear, '2026/2027'),
+        semester: (String(profileForm.semester).toLowerCase().includes('genap') ? 'Genap' : 'Ganjil') as 'Ganjil' | 'Genap',
+        principalName: safeTrim(profileForm.principalName, ''),
+        principalNip: safeTrim(profileForm.principalNip, ''),
+        teacherName: safeTrim(profileForm.teacherName, 'Guru Pengampu'),
+        teacherNip: safeTrim(profileForm.teacherNip, ''),
+        teacherSubject: safeTrim(profileForm.teacherSubject, ''),
+        teacherEmail: safeTrim(profileForm.teacherEmail, ''),
+        teacherTitle: safeTrim(profileForm.teacherTitle, ''),
+        updatedAt: new Date().toISOString()
       };
 
       // 1. Simpan ke local storage SEGERA
@@ -5154,7 +5161,7 @@ const rekapDistinctGrades = useMemo(() => {
                   type="text"
                   required
                   placeholder="Contoh: SD NEGERI PISANGCANDI 1 MALANG"
-                  value={profileForm.name}
+                  value={profileForm.name ?? ''}
                   onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
                   className="w-full px-3.5 py-2 text-sm font-bold uppercase rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
@@ -5166,7 +5173,7 @@ const rekapDistinctGrades = useMemo(() => {
                 </label>
                 <input
                   type="text"
-                  value={profileForm.npsn}
+                  value={profileForm.npsn ?? ''}
                   onChange={(e) => setProfileForm({ ...profileForm, npsn: e.target.value })}
                   className="w-full px-3.5 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
@@ -5178,7 +5185,7 @@ const rekapDistinctGrades = useMemo(() => {
                 </label>
                 <input
                   type="text"
-                  value={profileForm.academicYear}
+                  value={profileForm.academicYear ?? ''}
                   onChange={(e) => setProfileForm({ ...profileForm, academicYear: e.target.value })}
                   className="w-full px-3.5 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
@@ -5190,7 +5197,7 @@ const rekapDistinctGrades = useMemo(() => {
                 </label>
                 <input
                   type="text"
-                  value={profileForm.address}
+                  value={profileForm.address ?? ''}
                   onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })}
                   className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
@@ -5202,7 +5209,7 @@ const rekapDistinctGrades = useMemo(() => {
                 </label>
                 <input
                   type="text"
-                  value={profileForm.principalName}
+                  value={profileForm.principalName ?? ''}
                   onChange={(e) => setProfileForm({ ...profileForm, principalName: e.target.value })}
                   className="w-full px-3.5 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />
@@ -5214,7 +5221,7 @@ const rekapDistinctGrades = useMemo(() => {
                 </label>
                 <input
                   type="text"
-                  value={profileForm.principalNip}
+                  value={profileForm.principalNip ?? ''}
                   onChange={(e) => setProfileForm({ ...profileForm, principalNip: e.target.value })}
                   className="w-full px-3.5 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                 />

@@ -30,7 +30,7 @@ const STORAGE_KEYS = {
   INITIALIZED: 'examflow_initialized_v1'
 };
 
-import { PEMKOT_MALANG_LOGO_SVG } from './logoAssets';
+import { PEMKOT_MALANG_LOGO_SVG, SDN_PISANGCANDI_1_LOGO_SVG, sanitizeLogoUrl } from './logoAssets';
 
 const DEFAULT_PROFILE: SchoolProfile = {
   name: 'SD NEGERI PISANGCANDI 1 MALANG',
@@ -298,26 +298,70 @@ export class StorageService {
 
   // School Profile
   static getProfile(): SchoolProfile {
-    const prof = this.getItem<SchoolProfile>(STORAGE_KEYS.PROFILE, DEFAULT_PROFILE);
+    const prof = this.getItem<any>(STORAGE_KEYS.PROFILE, DEFAULT_PROFILE) || DEFAULT_PROFILE;
+    const safeStr = (v: any, fallback = ''): string => {
+      if (v === null || v === undefined) return fallback;
+      const s = String(v).trim();
+      return s || fallback;
+    };
+
     return {
-      ...prof,
-      regionalGovLogoUrl: prof.regionalGovLogoUrl || PEMKOT_MALANG_LOGO_SVG,
-      regionalGovName: prof.regionalGovName || 'PEMERINTAH KOTA MALANG',
-      regionalGovDepartment: prof.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'
+      name: safeStr(prof.name, DEFAULT_PROFILE.name),
+      npsn: safeStr(prof.npsn, DEFAULT_PROFILE.npsn),
+      address: safeStr(prof.address, DEFAULT_PROFILE.address),
+      logoUrl: sanitizeLogoUrl(prof.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG),
+      regionalGovLogoUrl: sanitizeLogoUrl(prof.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG),
+      regionalGovName: safeStr(prof.regionalGovName, 'PEMERINTAH KOTA MALANG'),
+      regionalGovDepartment: safeStr(prof.regionalGovDepartment, 'DINAS PENDIDIKAN DAN KEBUDAYAAN'),
+      academicYear: safeStr(prof.academicYear, DEFAULT_PROFILE.academicYear),
+      semester: (String(prof.semester).toLowerCase().includes('genap') ? 'Genap' : 'Ganjil') as 'Ganjil' | 'Genap',
+      principalName: safeStr(prof.principalName, DEFAULT_PROFILE.principalName || ''),
+      principalNip: safeStr(prof.principalNip, DEFAULT_PROFILE.principalNip || ''),
+      teacherName: safeStr(prof.teacherName, DEFAULT_PROFILE.teacherName || 'Guru Pengampu'),
+      teacherNip: safeStr(prof.teacherNip, DEFAULT_PROFILE.teacherNip || ''),
+      teacherSubject: safeStr(prof.teacherSubject, DEFAULT_PROFILE.teacherSubject || ''),
+      teacherEmail: safeStr(prof.teacherEmail, DEFAULT_PROFILE.teacherEmail || ''),
+      teacherTitle: safeStr(prof.teacherTitle, DEFAULT_PROFILE.teacherTitle || ''),
+      updatedAt: safeStr(prof.updatedAt, new Date().toISOString())
     };
   }
 
   static saveProfile(profile: SchoolProfile): void {
-    const updated = { ...profile, updatedAt: new Date().toISOString() };
-    this.setItem(STORAGE_KEYS.PROFILE, updated);
+    const safeStr = (v: any, fallback = ''): string => {
+      if (v === null || v === undefined) return fallback;
+      const s = String(v).trim();
+      return s || fallback;
+    };
+
+    const sanitized: SchoolProfile = {
+      name: safeStr(profile.name, DEFAULT_PROFILE.name),
+      npsn: safeStr(profile.npsn, DEFAULT_PROFILE.npsn),
+      address: safeStr(profile.address, DEFAULT_PROFILE.address),
+      logoUrl: sanitizeLogoUrl(profile.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG),
+      regionalGovLogoUrl: sanitizeLogoUrl(profile.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG),
+      regionalGovName: safeStr(profile.regionalGovName, 'PEMERINTAH KOTA MALANG'),
+      regionalGovDepartment: safeStr(profile.regionalGovDepartment, 'DINAS PENDIDIKAN DAN KEBUDAYAAN'),
+      academicYear: safeStr(profile.academicYear, DEFAULT_PROFILE.academicYear),
+      semester: (String(profile.semester).toLowerCase().includes('genap') ? 'Genap' : 'Ganjil') as 'Ganjil' | 'Genap',
+      principalName: safeStr(profile.principalName, ''),
+      principalNip: safeStr(profile.principalNip, ''),
+      teacherName: safeStr(profile.teacherName, 'Guru Pengampu'),
+      teacherNip: safeStr(profile.teacherNip, ''),
+      teacherSubject: safeStr(profile.teacherSubject, ''),
+      teacherEmail: safeStr(profile.teacherEmail, ''),
+      teacherTitle: safeStr(profile.teacherTitle, ''),
+      updatedAt: new Date().toISOString()
+    };
+
+    this.setItem(STORAGE_KEYS.PROFILE, sanitized);
     
     // Automatically keep current user name in sync if logged in
     const currentUser = this.getCurrentUser();
-    if (currentUser && profile.teacherName) {
-      const updatedUser = { ...currentUser, fullName: profile.teacherName };
+    if (currentUser && sanitized.teacherName) {
+      const updatedUser = { ...currentUser, fullName: sanitized.teacherName };
       this.setCurrentUser(updatedUser);
     }
-    this.addLog('SYNC', `Profil sekolah & guru (${profile.teacherName}) diperbarui secara lokal`);
+    this.addLog('SYNC', `Profil sekolah & guru (${sanitized.teacherName}) diperbarui secara lokal`);
   }
 
   // Exams

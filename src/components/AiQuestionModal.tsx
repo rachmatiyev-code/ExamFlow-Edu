@@ -104,9 +104,9 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
   // Filter curriculum items based on the active grade
   const filteredCurriculumList = React.useMemo(() => {
     if (!activeGrade || activeGrade === 'Semua') return curriculumList;
-    const q = activeGrade.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const q = String(activeGrade).toLowerCase().replace(/[^a-z0-9]/g, '');
     return curriculumList.filter(item => {
-      const g = (item.grade || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const g = String(item.grade || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       if (!g) return true;
       if (g.includes(q) || q.includes(g)) return true;
 

@@ -94,7 +94,8 @@ import {
   MessageSquare,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Sliders
 } from 'lucide-react';
 import { sanitizeLogoUrl, PEMKOT_MALANG_LOGO_SVG, SDN_PISANGCANDI_1_LOGO_SVG } from '../services/logoAssets';
 import { QuestionTypeBreakdown } from '../services/aiGenerator';
@@ -230,7 +231,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
   // School Profile Edit State
   const [profileForm, setProfileForm] = useState<SchoolProfile>(profile);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState<string | null>(null);
+
+  // Question Score & Weight Configuration State
+  const [isScoreModalOpen, setIsScoreModalOpen] = useState(false);
+  const [scoreConfigMode, setScoreConfigMode] = useState<'uniform' | 'by_type'>('uniform');
+  const [uniformScoreInput, setUniformScoreInput] = useState<number>(10);
+  const [typeScoreInputs, setTypeScoreInputs] = useState<{
+    multipleChoice: number;
+    checkbox: number;
+    trueFalse: number;
+    essay: number;
+  }>({
+    multipleChoice: 2,
+    checkbox: 4,
+    trueFalse: 2,
+    essay: 10
+  });
+  const [syncScoreToSheets, setSyncScoreToSheets] = useState(true);
+  const [isApplyingScores, setIsApplyingScores] = useState(false);
+  const [scoreFeedbackMsg, setScoreFeedbackMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setProfileForm(profile);
@@ -937,25 +958,111 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // School Profile Save
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    const sanitized: SchoolProfile = {
-      ...profileForm,
-      regionalGovLogoUrl: sanitizeLogoUrl(profileForm.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG),
-      logoUrl: sanitizeLogoUrl(profileForm.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)
-    };
-    // 1. Simpan ke local storage
-    StorageService.saveProfile(sanitized);
-    setProfileForm(sanitized);
-    // 2. Simpan ke Google Sheets
-    await GasClient.pushSchoolProfile(sanitized);
-    // 3. Notifikasi parent component agar state seluruh aplikasi terupdate seketika
-    onUpdateProfile(sanitized);
-    if (currentUser && sanitized.teacherName) {
-      const updatedUser = { ...currentUser, fullName: sanitized.teacherName };
-      setCurrentUser(updatedUser);
-      StorageService.setCurrentUser(updatedUser);
+    setIsSavingProfile(true);
+    try {
+      const sanitized: SchoolProfile = {
+        ...profileForm,
+        name: profileForm.name?.trim() || 'SD NEGERI PISANGCANDI 1 MALANG',
+        npsn: profileForm.npsn?.trim() || '20533857',
+        address: profileForm.address?.trim() || 'Jl. Raya Pisang Candi No. 1, Kec. Sukun, Kota Malang, Jawa Timur',
+        regionalGovName: profileForm.regionalGovName?.trim() || 'PEMERINTAH KOTA MALANG',
+        regionalGovDepartment: profileForm.regionalGovDepartment?.trim() || 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
+        regionalGovLogoUrl: sanitizeLogoUrl(profileForm.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG),
+        logoUrl: sanitizeLogoUrl(profileForm.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG),
+        academicYear: profileForm.academicYear || '2026/2027',
+        semester: profileForm.semester || 'Ganjil',
+        principalName: profileForm.principalName || '',
+        principalNip: profileForm.principalNip || '',
+        teacherName: profileForm.teacherName?.trim() || 'Guru Pengampu',
+        teacherNip: profileForm.teacherNip || '',
+        teacherSubject: profileForm.teacherSubject || '',
+        teacherEmail: profileForm.teacherEmail || '',
+        teacherTitle: profileForm.teacherTitle || ''
+      };
+
+      // 1. Simpan ke local storage SEGERA
+      StorageService.saveProfile(sanitized);
+      setProfileForm(sanitized);
+
+      // 2. Notifikasi parent component agar state seluruh aplikasi (Navbar dll) terupdate seketika
+      onUpdateProfile(sanitized);
+
+      if (currentUser && sanitized.teacherName) {
+        const updatedUser = { ...currentUser, fullName: sanitized.teacherName };
+        setCurrentUser(updatedUser);
+        StorageService.setCurrentUser(updatedUser);
+      }
+
+      setProfileSuccessMsg('Profil sekolah & data guru pengampu berhasil disimpan!');
+      setTimeout(() => setProfileSuccessMsg(null), 3500);
+
+      // 3. Simpan ke Google Sheets secara asinkron tanpa menahan UI
+      GasClient.pushSchoolProfile(sanitized).catch((err) => {
+        console.warn('Gagal sinkron profil ke Google Sheets:', err);
+      });
+    } catch (err: any) {
+      console.error('Error saving profile:', err);
+      alert(`Gagal menyimpan profil: ${err?.message || err}`);
+    } finally {
+      setIsSavingProfile(false);
     }
-    setProfileSuccessMsg('Profil sekolah & data guru pengampu berhasil disimpan!');
-    setTimeout(() => setProfileSuccessMsg(null), 3000);
+  };
+
+  // Apply Question Scores (Umum / Per Jenis Soal)
+  const handleApplyQuestionScores = async () => {
+    if (!currentExam) {
+      alert('Pilih paket ujian terlebih dahulu.');
+      return;
+    }
+    const questions = StorageService.getQuestionsByExamId(currentExam.id);
+    if (questions.length === 0) {
+      alert('Belum ada butir soal pada paket ujian ini untuk diatur bobotnya.');
+      return;
+    }
+
+    setIsApplyingScores(true);
+    try {
+      const updated = questions.map(q => {
+        const opts = normalizeQuestionOptions(q.options);
+        const isTf = q.type === 'multiple_choice' && opts.length === 2 && opts[0]?.text === 'Benar';
+        let pts = q.points || 10;
+
+        if (scoreConfigMode === 'uniform') {
+          pts = Math.max(1, Number(uniformScoreInput) || 10);
+        } else {
+          if (q.type === 'essay') {
+            pts = Math.max(1, Number(typeScoreInputs.essay) || 10);
+          } else if (q.type === 'checkbox') {
+            pts = Math.max(1, Number(typeScoreInputs.checkbox) || 4);
+          } else if (isTf) {
+            pts = Math.max(1, Number(typeScoreInputs.trueFalse) || 2);
+          } else {
+            pts = Math.max(1, Number(typeScoreInputs.multipleChoice) || 2);
+          }
+        }
+        return { ...q, points: pts };
+      });
+
+      StorageService.saveQuestionsForExam(currentExam.id, updated);
+      setQuestionVersion(v => v + 1);
+      onRefreshData();
+
+      if (syncScoreToSheets) {
+        await GasClient.pushExam(currentExam, updated);
+      }
+
+      const totalPts = updated.reduce((a, b) => a + (b.points || 0), 0);
+      setScoreFeedbackMsg(`Sukses! Bobot skor berhasil diterapkan untuk ${updated.length} butir soal (Total Skor Maksimal: ${totalPts}).`);
+      setTimeout(() => {
+        setScoreFeedbackMsg(null);
+        setIsScoreModalOpen(false);
+      }, 1600);
+    } catch (err: any) {
+      console.error('Error applying scores:', err);
+      alert(`Gagal menerapkan skor: ${err?.message || err}`);
+    } finally {
+      setIsApplyingScores(false);
+    }
   };
 
   // Logo file upload -> base64
@@ -1585,19 +1692,28 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     ? Math.min(...filteredAnalyticsSubmissions.map(s => Number(s.percentage) || 0))
     : 0;
 
+  const safeString = (value: unknown): string => {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value).trim();
+    return '';
+  };
+
   // Exam Clustering & Filtering
   const examDistinctSubjects = useMemo(() => {
-    return Array.from(new Set(exams.map(e => e.subject).filter(Boolean))).sort();
+    return Array.from(new Set(exams.map(e => safeString(e?.subject)).filter(Boolean))).sort();
   }, [exams]);
 
   const examDistinctGrades = useMemo(() => {
-    return Array.from(new Set(exams.map(e => e.grade).filter(Boolean))).sort();
+    return Array.from(new Set(exams.map(e => safeString(e?.grade)).filter(Boolean))).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
   }, [exams]);
 
   const filteredExams = useMemo(() => {
     return exams.filter(e => {
-      const matchSubject = examSubjectFilter === 'all' || e.subject === examSubjectFilter;
-      const matchGrade = examGradeFilter === 'all' || e.grade === examGradeFilter;
+      const matchSubject = examSubjectFilter === 'all' || safeString(e?.subject) === examSubjectFilter;
+      const matchGrade = examGradeFilter === 'all' || safeString(e?.grade) === examGradeFilter;
       return matchSubject && matchGrade;
     });
   }, [exams, examSubjectFilter, examGradeFilter]);
@@ -1605,8 +1721,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const examClusters = useMemo(() => {
     const map = new Map<string, { subject: string; grade: string; exams: Exam[] }>();
     filteredExams.forEach(exam => {
-      const sub = exam.subject || 'Umum';
-      const grd = exam.grade || 'Semua Kelas';
+      const sub = safeString(exam?.subject) || 'Umum';
+      const grd = safeString(exam?.grade) || 'Semua Kelas';
       const key = `${sub}__${grd}`;
       if (!map.has(key)) {
         map.set(key, { subject: sub, grade: grd, exams: [] });
@@ -1616,80 +1732,79 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     return Array.from(map.values()).sort((a, b) => {
       const cmpSubject = a.subject.localeCompare(b.subject);
       if (cmpSubject !== 0) return cmpSubject;
-      return a.grade.localeCompare(b.grade);
+      return a.grade.localeCompare(b.grade, undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [filteredExams]);
 
   // Distinct subjects and grades for Rekap Nilai
   const rekapDistinctSubjects = useMemo(() => {
     const subjects = new Set<string>();
-    exams.forEach(e => { if (e.subject) subjects.add(e.subject.trim()); });
+    exams.forEach(e => { const s = safeString(e?.subject); if (s) subjects.add(s); });
     safeSubmissions.forEach(s => {
       const ex = exams.find(e => e.id === s.examId);
-      if (ex?.subject) subjects.add(ex.subject.trim());
+      const subj = safeString(ex?.subject);
+      if (subj) subjects.add(subj);
     });
     return Array.from(subjects).sort();
   }, [exams, safeSubmissions]);
 
-const safeString = (value: unknown): string => {
-    return typeof value === "string" ? value.trim() : "";
-};
-
 const rekapDistinctGrades = useMemo(() => {
-    const grades = new Set<string>();
+  const grades = new Set<string>();
 
-    exams.forEach(e => {
-        const grade = safeString(e.grade);
-        if (grade) grades.add(grade);
-    });
+  (exams || []).forEach(e => {
+    const grade = safeString(e?.grade);
+    if (grade) grades.add(grade);
+  });
 
-    students.forEach(st => {
-        const grade = safeString(st.classGrade);
-        if (grade) grades.add(grade);
-    });
+  (students || []).forEach(st => {
+    const grade = safeString(st?.classGrade);
+    if (grade) grades.add(grade);
+  });
 
-    safeSubmissions.forEach(s => {
-        const grade = safeString(s.classGrade);
-        if (grade) grades.add(grade);
-    });
+  (safeSubmissions || []).forEach(s => {
+    const grade = safeString(s?.classGrade);
+    if (grade) grades.add(grade);
+  });
 
-    return Array.from(grades).sort();
+  return Array.from(grades).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+  );
 }, [exams, students, safeSubmissions]);
 
   const availableRekapExams = useMemo(() => {
     return exams.filter(e => {
-        const matchSubject =
-            rekapSubjectFilter === 'all' ||
-            safeString(e.subject).toLowerCase() === safeString(rekapSubjectFilter).toLowerCase();
+      const matchSubject =
+        rekapSubjectFilter === 'all' ||
+        safeString(e?.subject).toLowerCase() === safeString(rekapSubjectFilter).toLowerCase();
 
-        const matchGrade =
-            rekapGradeFilter === 'all' ||
-            safeString(e.grade).toLowerCase() === safeString(rekapGradeFilter).toLowerCase();
+      const matchGrade =
+        rekapGradeFilter === 'all' ||
+        safeString(e?.grade).toLowerCase() === safeString(rekapGradeFilter).toLowerCase();
 
-        return matchSubject && matchGrade;
+      return matchSubject && matchGrade;
     });
-}, [exams, rekapSubjectFilter, rekapGradeFilter]);
+  }, [exams, rekapSubjectFilter, rekapGradeFilter]);
 
   const filteredRekapSubmissions = useMemo(() => {
     return safeSubmissions.filter(sub => {
       const ex = exams.find(e => e.id === sub.examId);
       const subSubject = safeString(ex?.subject);
-const subGrade = safeString(sub.classGrade) || safeString(ex?.grade);
+      const subGrade = safeString(sub.classGrade) || safeString(ex?.grade);
 
       if (
-    rekapSubjectFilter !== 'all' &&
-    subSubject.toLowerCase() !== safeString(rekapSubjectFilter).toLowerCase()
-) {
-    return false;
-}
-
-if (
-    rekapGradeFilter !== 'all' &&
-    subGrade.toLowerCase() !== safeString(rekapGradeFilter).toLowerCase()
-) {
-    return false;
-}
+        rekapSubjectFilter !== 'all' &&
+        subSubject.toLowerCase() !== safeString(rekapSubjectFilter).toLowerCase()
+      ) {
+        return false;
       }
+
+      if (
+        rekapGradeFilter !== 'all' &&
+        subGrade.toLowerCase() !== safeString(rekapGradeFilter).toLowerCase()
+      ) {
+        return false;
+      }
+
       if (rekapExamFilter !== 'all' && sub.examId !== rekapExamFilter) {
         return false;
       }
@@ -2764,6 +2879,21 @@ if (
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Tambah Soal Manual</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!selectedExamId && exams.length > 0) {
+                    setSelectedExamId(exams[0].id);
+                  }
+                  setIsScoreModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                title="Tentukan bobot skor butir soal secara umum atau skor per jenis soal"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Atur Bobot & Skor Soal</span>
               </button>
 
               <button
@@ -4829,8 +4959,8 @@ if (
                         type="text"
                         placeholder="URL atau Kode SVG Logo Pemda"
                         value={profileForm.regionalGovLogoUrl || ''}
-                        onChange={(e) => setProfileForm({ ...profileForm, regionalGovLogoUrl: sanitizeLogoUrl(e.target.value) })}
-                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        onChange={(e) => setProfileForm({ ...profileForm, regionalGovLogoUrl: e.target.value })}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono"
                       />
 
                       <div className="flex flex-wrap items-center gap-2">
@@ -4889,8 +5019,8 @@ if (
                         type="text"
                         placeholder="URL atau Kode SVG Logo Sekolah"
                         value={profileForm.logoUrl || ''}
-                        onChange={(e) => setProfileForm({ ...profileForm, logoUrl: sanitizeLogoUrl(e.target.value) })}
-                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        onChange={(e) => setProfileForm({ ...profileForm, logoUrl: e.target.value })}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-mono"
                       />
 
                       <div className="flex flex-wrap items-center gap-2">
@@ -5171,9 +5301,15 @@ if (
 
             <button
               type="submit"
-              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors"
+              disabled={isSavingProfile}
+              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              Simpan Profil Sekolah & Guru
+              {isSavingProfile ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5" />
+              )}
+              <span>{isSavingProfile ? 'Menyimpan...' : 'Simpan Profil Sekolah & Guru'}</span>
             </button>
           </form>
         </div>
@@ -6235,16 +6371,37 @@ if (
 
               {/* Points */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Bobot Poin Soal
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  value={editingQuestion.points || 20}
-                  onChange={(e) => setEditingQuestion({ ...editingQuestion, points: Number(e.target.value) })}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Bobot Poin Soal Ini
+                  </label>
+                  <span className="text-[11px] text-slate-400">Skor maksimum jika dijawab benar</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    value={editingQuestion.points || 20}
+                    onChange={(e) => setEditingQuestion({ ...editingQuestion, points: Math.max(1, Number(e.target.value)) })}
+                    className="w-24 px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  />
+                  <div className="flex flex-wrap items-center gap-1">
+                    {[1, 2, 3, 4, 5, 10, 20, 25].map(pt => (
+                      <button
+                        key={pt}
+                        type="button"
+                        onClick={() => setEditingQuestion({ ...editingQuestion, points: pt })}
+                        className={`px-2 py-1 text-[11px] font-mono font-semibold rounded-md border transition-colors cursor-pointer ${
+                          editingQuestion.points === pt
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }`}
+                      >
+                        {pt} pt
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Taxonomy Section: Bloom-Anderson & SOLO Taxonomy */}
@@ -7730,6 +7887,312 @@ if (
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          MODAL: ATUR BOBOT & SKOR SOAL (UMUM & PER JENIS SOAL)
+         --------------------------------------------------------- */}
+      {isScoreModalOpen && currentExam && (
+        <div 
+          onClick={(e) => { if (e.target === e.currentTarget) setIsScoreModalOpen(false); }}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn max-h-[92vh] overflow-y-auto"
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between pb-3.5 mb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Pengaturan Bobot & Skor Soal
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Paket: <strong className="text-slate-700 dark:text-slate-200">{currentExam.title}</strong> ({currentQuestions.length} butir soal)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsScoreModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="Tutup (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Notification / Feedback */}
+            {scoreFeedbackMsg && (
+              <div className="mb-4 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-xs font-semibold text-emerald-800 dark:text-emerald-200 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{scoreFeedbackMsg}</span>
+              </div>
+            )}
+
+            {/* Mode Switcher */}
+            <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 mb-5">
+              <button
+                type="button"
+                onClick={() => setScoreConfigMode('uniform')}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                  scoreConfigMode === 'uniform'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                1. Skor Butir Soal Umum (Seragam)
+              </button>
+              <button
+                type="button"
+                onClick={() => setScoreConfigMode('by_type')}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                  scoreConfigMode === 'by_type'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                2. Skor per Jenis Soal (Diferensiasi)
+              </button>
+            </div>
+
+            {/* Mode 1: Uniform Points */}
+            {scoreConfigMode === 'uniform' && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Bobot Poin per Butir Soal (Sama Rata)
+                  </label>
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={uniformScoreInput}
+                      onChange={(e) => setUniformScoreInput(Math.max(1, Number(e.target.value)))}
+                      className="w-28 px-3.5 py-2 text-sm font-mono font-bold rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                    />
+                    <span className="text-xs text-slate-500 font-medium">poin / butir soal</span>
+                  </div>
+                </div>
+
+                {/* Quick Presets & 100-Point Target Helper */}
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2.5">
+                  <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    Opsi Cepat & Pembagian Rata:
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setUniformScoreInput(Math.max(1, Math.round(100 / Math.max(1, currentQuestions.length))))}
+                      className="px-2.5 py-1 text-xs font-bold rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors"
+                      title="Hitung otomatis agar perkalian jumlah soal mendekati total 100 poin"
+                    >
+                      🎯 Target Total 100 ({Math.round(100 / Math.max(1, currentQuestions.length))} pt/soal)
+                    </button>
+                    {[2, 4, 5, 10, 20, 25].map(pt => (
+                      <button
+                        key={pt}
+                        type="button"
+                        onClick={() => setUniformScoreInput(pt)}
+                        className={`px-2.5 py-1 text-xs font-mono font-semibold rounded-lg border transition-colors ${
+                          uniformScoreInput === pt
+                            ? 'bg-amber-600 text-white border-amber-600 font-bold'
+                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        {pt} Poin
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Live Preview Summary Card */}
+                <div className="p-3.5 bg-indigo-50/60 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/60 text-xs space-y-1">
+                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                    <span>Total Butir Soal Terdaftar:</span>
+                    <strong className="text-slate-800 dark:text-slate-200 font-mono">{currentQuestions.length} Soal</strong>
+                  </div>
+                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                    <span>Skor Maksimum Ujian Nanti:</span>
+                    <strong className="text-indigo-700 dark:text-indigo-300 font-mono font-bold text-sm">
+                      {currentQuestions.length * uniformScoreInput} Poin
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Mode 2: Points by Question Type */}
+            {scoreConfigMode === 'by_type' && (
+              <div className="space-y-4">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Tentukan bobot skor yang berbeda untuk setiap format bentuk soal pada paket ujian ini:
+                </p>
+
+                <div className="space-y-2.5">
+                  {/* Pilihan Ganda */}
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
+                    <div>
+                      <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>Pilihan Ganda (PG Biasa)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono">
+                          {currentQuestions.filter(q => q.type === 'multiple_choice' && !(normalizeQuestionOptions(q.options).length === 2 && normalizeQuestionOptions(q.options)[0]?.text === 'Benar')).length} soal
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400">1 jawaban benar dari pilihan A-D/E</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={typeScoreInputs.multipleChoice}
+                        onChange={(e) => setTypeScoreInputs({ ...typeScoreInputs, multipleChoice: Math.max(1, Number(e.target.value)) })}
+                        className="w-20 px-2.5 py-1.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                      />
+                      <span className="text-xs text-slate-500">pt</span>
+                    </div>
+                  </div>
+
+                  {/* PG Kompleks / Checkbox */}
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
+                    <div>
+                      <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>Pilihan Ganda Kompleks (Checkbox)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-mono">
+                          {currentQuestions.filter(q => q.type === 'checkbox').length} soal
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400">Dapat memilih lebih dari satu jawaban</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={typeScoreInputs.checkbox}
+                        onChange={(e) => setTypeScoreInputs({ ...typeScoreInputs, checkbox: Math.max(1, Number(e.target.value)) })}
+                        className="w-20 px-2.5 py-1.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                      />
+                      <span className="text-xs text-slate-500">pt</span>
+                    </div>
+                  </div>
+
+                  {/* Benar / Salah */}
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
+                    <div>
+                      <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>Benar / Salah (True/False)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-mono">
+                          {currentQuestions.filter(q => q.type === 'multiple_choice' && normalizeQuestionOptions(q.options).length === 2 && normalizeQuestionOptions(q.options)[0]?.text === 'Benar').length} soal
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400">Verifikasi pernyataan Benar atau Salah</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={typeScoreInputs.trueFalse}
+                        onChange={(e) => setTypeScoreInputs({ ...typeScoreInputs, trueFalse: Math.max(1, Number(e.target.value)) })}
+                        className="w-20 px-2.5 py-1.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                      />
+                      <span className="text-xs text-slate-500">pt</span>
+                    </div>
+                  </div>
+
+                  {/* Esai / Uraian */}
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
+                    <div>
+                      <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>Esai / Uraian (Jawaban Terbuka)</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono">
+                          {currentQuestions.filter(q => q.type === 'essay').length} soal
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400">Penjelasan narasi dan rumus perhitungan</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={typeScoreInputs.essay}
+                        onChange={(e) => setTypeScoreInputs({ ...typeScoreInputs, essay: Math.max(1, Number(e.target.value)) })}
+                        className="w-20 px-2.5 py-1.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                      />
+                      <span className="text-xs text-slate-500">pt</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Preview Summary Card */}
+                {(() => {
+                  const mcCount = currentQuestions.filter(q => q.type === 'multiple_choice' && !(normalizeQuestionOptions(q.options).length === 2 && normalizeQuestionOptions(q.options)[0]?.text === 'Benar')).length;
+                  const cbCount = currentQuestions.filter(q => q.type === 'checkbox').length;
+                  const tfCount = currentQuestions.filter(q => q.type === 'multiple_choice' && normalizeQuestionOptions(q.options).length === 2 && normalizeQuestionOptions(q.options)[0]?.text === 'Benar').length;
+                  const essayCount = currentQuestions.filter(q => q.type === 'essay').length;
+                  const projectedTotal = (mcCount * typeScoreInputs.multipleChoice) + (cbCount * typeScoreInputs.checkbox) + (tfCount * typeScoreInputs.trueFalse) + (essayCount * typeScoreInputs.essay);
+                  return (
+                    <div className="p-3.5 bg-indigo-50/60 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/60 text-xs space-y-1">
+                      <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                        <span>Rincian Subtotal:</span>
+                        <span className="font-mono text-[11px] text-slate-500">
+                          PG: {mcCount * typeScoreInputs.multipleChoice} · PGK: {cbCount * typeScoreInputs.checkbox} · B/S: {tfCount * typeScoreInputs.trueFalse} · Esai: {essayCount * typeScoreInputs.essay}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-slate-600 dark:text-slate-400 pt-1 border-t border-indigo-100 dark:border-indigo-900/60">
+                        <span>Total Skor Maksimal Asesmen:</span>
+                        <strong className="text-indigo-700 dark:text-indigo-300 font-mono font-bold text-sm">
+                          {projectedTotal} Poin
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Checkbox Sync to Sheets */}
+            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={syncScoreToSheets}
+                  onChange={(e) => setSyncScoreToSheets(e.target.checked)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span>Otomatis simpan pembaruan skor ke Google Sheets</span>
+              </label>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="mt-5 flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsScoreModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyQuestionScores}
+                disabled={isApplyingScores || currentQuestions.length === 0}
+                className="flex items-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+              >
+                {isApplyingScores ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Check className="w-4 h-4" />
+                )}
+                <span>{isApplyingScores ? 'Menerapkan Bobot...' : 'Terapkan Bobot Skor ke Soal'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

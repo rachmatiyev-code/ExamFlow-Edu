@@ -1,6 +1,7 @@
 import React from 'react';
 import { SchoolProfile, AppSettings } from '../types';
 import { Sun, Moon, RefreshCw, CheckCircle2, AlertCircle, CloudOff } from 'lucide-react';
+import { sanitizeLogoUrl, SDN_PISANGCANDI_1_LOGO_SVG } from '../services/logoAssets';
 
 interface NavbarProps {
   currentTab: 'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'laporan-cetak' | 'analisis-butir' | 'logs';
@@ -38,27 +39,24 @@ export const Navbar: React.FC<NavbarProps> = ({
     };
   }, []);
 
+  const schoolLogoSrc = sanitizeLogoUrl(profile?.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG);
+  const schoolName = profile?.name || 'SD NEGERI PISANGCANDI 1 MALANG';
+  const teacherName = profile?.teacherName || '';
+
   return (
     <header className="sticky top-0 z-40 w-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors no-print">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
         {/* Zone 1: Brand Wordmark with School Logo */}
         <div className="flex items-center gap-3 shrink-0">
-          {profile.logoUrl ? (
-            <img
-              src={profile.logoUrl}
-              alt={profile.name}
-              referrerPolicy="no-referrer"
-              className="w-9 h-9 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shadow-sm"
-              onError={(e) => {
-                // Fallback to initial
-                (e.target as HTMLElement).style.display = 'none';
-              }}
-            />
-          ) : (
-            <div className="w-9 h-9 rounded-lg bg-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow-sm">
-              {profile.name.charAt(0) || 'E'}
-            </div>
-          )}
+          <img
+            src={schoolLogoSrc}
+            alt={schoolName}
+            referrerPolicy="no-referrer"
+            className="w-10 h-10 rounded-xl object-contain bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm p-0.5 shrink-0"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = SDN_PISANGCANDI_1_LOGO_SVG;
+            }}
+          />
           <button 
             onClick={() => onSelectTab('student')}
             className="text-left group cursor-pointer focus:outline-none"
@@ -66,8 +64,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="font-extrabold text-slate-900 dark:text-white text-base tracking-tight leading-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
               ExamFlow <span className="text-indigo-600 dark:text-indigo-400">Edu</span>
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[190px] sm:max-w-[320px]">
-              {profile.name} {profile.teacherName ? `· ${profile.teacherName}` : ''}
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[200px] sm:max-w-[340px]" title={`${schoolName}${teacherName ? ` · ${teacherName}` : ''}`}>
+              {schoolName} {teacherName ? `· ${teacherName}` : ''}
             </div>
           </button>
         </div>

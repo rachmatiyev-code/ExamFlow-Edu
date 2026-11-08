@@ -1142,4 +1142,62 @@ export class GasClient {
 
     return { syncedCount: synced, errors };
   }
+
+  /**
+   * Mengambil daftar kelas aktif di Google Classroom via Google Apps Script
+   */
+  static async listClassroomCoursesViaGas(): Promise<{ success: boolean; courses?: any[]; message?: string }> {
+    const url = this.getWebAppUrl();
+    if (!url) return { success: false, message: 'URL Google Apps Script belum dikonfigurasi' };
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'listClassroomCourses' })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        return { success: true, courses: data.data || [] };
+      }
+      return { success: false, message: data.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || String(err) };
+    }
+  }
+
+  /**
+   * Sinkronisasi nilai ujian ke Google Classroom via Google Apps Script
+   */
+  static async syncGradesToClassroomViaGas(payload: {
+    courseId: string;
+    examId: string;
+    assignmentTitle: string;
+    maxScore?: number;
+    grades: Array<{ studentNo: string; studentName: string; score: number; maxScore?: number }>;
+    returnToStudent?: boolean;
+    courseWorkId?: string;
+  }): Promise<{ success: boolean; syncedCount?: number; total?: number; message?: string; details?: any[] }> {
+    const url = this.getWebAppUrl();
+    if (!url) return { success: false, message: 'URL Google Apps Script belum dikonfigurasi' };
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'syncToClassroom', ...payload })
+      });
+      const data = await res.json();
+      if (data.status === 'success') {
+        return { 
+          success: true, 
+          syncedCount: data.syncedCount, 
+          total: data.total, 
+          details: data.details,
+          message: `Berhasil mencantumkan ${data.syncedCount} nilai siswa ke Google Classroom!`
+        };
+      }
+      return { success: false, message: data.message };
+    } catch (err: any) {
+      return { success: false, message: err?.message || String(err) };
+    }
+  }
 }

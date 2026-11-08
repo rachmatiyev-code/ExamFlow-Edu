@@ -26,6 +26,7 @@ import { AiQuestionModal } from './AiQuestionModal';
 import { RichTextEditor } from './RichTextEditor';
 import { OptionRichTextEditor } from './OptionRichTextEditor';
 import { TeacherChatPanel } from './TeacherChatPanel';
+import { ClassroomSyncModal } from './ClassroomSyncModal';
 import { chatService } from '../services/chatService';
 import { MathRenderer } from '../services/mathRenderer';
 import { detectMediaType } from '../services/mediaHelper';
@@ -54,6 +55,7 @@ import {
   Send, 
   FileText, 
   RefreshCw,
+  GraduationCap,
   Calendar,
   ShieldCheck,
   HelpCircle,
@@ -252,6 +254,10 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [syncScoreToSheets, setSyncScoreToSheets] = useState(true);
   const [isApplyingScores, setIsApplyingScores] = useState(false);
   const [scoreFeedbackMsg, setScoreFeedbackMsg] = useState<string | null>(null);
+
+  // Google Classroom Integration State
+  const [isClassroomModalOpen, setIsClassroomModalOpen] = useState(false);
+  const [classroomSyncExamId, setClassroomSyncExamId] = useState<string>('');
 
   useEffect(() => {
     setProfileForm(profile);
@@ -2354,6 +2360,20 @@ const rekapDistinctGrades = useMemo(() => {
             <Share2 className="w-3.5 h-3.5" />
             <span>Bagikan ke Siswa (Link Langsung & QR Code)</span>
           </button>
+
+          {/* Baris 6: Kirim Nilai ke Google Classroom */}
+          <button
+            type="button"
+            onClick={() => {
+              setClassroomSyncExamId(exam.id);
+              setIsClassroomModalOpen(true);
+            }}
+            className="w-full px-3 py-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            title="Kirim dan cantumkan nilai ujian siswa langsung ke Google Classroom"
+          >
+            <GraduationCap className="w-3.5 h-3.5" />
+            <span>Kirim Nilai ke Google Classroom</span>
+          </button>
         </div>
       </div>
     );
@@ -3954,6 +3974,19 @@ const rekapDistinctGrades = useMemo(() => {
                     <Download className="w-3.5 h-3.5" />
                     <span>Ekspor .docx</span>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClassroomSyncExamId(targetAnalysisExam.id);
+                      setIsClassroomModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors no-print"
+                    title="Kirim nilai ujian ini ke Google Classroom"
+                  >
+                    <GraduationCap className="w-3.5 h-3.5" />
+                    <span>Kirim ke Classroom</span>
+                  </button>
                 </>
               )}
 
@@ -4489,6 +4522,19 @@ const rekapDistinctGrades = useMemo(() => {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setClassroomSyncExamId(rekapExamFilter !== 'all' ? rekapExamFilter : (exams[0]?.id || ''));
+                  setIsClassroomModalOpen(true);
+                }}
+                className="flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer"
+                title="Cantumkan nilai ujian siswa langsung ke tugas dan buku nilai Google Classroom"
+              >
+                <GraduationCap className="w-4 h-4 text-emerald-100" />
+                <span>Kirim ke Google Classroom</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handleSyncRekapToGoogleSheets}
@@ -8218,6 +8264,16 @@ const rekapDistinctGrades = useMemo(() => {
         imageUrl={zoomImageUrl || ''}
         title="Pratinjau Gambar / Media Soal"
         onClose={() => setZoomImageUrl(null)}
+      />
+
+      {/* Google Classroom Sync Modal */}
+      <ClassroomSyncModal
+        isOpen={isClassroomModalOpen}
+        onClose={() => setIsClassroomModalOpen(false)}
+        exams={exams}
+        submissions={submissions}
+        students={students}
+        initialExamId={classroomSyncExamId}
       />
     </div>
   );

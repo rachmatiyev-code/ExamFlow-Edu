@@ -1219,6 +1219,110 @@ function doPost(e) {
       return jsonResponse({ status: 'success', message: 'Sinkronisasi menyeluruh berhasil!' });
     }
 
+    if (action === 'listClassroomCourses') {
+      try {
+        if (typeof Classroom === 'undefined') {
+          return jsonResponse({ 
+            status: 'error', 
+            message: 'Layanan Google Classroom belum diaktifkan di Google Apps Script. Buka editor script -> klik tanda (+) di sebelah "Services/Layanan" -> pilih "Google Classroom API" -> simpan.' 
+          });
+        }
+        const resp = Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
+        return jsonResponse({ status: 'success', data: resp.courses || [] });
+      } catch (err) {
+        return jsonResponse({ status: 'error', message: err.toString() });
+      }
+    }
+
+    if (action === 'syncToClassroom') {
+      try {
+        if (typeof Classroom === 'undefined') {
+          return jsonResponse({ 
+            status: 'error', 
+            message: 'Layanan Google Classroom belum diaktifkan di Google Apps Script. Buka editor script -> klik tanda (+) di samping "Services/Layanan" -> pilih "Google Classroom API" -> simpan.' 
+          });
+        }
+        const courseId = payload.courseId;
+        const examId = payload.examId;
+        const title = payload.assignmentTitle || 'Penilaian Ujian';
+        const maxScore = Number(payload.maxScore) || 100;
+        const studentGrades = payload.grades || [];
+
+        let courseWorkId = payload.courseWorkId;
+        if (!courseWorkId) {
+          const newWork = Classroom.Courses.CourseWork.create({
+            title: title,
+            description: 'Nilai ujian resmi disinkronkan otomatis dari aplikasi ExamFlow Pro.',
+            maxPoints: maxScore,
+            workType: 'ASSIGNMENT',
+            state: 'PUBLISHED'
+          }, courseId);
+          courseWorkId = newWork.id;
+        }
+
+        const studentsResp = Classroom.Courses.Students.list(courseId, { pageSize: 100 });
+        const cStudents = studentsResp.students || [];
+
+        const subResp = Classroom.Courses.CourseWork.StudentSubmissions.list(courseId, courseWorkId, { pageSize: 100 });
+        const cSubmissions = subResp.studentSubmissions || [];
+
+        const subByUserId = {};
+        cSubmissions.forEach(function(s) { subByUserId[s.userId] = s; });
+
+        let syncedCount = 0;
+        const results = [];
+
+        studentGrades.forEach(function(sg) {
+          const normName = String(sg.studentName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const normNo = String(sg.studentNo || '').toLowerCase().trim();
+
+          let matched = null;
+          for (let i = 0; i < cStudents.length; i++) {
+            const cs = cStudents[i];
+            const email = (cs.profile.emailAddress || '').toLowerCase();
+            const fullName = String(cs.profile.name.fullName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            if ((email && normNo && email.includes(normNo)) || fullName === normName || (normName.length > 3 && fullName.includes(normName))) {
+              matched = cs;
+              break;
+            }
+          }
+
+          if (matched && subByUserId[matched.userId]) {
+            const sub = subByUserId[matched.userId];
+            const scaled = Math.round(((Number(sg.score) || 0) / (Number(sg.maxScore) || 100)) * maxScore * 10) / 10;
+            try {
+              Classroom.Courses.CourseWork.StudentSubmissions.patch({
+                assignedGrade: scaled,
+                draftGrade: scaled
+              }, courseId, courseWorkId, sub.id, { updateMask: 'assignedGrade,draftGrade' });
+              
+              if (payload.returnToStudent) {
+                try {
+                  Classroom.Courses.CourseWork.StudentSubmissions.return({}, courseId, courseWorkId, sub.id);
+                } catch(e) {}
+              }
+              syncedCount++;
+              results.push({ studentName: sg.studentName, status: 'synced', grade: scaled });
+            } catch (pErr) {
+              results.push({ studentName: sg.studentName, status: 'error', error: pErr.toString() });
+            }
+          } else {
+            results.push({ studentName: sg.studentName, status: 'unmatched' });
+          }
+        });
+
+        return jsonResponse({
+          status: 'success',
+          syncedCount: syncedCount,
+          total: studentGrades.length,
+          courseWorkId: courseWorkId,
+          details: results
+        });
+      } catch (err) {
+        return jsonResponse({ status: 'error', message: err.toString() });
+      }
+    }
+
     return jsonResponse({ status: 'error', message: 'Action POST tidak dikenal: ' + action });
   } catch (err) {
     return jsonResponse({ status: 'error', message: err.toString() });
@@ -1357,5 +1461,139 @@ function logAction(category, message) {
       sh.appendRow(['LOG-' + Date.now(), new Date().toISOString(), 'INFO', category, message, '']);
     }
   } catch(e) {}
+}
+
+/**
+ * Menu Kustom di Google Sheets
+ */
+function onOpen() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('🎓 ExamFlow Pro')
+      .addItem('📊 Inisialisasi / Perbaiki Database', 'initDatabase')
+      .addSeparator()
+      .addItem('🏫 Sinkronkan Nilai ke Google Classroom', 'menuSyncToGoogleClassroom')
+      .addItem('📚 Panduan Google Classroom API', 'showClassroomHelpDialog')
+      .addToUi();
+  } catch(e) {}
+}
+
+/**
+ * Dialog Interaktif Sinkronisasi Nilai dari Google Sheets ke Google Classroom
+ */
+function menuSyncToGoogleClassroom() {
+  const ui = SpreadsheetApp.getUi();
+  if (typeof Classroom === 'undefined') {
+    ui.alert(
+      '⚠️ Layanan Google Classroom Belum Aktif',
+      'Untuk menyinkronkan nilai ujian langsung ke Google Classroom dari spreadsheet:\\n\\n' +
+      '1. Di editor Apps Script, lihat panel kiri "Layanan" (Services).\\n' +
+      '2. Klik tombol (+) di sebelah Layanan.\\n' +
+      '3. Cari dan pilih "Google Classroom API" (versi v1).\\n' +
+      '4. Klik tombol "Tambahkan" (Add).\\n' +
+      '5. Jalankan kembali menu ini!',
+      ui.ButtonSet.OK
+    );
+    return;
+  }
+
+  try {
+    const coursesResp = Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'] });
+    const courses = coursesResp.courses || [];
+    if (courses.length === 0) {
+      ui.alert('Info', 'Tidak ditemukan kelas aktif di akun Google Classroom Anda.', ui.ButtonSet.OK);
+      return;
+    }
+
+    const courseListText = courses.map(function(c, idx) { return (idx + 1) + '. ' + c.name + ' (ID: ' + c.id + ')'; }).join('\\n');
+    const resp = ui.prompt('Pilih Kelas Google Classroom', 'Masukkan nomor kelas tujuan:\\n' + courseListText, ui.ButtonSet.OK_CANCEL);
+    if (resp.getSelectedButton() !== ui.Button.OK) return;
+
+    const choiceIdx = parseInt(resp.getResponseText().trim()) - 1;
+    if (isNaN(choiceIdx) || choiceIdx < 0 || choiceIdx >= courses.length) {
+      ui.alert('Pilihan nomor kelas tidak valid.');
+      return;
+    }
+
+    const selectedCourse = courses[choiceIdx];
+    const taskPrompt = ui.prompt('Judul Tugas di Google Classroom', 'Masukkan judul tugas yang akan dibuat di kelas "' + selectedCourse.name + '":', ui.ButtonSet.OK_CANCEL);
+    if (taskPrompt.getSelectedButton() !== ui.Button.OK) return;
+    const taskTitle = taskPrompt.getResponseText().trim() || 'Nilai Ujian ExamFlow';
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const shRekap = ss.getSheetByName(SHEETS.REKAP) || ss.getSheetByName(SHEETS.SUBMISSIONS);
+    if (!shRekap) {
+      ui.alert('Sheet Rekap_Nilai tidak ditemukan.');
+      return;
+    }
+
+    const rekapData = getSheetDataAsObjects(shRekap);
+    if (rekapData.length === 0) {
+      ui.alert('Belum ada data nilai di sheet Rekap_Nilai.');
+      return;
+    }
+
+    // Buat CourseWork baru di kelas tujuan
+    const newWork = Classroom.Courses.CourseWork.create({
+      title: taskTitle,
+      description: 'Nilai ujian resmi disinkronkan langsung dari ExamFlow Pro.',
+      maxPoints: 100,
+      workType: 'ASSIGNMENT',
+      state: 'PUBLISHED'
+    }, selectedCourse.id);
+
+    const students = Classroom.Courses.Students.list(selectedCourse.id, { pageSize: 100 }).students || [];
+    const submissions = Classroom.Courses.CourseWork.StudentSubmissions.list(selectedCourse.id, newWork.id, { pageSize: 100 }).studentSubmissions || [];
+    const subMap = {};
+    submissions.forEach(function(s) { subMap[s.userId] = s; });
+
+    let count = 0;
+    rekapData.forEach(function(r) {
+      const sName = String(r.studentName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const sScore = Number(r.percentage || r.score || 0);
+
+      let matchedStu = null;
+      for (let i = 0; i < students.length; i++) {
+        const cName = String(students[i].profile.name.fullName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (cName === sName || (sName.length > 3 && cName.includes(sName))) {
+          matchedStu = students[i];
+          break;
+        }
+      }
+
+      if (matchedStu && subMap[matchedStu.userId]) {
+        try {
+          Classroom.Courses.CourseWork.StudentSubmissions.patch({
+            assignedGrade: sScore,
+            draftGrade: sScore
+          }, selectedCourse.id, newWork.id, subMap[matchedStu.userId].id, { updateMask: 'assignedGrade,draftGrade' });
+          count++;
+        } catch(e) {}
+      }
+    });
+
+    ui.alert('✅ Berhasil!', 'Berhasil mencantumkan ' + count + ' nilai siswa ke tugas "' + taskTitle + '" di Google Classroom kelas "' + selectedCourse.name + '".', ui.ButtonSet.OK);
+  } catch (err) {
+    ui.alert('Error', 'Gagal menyinkronkan ke Google Classroom: ' + err.toString(), ui.ButtonSet.OK);
+  }
+}
+
+function showClassroomHelpDialog() {
+  const ui = SpreadsheetApp.getUi();
+  ui.alert(
+    '📖 Panduan Integrasi Google Classroom',
+    'Untuk menghubungkan nilai ujian dengan Google Classroom:\\n\\n' +
+    'A. Melalui Aplikasi ExamFlow:\\n' +
+    '1. Buka menu Rekap Nilai atau Hasil & Analisis di aplikasi.\\n' +
+    '2. Klik tombol "Kirim Nilai ke Google Classroom".\\n' +
+    '3. Masuk dengan Akun Google guru Anda.\\n' +
+    '4. Pilih kelas dan buat tugas nilai otomatis.\\n\\n' +
+    'B. Melalui Google Apps Script:\\n' +
+    '1. Buka editor script (Ekstensi -> Apps Script).\\n' +
+    '2. Di panel kiri, klik tombol (+) di sebelah "Services/Layanan".\\n' +
+    '3. Pilih "Google Classroom API" (versi v1) -> Tambahkan.\\n' +
+    '4. Menu "🎓 ExamFlow Pro -> 🏫 Sinkronkan Nilai ke Google Classroom" siap digunakan langsung di Google Sheets!',
+    ui.ButtonSet.OK
+  );
 }
 `;

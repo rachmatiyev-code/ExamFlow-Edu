@@ -23,6 +23,7 @@ import { OfficialReportPrintView } from './components/OfficialReportPrintView';
 import { ItemAnalysisMatrix } from './components/ItemAnalysisMatrix';
 import { LogsView } from './components/LogsView';
 import { SettingsModal } from './components/SettingsModal';
+import { FloatingChatButton } from './components/FloatingChatButton';
 
 export default function App() {
   // Global State from StorageService
@@ -35,6 +36,7 @@ export default function App() {
 
   // UI Navigation State
   const [currentTab, setCurrentTab] = useState<'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'laporan-cetak' | 'analisis-butir' | 'logs'>('student');
+  const [teacherSubTab, setTeacherSubTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>('exams');
   const [printTargetExamId, setPrintTargetExamId] = useState<string | undefined>(undefined);
   const [reportPrintMode, setReportPrintMode] = useState<'klasikal' | 'individu'>('klasikal');
   const [reportPrintStudentNis, setReportPrintStudentNis] = useState<string>('');
@@ -262,6 +264,7 @@ export default function App() {
             exams={exams}
             students={students}
             submissions={submissions}
+            initialSubTab={teacherSubTab}
             onUpdateProfile={(p) => {
               StorageService.saveProfile(p);
               setProfile(p);
@@ -325,6 +328,15 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Floating Chat Button for Teachers across all administrative views */}
+      <FloatingChatButton
+        currentTab={currentTab}
+        onOpenTeacherChat={() => {
+          setTeacherSubTab('chat');
+          setCurrentTab('teacher');
+        }}
+      />
 
       {/* Global Settings & API Configuration Modal */}
       <SettingsModal

@@ -39,7 +39,16 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
     if (initialStudentNo) setNis(initialStudentNo);
     if (initialStudentName) setName(initialStudentName);
     if (initialClassGrade) setGrade(initialClassGrade);
-  }, [initialStudentNo, initialStudentName, initialClassGrade]);
+
+    if (initialStudentNo || initialStudentName) {
+      chatService.updateUserInfo({
+        role: 'student',
+        name: initialStudentName || name || 'Siswa',
+        nis: initialStudentNo || nis || '',
+        classGrade: initialClassGrade || grade || currentExam?.grade || '',
+      });
+    }
+  }, [initialStudentNo, initialStudentName, initialClassGrade, currentExam]);
 
   // Initialize ChatService
   useEffect(() => {

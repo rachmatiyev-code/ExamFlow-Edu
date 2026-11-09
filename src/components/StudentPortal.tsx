@@ -37,7 +37,12 @@ import {
   Wifi,
   WifiOff,
   CheckCircle2,
-  Save
+  Save,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Check,
+  Award
 } from 'lucide-react';
 
 interface StudentPortalProps {
@@ -97,6 +102,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
   // Result State
   const [completedSubmission, setCompletedSubmission] = useState<Submission | null>(null);
+  const [showDetailedReview, setShowDetailedReview] = useState<boolean>(true);
+
+  // Per-Question Instant Explanation (pembahasan soal setiap siswa selesai mengerjakan butir soal)
+  const [showCurrentExplanation, setShowCurrentExplanation] = useState<boolean>(false);
 
   // Media Zoom Modal State
   const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
@@ -762,17 +771,193 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           )}
 
           {/* Action buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-6">
             <button
+              type="button"
+              onClick={() => setShowDetailedReview(prev => !prev)}
+              className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>{showDetailedReview ? 'Sembunyikan Pembahasan Soal' : 'Lihat Review & Pembahasan Lengkap'}</span>
+              {showDetailedReview ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 setCompletedSubmission(null);
                 setSelectedExam(null);
               }}
-              className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-xl shadow-sm transition-colors"
+              className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
             >
               Kembali ke Jadwal Ujian
             </button>
           </div>
+
+          {/* Review Jawaban & Pembahasan Lengkap di Akhir Ujian */}
+          {showDetailedReview && (
+            <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800 text-left space-y-5 animate-fadeIn">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    Review Lembar Jawaban & Pembahasan Soal
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Pelajari kembali butir soal, kunci jawaban yang benar, serta pembahasan materi berikut ini.
+                  </p>
+                </div>
+                <span className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-full border border-indigo-200 dark:border-indigo-800 shrink-0">
+                  Total {examQuestions.length} Butir Soal
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                {examQuestions.map((q, idx) => {
+                  const studentAns = completedSubmission.answers ? completedSubmission.answers[q.id] : undefined;
+                  const safeOpts = normalizeQuestionOptions(q.options);
+                  
+                  let isCorrect = false;
+                  let correctText = '';
+                  let studentAnswerText = '-';
+
+                  if (q.type === 'multiple_choice') {
+                    isCorrect = studentAns === q.correctKey;
+                    const cOpt = safeOpts.find(o => o.id === q.correctKey);
+                    correctText = cOpt ? cOpt.text : String(q.correctKey || '');
+                    const sOpt = safeOpts.find(o => o.id === studentAns);
+                    studentAnswerText = sOpt ? sOpt.text : (studentAns ? String(studentAns) : 'Tidak dijawab');
+                  } else if (q.type === 'checkbox') {
+                    const cKeys = Array.isArray(q.correctKey) ? q.correctKey : [q.correctKey];
+                    const sList = Array.isArray(studentAns) ? studentAns : [];
+                    isCorrect = cKeys.length === sList.length && cKeys.every(k => sList.includes(k));
+                    correctText = safeOpts.filter(o => cKeys.includes(o.id)).map(o => o.text).join(', ');
+                    studentAnswerText = sList.length > 0 
+                      ? safeOpts.filter(o => sList.includes(o.id)).map(o => o.text).join(', ')
+                      : 'Tidak dijawab';
+                  } else if (q.type === 'essay') {
+                    studentAnswerText = typeof studentAns === 'string' && studentAns.trim() ? studentAns : 'Tidak dijawab';
+                    isCorrect = Boolean(studentAns && String(studentAns).trim().length > 5);
+                  }
+
+                  return (
+                    <div 
+                      key={q.id}
+                      className={`p-5 rounded-2xl border transition-all text-xs ${
+                        q.type === 'essay'
+                          ? 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700'
+                          : isCorrect
+                          ? 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/60'
+                          : 'bg-rose-50/40 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/60'
+                      }`}
+                    >
+                      {/* Nomor & Badge Status */}
+                      <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200/60 dark:border-slate-800">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">
+                            {q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'Pilihan Ganda Kompleks' : 'Uraian / Esai'}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            ({q.points || 10} Poin)
+                          </span>
+                        </div>
+
+                        {q.type !== 'essay' ? (
+                          <span className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] flex items-center gap-1 ${
+                            isCorrect 
+                              ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700' 
+                              : 'bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-700'
+                          }`}>
+                            {isCorrect ? '✓ Benar' : '✗ Belum Benar'}
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-0.5 rounded-full font-bold text-[11px] bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                            Evaluasi Guru
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Media Lampiran jika ada */}
+                      {Boolean(q.mediaUrl && q.mediaUrl.trim() !== '') && (
+                        <div className="mb-3">
+                          <QuestionMedia
+                            mediaUrl={q.mediaUrl}
+                            mediaType={q.mediaType}
+                            title={`Lampiran Soal No. ${idx + 1}`}
+                            onZoomImage={(url) => setZoomImageUrl(url)}
+                          />
+                        </div>
+                      )}
+
+                      {/* Pertanyaan */}
+                      <div className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-3 leading-relaxed">
+                        <QuestionPromptRenderer
+                          prompt={q.prompt}
+                          onZoomImage={(url) => setZoomImageUrl(url)}
+                        />
+                      </div>
+
+                      {/* Perbandingan Jawaban */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 mb-3">
+                        <div>
+                          <span className="text-[11px] text-slate-400 block font-semibold mb-0.5">
+                            Jawaban Anda:
+                          </span>
+                          <div 
+                            className={`font-semibold ${
+                              q.type === 'essay'
+                                ? 'text-slate-800 dark:text-slate-200'
+                                : isCorrect
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-rose-600 dark:text-rose-400'
+                            }`}
+                            dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(studentAnswerText) }}
+                          />
+                        </div>
+
+                        {q.type !== 'essay' && (
+                          <div>
+                            <span className="text-[11px] text-slate-400 block font-semibold mb-0.5">
+                              Kunci Jawaban yang Benar:
+                            </span>
+                            <div 
+                              className="font-bold text-emerald-700 dark:text-emerald-400"
+                              dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(correctText) }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Kotak Pembahasan & Penjelasan Materi */}
+                      <div className="p-3.5 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-900/60 text-slate-800 dark:text-slate-200 space-y-1.5">
+                        <div className="flex items-center gap-1.5 font-bold text-indigo-900 dark:text-indigo-300">
+                          <BookOpen className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                          <span>Pembahasan Soal:</span>
+                        </div>
+                        <div 
+                          className="leading-relaxed text-slate-700 dark:text-slate-300 pl-3 border-l-2 border-indigo-400 dark:border-indigo-600 text-xs"
+                          dangerouslySetInnerHTML={{ 
+                            __html: q.explanation 
+                              ? MathRenderer.renderMixedText(q.explanation) 
+                              : '<em>Belum ada pembahasan tambahan untuk butir soal ini.</em>' 
+                          }}
+                        />
+                        {(q.learningObjective || q.indicator) && (
+                          <div className="pt-2 border-t border-indigo-200/50 dark:border-indigo-800/40 text-[11px] text-slate-500 dark:text-slate-400">
+                            <span>Tujuan Pembelajaran: </span>
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">{q.learningObjective || q.indicator}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1123,6 +1308,77 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     </div>
                   </div>
                 )}
+
+                {/* Fitur Pembahasan Soal Setiap Siswa Selesai Mengerjakan Butir Soal (Tanpa Menampilkan Kunci Jawaban) */}
+                {(() => {
+                  const currentAns = userAnswers[currentQ.id];
+                  const hasAnsweredCurrent = currentAns !== undefined && currentAns !== '' && (Array.isArray(currentAns) ? currentAns.length > 0 : true);
+
+                  if (!hasAnsweredCurrent) return null;
+
+                  let isCorrect = false;
+
+                  if (currentQ.type === 'multiple_choice') {
+                    isCorrect = currentAns === currentQ.correctKey;
+                  } else if (currentQ.type === 'checkbox') {
+                    const corrKeys = Array.isArray(currentQ.correctKey) ? currentQ.correctKey : [currentQ.correctKey];
+                    const selectedList = Array.isArray(currentAns) ? currentAns : [];
+                    isCorrect = corrKeys.length === selectedList.length && corrKeys.every(k => selectedList.includes(k));
+                  }
+
+                  return (
+                    <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800 animate-fadeIn">
+                      <div className="flex items-center justify-between mb-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowCurrentExplanation(prev => !prev)}
+                          className="flex items-center gap-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 hover:underline cursor-pointer"
+                        >
+                          <BookOpen className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                          <span>
+                            {showCurrentExplanation ? 'Tutup Pembahasan Soal' : 'Lihat Pembahasan & Konsep Soal Ini'}
+                          </span>
+                          {showCurrentExplanation ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </button>
+
+                        {currentQ.type !== 'essay' && (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            isCorrect 
+                              ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' 
+                              : 'bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300'
+                          }`}>
+                            {isCorrect ? '✓ Jawaban Anda Benar' : '✗ Jawaban Belum Tepat'}
+                          </span>
+                        )}
+                      </div>
+
+                      {showCurrentExplanation && (
+                        <div className="p-4 bg-indigo-50/60 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-800/80 text-xs text-slate-800 dark:text-slate-200 space-y-2.5">
+                          <div>
+                            <span className="font-bold text-indigo-900 dark:text-indigo-300 block mb-1">
+                              💡 Penjelasan & Pembahasan Konsep:
+                            </span>
+                            <div 
+                              className="leading-relaxed text-slate-700 dark:text-slate-300 pl-3 border-l-2 border-indigo-400 dark:border-indigo-600"
+                              dangerouslySetInnerHTML={{ 
+                                __html: currentQ.explanation 
+                                  ? MathRenderer.renderMixedText(currentQ.explanation) 
+                                  : '<em>Guru belum menyematkan pembahasan terperinci pada butir soal ini. Pahami kembali konsep materi terkait.</em>' 
+                              }} 
+                            />
+                          </div>
+
+                          {(currentQ.learningObjective || currentQ.indicator) && (
+                            <div className="pt-2 border-t border-indigo-200/60 dark:border-indigo-800/60 text-[11px] text-slate-500 dark:text-slate-400">
+                              <span>Tujuan Pembelajaran: </span>
+                              <span className="font-medium text-slate-700 dark:text-slate-300">{currentQ.learningObjective || currentQ.indicator}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Question Navigation Footer */}
                 <div className="flex items-center justify-between mt-8 pt-4 border-t border-slate-100 dark:border-slate-800">
@@ -1613,12 +1869,20 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     required
                     placeholder="Contoh: 1001"
                     value={studentNo}
-                    onChange={(e) => setStudentNo(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setStudentNo(val);
+                      const found = students.find(s => String(s.studentNo).trim().toLowerCase() === val.trim().toLowerCase());
+                      if (found) {
+                        setStudentName(found.fullName);
+                        if (found.classGrade) setStudentClass(found.classGrade);
+                      }
+                    }}
                     className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   />
                 </div>
                 <span className="text-[11px] text-slate-400 mt-1 block">
-                  Ketik 1001 atau 1002 untuk contoh siswa terdaftar.
+                  Ketik 1001 atau 1002 untuk contoh siswa terdaftar (nama akan terisi otomatis).
                 </span>
               </div>
 

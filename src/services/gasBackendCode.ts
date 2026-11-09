@@ -75,7 +75,7 @@ const CANONICAL_SUBMISSION_HEADERS = [
 ];
 
 const CANONICAL_CHAT_HEADERS = [
-  'id', 'senderNis', 'senderName', 'senderRole', 'targetNis', 'message', 'timestamp', 'examId'
+  'id', 'senderNis', 'senderName', 'senderRole', 'targetNis', 'message', 'timestamp', 'examId', 'status'
 ];
 
 /**
@@ -1110,11 +1110,12 @@ function doPost(e) {
         String(msg.senderName || ''),
         String(msg.senderRole || 'student'),
         String(msg.targetNis || 'all'),
-        String(msg.message || ''),
+        String(msg.message || msg.text || ''),
         String(msg.timestamp || new Date().toISOString()),
-        String(msg.examId || '')
+        String(msg.examId || ''),
+        String(msg.status || 'success')
       ]);
-      return jsonResponse({ status: 'success', message: 'Pesan chat disimpan di Google Sheets' });
+      return jsonResponse({ status: 'success', message: 'Pesan chat disimpan di Google Sheets dengan status success' });
     }
 
     if (action === 'getChatMessages') {
@@ -1143,9 +1144,10 @@ function doPost(e) {
             String(m.senderName || ''),
             String(m.senderRole || 'student'),
             String(m.targetNis || 'all'),
-            String(m.message || ''),
+            String(m.message || m.text || ''),
             String(m.timestamp || new Date().toISOString()),
-            String(m.examId || '')
+            String(m.examId || ''),
+            String(m.status || 'success')
           ];
         });
         const lastRow = shChat.getLastRow();

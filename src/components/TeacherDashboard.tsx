@@ -111,6 +111,7 @@ interface TeacherDashboardProps {
   onRefreshData: () => void;
   onSelectTab: (tab: any, examId?: string, extra?: { reportMode?: 'klasikal' | 'individu'; studentNis?: string }) => void;
   onOpenSettings?: () => void;
+  initialSubTab?: 'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'students' | 'users' | 'profile' | 'gas' | 'chat';
 }
 
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
@@ -121,7 +122,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   onUpdateProfile,
   onRefreshData,
   onSelectTab,
-  onOpenSettings
+  onOpenSettings,
+  initialSubTab
 }) => {
   // Auth State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => StorageService.getCurrentUser());
@@ -130,8 +132,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
 
   // Sub-tabs
-  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>(initialSubTab || 'exams');
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
+
+  // Sync activeTab when initialSubTab changes
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveTab(initialSubTab);
+    }
+  }, [initialSubTab]);
 
   // Subscribe to live incoming student messages to update unread badge
   useEffect(() => {
@@ -5834,7 +5843,7 @@ const rekapDistinctGrades = useMemo(() => {
          --------------------------------------------------------- */}
       {activeTab === 'chat' && (
         <div className="space-y-4 animate-fadeIn">
-          <TeacherChatPanel exams={exams} onExamUpdated={onRefreshData} />
+          <TeacherChatPanel exams={exams} students={students} onExamUpdated={onRefreshData} />
         </div>
       )}
 

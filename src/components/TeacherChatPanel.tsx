@@ -3,8 +3,12 @@ import { ChatMessage, Exam } from '../types';
 import { chatService } from '../services/chatService';
 import { StorageService } from '../services/storage';
 
+import { OnlineStudentInfo } from '../services/chatService';
+import { Student } from '../types';
+
 interface TeacherChatPanelProps {
   exams: Exam[];
+  students?: Student[];
   onExamUpdated?: () => void;
 }
 
@@ -18,14 +22,15 @@ interface ConversationItem {
   lastMessage: string;
   lastTimestamp: number;
   unreadCount: number;
+  isOnline?: boolean;
 }
 
-export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExamUpdated }) => {
+export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, students = [], onExamUpdated }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [selectedThreadId, setSelectedThreadId] = useState<string>('broadcast');
   const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [presence, setPresence] = useState({ teachers: 0, students: 0 });
+  const [presence, setPresence] = useState<{ teachers: number; students: number; onlineStudents?: OnlineStudentInfo[] }>({ teachers: 0, students: 0, onlineStudents: [] });
   const [isConnected, setIsConnected] = useState(false);
   const [selectedExamId, setSelectedExamId] = useState<string>(exams[0]?.id || '');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -90,6 +95,57 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
       unreadCount: 0,
     });
 
+    // 1. Tambahkan seluruh siswa aktif terhubung dari presence
+    if (presence.onlineStudents && Array.isArray(presence.onlineStudents)) {
+      presence.onlineStudents.forEach(os => {
+        const key = (os.nis || os.name || '').trim();
+        if (!key || key.toLowerCase() === 'all') return;
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, {
+            id: key,
+            nis: os.nis || '',
+            name: os.name || 'Siswa',
+            classGrade: os.classGrade,
+            examId: os.examId,
+            lastMessage: '🟢 Perangkat aktif online (Siap berkonsultasi)',
+            lastTimestamp: Date.now(),
+            unreadCount: 0,
+            isOnline: true
+          });
+        } else {
+          existing.isOnline = true;
+          if (os.name && existing.name === 'Siswa') existing.name = os.name;
+          if (os.classGrade && !existing.classGrade) existing.classGrade = os.classGrade;
+        }
+      });
+    }
+
+    // 2. Tambahkan daftar siswa dari Master Data Siswa agar pencarian nama/NIS tidak pernah kosong
+    if (Array.isArray(students) && students.length > 0) {
+      students.forEach(st => {
+        const key = String(st.studentNo || '').trim();
+        if (!key) return;
+        const existing = map.get(key);
+        if (!existing) {
+          map.set(key, {
+            id: key,
+            nis: key,
+            name: st.fullName || 'Siswa',
+            classGrade: st.classGrade || '',
+            lastMessage: 'Mulai percakapan dengan siswa...',
+            lastTimestamp: 0,
+            unreadCount: 0,
+            isOnline: false
+          });
+        } else {
+          if (st.fullName && existing.name === 'Siswa') existing.name = st.fullName;
+          if (st.classGrade && !existing.classGrade) existing.classGrade = st.classGrade;
+        }
+      });
+    }
+
+    // 3. Masukkan riwayat pesan dan perbarui status percakapan
     messages.forEach((msg) => {
       const cleanTarget = String(msg.targetNis || '').trim().toLowerCase();
       const isTeacherBroadcast = (msg.senderRole === 'teacher' || msg.senderType === 'system') && (!cleanTarget || cleanTarget === 'all');
@@ -125,6 +181,7 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
           lastMessage: msg.text,
           lastTimestamp: Number(msg.timestamp) || Date.now(),
           unreadCount: isUnread ? 1 : 0,
+          isOnline: false
         });
       } else {
         const msgTs = Number(msg.timestamp) || 0;
@@ -142,13 +199,32 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
       }
     });
 
+    // Tandai status online untuk thread yang sesuai dari presence
+    if (presence.onlineStudents && Array.isArray(presence.onlineStudents)) {
+      presence.onlineStudents.forEach(os => {
+        const key = (os.nis || os.name || '').trim().toLowerCase();
+        for (const item of map.values()) {
+          if (
+            (item.nis && item.nis.toLowerCase() === key) ||
+            (item.name && item.name.toLowerCase() === key)
+          ) {
+            item.isOnline = true;
+          }
+        }
+      });
+    }
+
     const items = Array.from(map.values());
-    // Sort: Broadcast/Live Feed first, then by lastTimestamp desc
+    // Sort: Broadcast/Live Feed first, lalu yang online/ada pesan terbaru, lalu siswa master
     return [
       items[0],
-      ...items.slice(1).sort((a, b) => b.lastTimestamp - a.lastTimestamp),
+      ...items.slice(1).sort((a, b) => {
+        if (a.unreadCount !== b.unreadCount) return b.unreadCount - a.unreadCount;
+        if (a.isOnline !== b.isOnline) return (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0);
+        return b.lastTimestamp - a.lastTimestamp;
+      }),
     ];
-  }, [messages]);
+  }, [messages, presence.onlineStudents, students]);
 
   // Filter conversations
   const filteredConversations = conversations.filter((c) => {
@@ -349,23 +425,37 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
                       : 'hover:bg-slate-100/80 bg-white'
                   }`}
                 >
-                  <div
-                    className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
-                      isBroadcast
-                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                        : isSelected
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {isBroadcast ? '📢' : conv.name.charAt(0).toUpperCase()}
+                  <div className="relative">
+                    <div
+                      className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+                        isBroadcast
+                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                          : isSelected
+                          ? 'bg-emerald-600 text-white shadow-sm'
+                          : conv.isOnline
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {isBroadcast ? '📢' : conv.name.charAt(0).toUpperCase()}
+                    </div>
+                    {conv.isOnline && !isBroadcast && (
+                      <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full animate-pulse" title="Perangkat sedang online aktif" />
+                    )}
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <span className={`text-xs font-bold truncate ${isSelected ? 'text-emerald-950' : 'text-slate-800'}`}>
-                        {conv.name}
-                      </span>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className={`text-xs font-bold truncate ${isSelected ? 'text-emerald-950' : 'text-slate-800'}`}>
+                          {conv.name}
+                        </span>
+                        {conv.isOnline && (
+                          <span className="px-1.5 py-0.2 text-[9px] font-bold bg-emerald-100 text-emerald-700 rounded-full flex-shrink-0">
+                            Aktif
+                          </span>
+                        )}
+                      </div>
                       {conv.lastTimestamp > 0 && (
                         <span className="text-[10px] text-slate-400 flex-shrink-0">
                           {new Date(conv.lastTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -375,7 +465,7 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
 
                     {!isBroadcast && (
                       <div className="text-[11px] text-slate-500 flex items-center gap-1.5 truncate mb-1">
-                        {conv.nis ? <span>NIS: {conv.nis}</span> : <span className="text-amber-600 font-semibold">Tamu (Belum Login)</span>}
+                        {conv.nis ? <span className="font-mono">NIS: {conv.nis}</span> : <span className="text-amber-600 font-semibold">Tamu (Belum Login)</span>}
                         {conv.classGrade && <span>• {conv.classGrade}</span>}
                       </div>
                     )}

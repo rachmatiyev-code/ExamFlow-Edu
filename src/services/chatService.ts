@@ -3,7 +3,13 @@ import { GasClient } from './gasClient';
 import { FirebaseChatService } from './firebaseChatService';
 
 type MessageListener = (message: ChatMessage) => void;
-type PresenceListener = (onlineUsers: { teachers: number; students: number }) => void;
+export interface OnlineStudentInfo {
+  nis: string;
+  name: string;
+  classGrade?: string;
+  examId?: string;
+}
+type PresenceListener = (onlineUsers: { teachers: number; students: number; onlineStudents?: OnlineStudentInfo[] }) => void;
 type StatusListener = (connected: boolean) => void;
 
 class ChatService {
@@ -157,6 +163,7 @@ class ChatService {
             this.notifyPresence({
               teachers: d.teachers ?? d.teachersOnline ?? 0,
               students: d.students ?? d.studentsOnline ?? 0,
+              onlineStudents: Array.isArray(d.onlineStudents) ? d.onlineStudents : [],
             });
           }
         } catch (e) {
@@ -361,7 +368,7 @@ class ChatService {
     });
   }
 
-  private notifyPresence(data: { teachers: number; students: number }) {
+  private notifyPresence(data: { teachers: number; students: number; onlineStudents?: OnlineStudentInfo[] }) {
     this.presenceListeners.forEach((fn) => {
       try {
         fn(data);

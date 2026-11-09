@@ -913,13 +913,32 @@ export class GasClient {
   }
 
   /**
-   * Menyimpan pesan bantuan / chat ke tab Chat_Bantuan di Google Sheets
+   * Menyimpan pesan bantuan / chat ke tab Chat_Bantuan di Google Sheets dengan status 'success'
    */
   static async pushChatMessage(message: any): Promise<{ success: boolean; message: string }> {
     const url = this.getWebAppUrl();
-    if (!url) return { success: true, message: 'Pesan chat disimpan secara lokal.' };
+    const payload = {
+      action: 'saveChatMessage',
+      message: {
+        id: message.id,
+        senderNis: message.senderNis || '',
+        senderName: message.senderName || '',
+        senderRole: message.senderRole || 'student',
+        targetNis: message.targetNis || 'all',
+        message: message.message || message.text || '',
+        text: message.text || message.message || '',
+        timestamp: message.timestamp ? new Date(message.timestamp).toISOString() : new Date().toISOString(),
+        examId: message.examId || '',
+        status: 'success'
+      }
+    };
+
+    if (!url) {
+      return { success: true, message: 'Pesan chat disimpan di memori lokal (URL GAS belum disetel).' };
+    }
+
     try {
-      return await this.postToGas({ action: 'saveChatMessage', message });
+      return await this.postToGas(payload);
     } catch {
       return { success: true, message: 'Pesan chat tersimpan di lokal.' };
     }

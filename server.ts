@@ -554,12 +554,13 @@ const chatMessages: ServerChatMessage[] = [
   }
 ];
 
-// Connected WebSocket clients registry
 interface ConnectedClient {
   ws: WebSocket;
   role: 'teacher' | 'student';
   nis?: string;
   name?: string;
+  classGrade?: string;
+  examId?: string;
 }
 const connectedClients = new Set<ConnectedClient>();
 
@@ -604,15 +605,32 @@ function broadcastChatMessage(msg: ServerChatMessage) {
 }
 
 function broadcastOnlineCount() {
-  const studentCount = Array.from(connectedClients).filter(c => c.role === 'student').length;
-  const teacherCount = Array.from(connectedClients).filter(c => c.role === 'teacher').length;
+  const studentsList: { nis: string; name: string; classGrade?: string; examId?: string }[] = [];
+  const teachersList: { name: string }[] = [];
+
+  connectedClients.forEach(c => {
+    if (c.role === 'student') {
+      studentsList.push({
+        nis: c.nis || '',
+        name: c.name || 'Siswa',
+        classGrade: c.classGrade,
+        examId: c.examId
+      });
+    } else if (c.role === 'teacher') {
+      teachersList.push({
+        name: c.name || 'Guru Pengawas'
+      });
+    }
+  });
+
   const payload = JSON.stringify({
     type: 'chat:presence',
     data: {
-      teachers: teacherCount,
-      students: studentCount,
-      teachersOnline: teacherCount,
-      studentsOnline: studentCount
+      teachers: teachersList.length,
+      students: studentsList.length,
+      teachersOnline: teachersList.length,
+      studentsOnline: studentsList.length,
+      onlineStudents: studentsList
     }
   });
   connectedClients.forEach(c => {
@@ -777,6 +795,8 @@ async function startServer() {
           client.role = regRole === 'teacher' ? 'teacher' : 'student';
           client.nis = reg.nis ? String(reg.nis).trim() : (payload.nis ? String(payload.nis).trim() : undefined);
           client.name = reg.name ? String(reg.name).trim() : (payload.name ? String(payload.name).trim() : undefined);
+          client.classGrade = reg.classGrade ? String(reg.classGrade).trim() : (payload.classGrade ? String(payload.classGrade).trim() : undefined);
+          client.examId = reg.examId ? String(reg.examId).trim() : (payload.examId ? String(payload.examId).trim() : undefined);
           broadcastOnlineCount();
           return;
         }

@@ -245,8 +245,8 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
                     title={presence.teachers > 0 ? 'Guru sedang aktif' : 'Belum ada guru yang membuka dashboard chat'}
                   />
                 </h3>
-                <p className="text-[11px] text-emerald-200 leading-tight">
-                  {presence.teachers > 0 ? `${presence.teachers} Guru Siaga • Respon Cepat` : 'Pesan tersambung langsung ke Guru'}
+                <p className="text-[10px] text-emerald-200 leading-tight">
+                  {presence.teachers > 0 ? `${presence.teachers} Guru Siaga • Respon Cepat` : 'Google Cloud & Firebase Real-Time'}
                 </p>
               </div>
             </div>

@@ -1,5 +1,6 @@
 import { ChatMessage } from '../types';
 import { GasClient } from './gasClient';
+import { FirebaseChatService } from './firebaseChatService';
 
 type MessageListener = (message: ChatMessage) => void;
 type PresenceListener = (onlineUsers: { teachers: number; students: number }) => void;
@@ -76,6 +77,15 @@ class ChatService {
   }) {
     this.currentUser = user;
     this.connect();
+
+    // Berlangganan real-time Google Cloud & Firebase Firestore untuk Fitur Chat Bantuan
+    try {
+      FirebaseChatService.subscribeMessages((msg) => {
+        this.notifyMessage(msg, false);
+      });
+    } catch (e) {
+      console.warn('[ChatService] Firebase subscription error:', e);
+    }
 
     const guestNis = typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') || undefined : undefined;
     // Trigger immediate history fetch
@@ -270,7 +280,14 @@ class ChatService {
       });
     } catch {}
 
-    // 4. Mirror to Google Sheets (Chat_Bantuan sheet) in background
+    // 4. Kirim ke Google Cloud / Firebase Firestore khusus fitur Chat Bantuan
+    try {
+      FirebaseChatService.sendMessage(fullMessage).catch((e) => {
+        console.warn('[ChatService] Firestore send backup error:', e);
+      });
+    } catch {}
+
+    // 5. Mirror to Google Sheets (Chat_Bantuan sheet) in background
     GasClient.pushChatMessage({
       id: fullMessage.id,
       senderNis: fullMessage.senderNis || '',

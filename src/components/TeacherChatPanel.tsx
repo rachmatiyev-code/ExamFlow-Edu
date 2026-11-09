@@ -290,8 +290,8 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, onExa
               <span>Siswa dapat menghubungi Anda bahkan sebelum login ujian</span>
               <span>•</span>
               <span className="flex items-center gap-1 font-semibold text-emerald-300">
-                <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                {isConnected ? 'Server WebSocket Aktif' : 'Terhubung REST'}
+                <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-emerald-300'}`} />
+                <span>Google Cloud & Firebase Firestore Real-Time</span>
               </span>
             </p>
           </div>

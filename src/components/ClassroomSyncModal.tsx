@@ -58,8 +58,8 @@ export const ClassroomSyncModal: React.FC<ClassroomSyncModalProps> = ({
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Workflow state
-  const [syncPathway, setSyncPathway] = useState<'client' | 'gas'>('client');
+  // Workflow state - Mandatori GAS sesuai instruksi
+  const [syncPathway, setSyncPathway] = useState<'client' | 'gas'>('gas');
   const [selectedExamId, setSelectedExamId] = useState<string>(initialExamId || (exams[0]?.id || ''));
   const [courses, setCourses] = useState<ClassroomCourse[]>([]);
   const [isLoadingCourses, setIsLoadingCourses] = useState(false);
@@ -97,6 +97,7 @@ export const ClassroomSyncModal: React.FC<ClassroomSyncModalProps> = ({
   // GAS Guide tab
   const [showGasGuide, setShowGasGuide] = useState(false);
   const [copiedGas, setCopiedGas] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   // Initialize auth listener on mount
   useEffect(() => {
@@ -226,6 +227,37 @@ export const ClassroomSyncModal: React.FC<ClassroomSyncModalProps> = ({
 
     const matches = ClassroomService.matchStudents(appStudentItems, cStudents, cSubmissions, newMaxPoints);
     setMatchResults(matches);
+  };
+
+  // Populasikan daftar siswa otomatis saat berada pada jalur Google Apps Script
+  useEffect(() => {
+    if (syncPathway === 'gas') {
+      const examSubs = submissions.filter(s => s.examId === selectedExamId);
+      const appStudentItems: StudentMatchResult[] = examSubs.map(sub => {
+        const stu = students.find(s => s.studentNo === sub.studentNo);
+        const rawScore = Number(sub.score) || 0;
+        const rawMax = Number(sub.maxScore) || 100;
+        const scaledGrade = rawMax > 0 ? (rawScore / rawMax) * newMaxPoints : rawScore;
+        return {
+          studentNo: sub.studentNo,
+          studentName: sub.studentName || stu?.fullName || 'Siswa',
+          classGrade: sub.classGrade || stu?.classGrade || 'Umum',
+          examScore: rawScore,
+          maxScore: rawMax,
+          scaledGrade: Math.round(scaledGrade * 10) / 10,
+          syncStatus: 'pending'
+        };
+      });
+      setMatchResults(appStudentItems);
+    }
+  }, [selectedExamId, submissions, students, newMaxPoints, syncPathway]);
+
+  const handleCopyDomain = () => {
+    if (typeof window !== 'undefined') {
+      navigator.clipboard.writeText(window.location.hostname);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2500);
+    }
   };
 
   const handleGoogleLogin = async () => {
@@ -441,96 +473,218 @@ export const ClassroomSyncModal: React.FC<ClassroomSyncModalProps> = ({
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
-          {/* Toggle Tab: Integrasi Langsung vs Panduan Skrip GAS */}
-          <div className="flex items-center justify-between bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl">
+          {/* Toggle Tab: Pilihan Jalur GAS Mandatori & Panduan */}
+          <div className="flex items-center justify-between bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl gap-1">
             <button
-              onClick={() => setShowGasGuide(false)}
+              type="button"
+              onClick={() => {
+                setSyncPathway('gas');
+                setShowGasGuide(false);
+                setAuthError(null);
+                loadCoursesViaGas();
+              }}
               className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg transition-all ${
-                !showGasGuide 
-                  ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm' 
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-              }`}
-            >
-              <Sparkles className="w-4 h-4" />
-              Kirim Nilai Langsung (OAuth API)
-            </button>
-            <button
-              onClick={() => setShowGasGuide(true)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg transition-all ${
-                showGasGuide 
-                  ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm' 
+                !showGasGuide && syncPathway === 'gas'
+                  ? 'bg-emerald-600 text-white shadow-sm' 
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
               <FileSpreadsheet className="w-4 h-4" />
-              Panduan Google Apps Script (GAS) & Sheets
+              <span>Jalur Google Apps Script (GAS) Wajib</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowGasGuide(true)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg transition-all ${
+                showGasGuide 
+                  ? 'bg-emerald-600 text-white shadow-sm' 
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <HelpCircle className="w-4 h-4" />
+              <span>Panduan Script & Menu Sheets</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSyncPathway('client');
+                setShowGasGuide(false);
+              }}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold rounded-lg transition-all ${
+                !showGasGuide && syncPathway === 'client'
+                  ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-sm' 
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Opsi OAuth Browser</span>
             </button>
           </div>
 
           {!showGasGuide ? (
             <>
-              {/* Status Login Akun Google Guru */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  {googleUser ? (
-                    <>
-                      <img 
-                        src={googleUser.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&auto=format&fit=crop&q=80'} 
-                        alt={googleUser.displayName || 'Guru'} 
-                        className="w-10 h-10 rounded-full border-2 border-emerald-500 shadow-sm"
-                      />
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{googleUser.displayName || 'Akun Guru'}</span>
-                          <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-400 rounded">Terhubung</span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 font-mono">{googleUser.email}</p>
+              {syncPathway === 'gas' ? (
+                /* Card Status Jalur Google Apps Script */
+                <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-emerald-600 text-white rounded-xl shadow-xs shrink-0">
+                      <FileSpreadsheet className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                          Jalur Google Apps Script (GAS) Aktif
+                        </h4>
+                        <span className="px-2 py-0.5 text-[9px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 rounded-full">
+                          Bebas Kendala Domain
+                        </span>
                       </div>
-                    </>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Nilai ujian dikirim langsung melalui spreadsheet Google Sheets Anda tanpa batasan authorized domain.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadCoursesViaGas}
+                    disabled={isLoadingCourses}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg shadow-xs transition-colors self-start sm:self-auto cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCourses ? 'animate-spin' : ''}`} />
+                    <span>{isLoadingCourses ? 'Memuat Kelas...' : 'Muat Ulang Kelas'}</span>
+                  </button>
+                </div>
+              ) : (
+                /* Card Status Otentikasi Langsung Google */
+                <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    {googleUser ? (
+                      <>
+                        <img 
+                          src={googleUser.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&auto=format&fit=crop&q=80'} 
+                          alt={googleUser.displayName || 'Guru'} 
+                          className="w-10 h-10 rounded-full border-2 border-emerald-500 shadow-sm"
+                        />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{googleUser.displayName || 'Akun Guru'}</span>
+                            <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-400 rounded">Terhubung</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-mono">{googleUser.email}</p>
+                        </div>
+                      </>
+                    ) : (
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Sambungkan Akun Google Classroom Anda</h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Aplikasi memerlukan izin untuk melihat daftar kelas yang Anda ampu dan mencantumkan nilai tugas siswa.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {googleUser ? (
+                    <button
+                      type="button"
+                      onClick={handleGoogleLogout}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      Ganti Akun
+                    </button>
                   ) : (
                     <div>
-                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Sambungkan Akun Google Classroom Anda</h4>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Aplikasi memerlukan izin untuk melihat daftar kelas yang Anda ampu dan mencantumkan nilai tugas siswa.
-                      </p>
+                      {/* Official Google Sign-In Button */}
+                      <button 
+                        type="button"
+                        onClick={handleGoogleLogin}
+                        disabled={isLoggingIn}
+                        className="inline-flex items-center justify-center gap-2.5 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-300 shadow-sm transition-all hover:shadow focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-emerald-500 disabled:opacity-50 cursor-pointer"
+                      >
+                        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4">
+                          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                        </svg>
+                        <span>{isLoggingIn ? 'Menghubungkan...' : 'Masuk dengan Google'}</span>
+                      </button>
                     </div>
                   )}
                 </div>
+              )}
 
-                {googleUser ? (
-                  <button
-                    onClick={handleGoogleLogout}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    Ganti Akun
-                  </button>
-                ) : (
-                  <div>
-                    {/* Official Google Sign-In Button */}
-                    <button 
-                      onClick={handleGoogleLogin}
-                      disabled={isLoggingIn}
-                      className="inline-flex items-center justify-center gap-2.5 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg border border-slate-300 shadow-sm transition-all hover:shadow focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-emerald-500 disabled:opacity-50"
+              {/* Tampilan Error & Solusi Authorized Domains */}
+              {authError && (
+                <div className="p-4 text-xs bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 rounded-xl border border-rose-200 dark:border-rose-900 space-y-3">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold text-sm">Kendala Otentikasi: Domain Belum Diizinkan di Firebase</p>
+                      <p className="text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
+                        Google Firebase Authentication mewajibkan domain web tempat aplikasi berjalan dimasukkan ke daftar <strong>Authorized Domains</strong>.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Solusi 1: Beralih ke Jalur GAS (Paling Praktis) */}
+                  <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-emerald-300 dark:border-emerald-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                    <div>
+                      <span className="inline-block px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 rounded mb-1">
+                        Solusi 1 (Langsung Pakai Tanpa Perlu Pengaturan)
+                      </span>
+                      <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                        Gunakan Jalur Google Apps Script (GAS)
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Proses sinkronisasi berjalan dari server Google Sheets Anda sehingga bebas dari kendala domain.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSyncPathway('gas');
+                        setAuthError(null);
+                        loadCoursesViaGas();
+                      }}
+                      className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors whitespace-nowrap cursor-pointer"
                     >
-                      <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-4 h-4">
-                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                      </svg>
-                      <span>{isLoggingIn ? 'Menghubungkan...' : 'Masuk dengan Google'}</span>
+                      Beralih ke Jalur GAS Sekarang &rarr;
                     </button>
                   </div>
-                )}
-              </div>
 
-              {authError && (
-                <div className="p-3 text-xs bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 rounded-xl border border-rose-200 dark:border-rose-900 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold">Kendala Otentikasi:</p>
-                    <p className="mt-0.5">{authError}</p>
+                  {/* Solusi 2: Tambahkan Domain ke Firebase Console */}
+                  <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2">
+                    <span className="inline-block px-1.5 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 rounded">
+                      Solusi 2: Daftarkan Domain ke Firebase Console
+                    </span>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                      Salin domain aplikasi ini, lalu tambahkan di menu Authorized Domains Firebase Console:
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 p-2 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-emerald-400 font-mono text-xs rounded border border-slate-300 dark:border-slate-700 select-all">
+                        {typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-...'}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={handleCopyDomain}
+                        className="px-3 py-2 text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded flex items-center gap-1 cursor-pointer"
+                      >
+                        {copiedDomain ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedDomain ? 'Tersalin' : 'Salin Domain'}</span>
+                      </button>
+                    </div>
+                    <div className="pt-1">
+                      <a
+                        href="https://console.firebase.google.com/project/gen-lang-client-0499050899/authentication/settings"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 font-semibold underline"
+                      >
+                        <span>Buka Firebase Console Settings (Authorized Domains)</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
                   </div>
                 </div>
               )}

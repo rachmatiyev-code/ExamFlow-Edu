@@ -451,6 +451,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     const updated: Exam = {
       ...exam,
       status: 'active',
+      sessionStatus: 'active',
       redeployCount: (exam.redeployCount || 0) + 1,
       startsAt: new Date().toISOString().split('T')[0] + ' 07:00',
       endsAt: new Date().toISOString().split('T')[0] + ' 23:59'
@@ -689,17 +690,31 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   // KONTROL SESI UJIAN (MULAI, AKHIRI, DAN LANJUTKAN SESI TERLAMBAT)
   // -------------------------------------------------------------
   const handleStartExamSession = async (exam: Exam) => {
+    const durationMins = Number(exam.durationMinutes) || 60;
+    const now = new Date();
+    const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    const minEnd = new Date(now.getTime() + (durationMins + 60) * 60 * 1000);
+    const targetEnd = minEnd.getTime() > endToday.getTime() ? minEnd : endToday;
+
+    const endsFormatted = `${targetEnd.getFullYear()}-${String(targetEnd.getMonth() + 1).padStart(2, '0')}-${String(targetEnd.getDate()).padStart(2, '0')} ${String(targetEnd.getHours()).padStart(2, '0')}:${String(targetEnd.getMinutes()).padStart(2, '0')}`;
+    const startsFormatted = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    let currentEndsAtTime = exam.endsAt ? new Date(exam.endsAt.replace(' ', 'T')).getTime() : 0;
+    const shouldExtendEndsAt = isNaN(currentEndsAtTime) || Date.now() >= currentEndsAtTime;
+
     const updated: Exam = {
       ...exam,
       sessionStatus: 'active',
-      sessionStartedAt: new Date().toISOString(),
-      status: 'active'
+      sessionStartedAt: now.toISOString(),
+      status: 'active',
+      startsAt: exam.startsAt ? exam.startsAt : startsFormatted,
+      endsAt: shouldExtendEndsAt ? endsFormatted : exam.endsAt
     };
     StorageService.upsertExam(updated);
     const qs = StorageService.getQuestionsByExamId(exam.id);
     await GasClient.pushExam(updated, qs);
     setSessionToast(`Sesi ujian "${exam.title}" telah DIMULAI! Siswa dapat segera login dan mengerjakan.`);
-    StorageService.addLog('EXAM', `Sesi ujian "${exam.title}" resmi DIMULAI oleh pengawas`, undefined, 'success');
+    StorageService.addLog('EXAM', `Sesi ujian "${exam.title}" resmi DIMULAI oleh pengawas (Batas akhir diperbarui s.d. ${updated.endsAt})`, undefined, 'success');
     onRefreshData();
     setTimeout(() => setSessionToast(null), 4000);
   };
@@ -746,19 +761,30 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     if (!confirm(`LANJUTKAN KEMBALI SESI UJIAN "${exam.title}"?\n\nAkses pengerjaan siswa akan dibuka kembali sehingga siswa dapat login dan mengerjakan ujian.`)) {
       return;
     }
+    const durationMins = Number(exam.durationMinutes) || 60;
+    const now = new Date();
+    const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    const minEnd = new Date(now.getTime() + (durationMins + 60) * 60 * 1000);
+    const targetEnd = minEnd.getTime() > endToday.getTime() ? minEnd : endToday;
+    const endsFormatted = `${targetEnd.getFullYear()}-${String(targetEnd.getMonth() + 1).padStart(2, '0')}-${String(targetEnd.getDate()).padStart(2, '0')} ${String(targetEnd.getHours()).padStart(2, '0')}:${String(targetEnd.getMinutes()).padStart(2, '0')}`;
+
+    let currentEndsAtTime = exam.endsAt ? new Date(exam.endsAt.replace(' ', 'T')).getTime() : 0;
+    const shouldExtendEndsAt = isNaN(currentEndsAtTime) || Date.now() >= currentEndsAtTime;
+
     const updated: Exam = {
       ...exam,
       status: 'active',
-      sessionStatus: 'active'
+      sessionStatus: 'active',
+      endsAt: shouldExtendEndsAt ? endsFormatted : exam.endsAt
     };
     StorageService.upsertExam(updated);
     const qs = StorageService.getQuestionsByExamId(exam.id);
     await GasClient.resumeExamSession(exam.id);
     await GasClient.pushExam(updated, qs);
     setSessionToast(`Sesi ujian "${exam.title}" telah DILANJUTKAN KEMBALI! Siswa dapat mengakses ujian.`);
-    StorageService.addLog('EXAM', `Sesi ujian "${exam.title}" DILANJUTKAN KEMBALI oleh guru pengawas`, undefined, 'success');
+    StorageService.addLog('EXAM', `Sesi ujian "${exam.title}" DILANJUTKAN KEMBALI oleh guru pengawas (Batas akhir: ${updated.endsAt})`, undefined, 'success');
     onRefreshData();
-    setTimeout(() => setSessionToast(null), 5000);
+    setTimeout(() => setSessionToast(null), 4000);
   };
 
   const handleOpenLateExtension = (exam: Exam) => {

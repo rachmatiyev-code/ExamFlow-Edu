@@ -364,11 +364,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }
 
     // 1b. Cek apakah ujian dijadwalkan di masa depan (startsAt)
-    if (freshExam.startsAt) {
-      const startTime = new Date(freshExam.startsAt).getTime();
+    // Jika guru sedang mengaktifkan sesi secara langsung (sessionStatus === 'active'),
+    // guru telah secara sadar membuka sesi ujian sekarang, jadi abaikan jadwal startsAt masa depan jika ada.
+    if (freshExam.sessionStatus !== 'active' && freshExam.startsAt) {
+      const startTime = new Date(freshExam.startsAt.replace(' ', 'T')).getTime();
       const now = Date.now();
       if (!isNaN(startTime) && now < startTime) {
-        const formattedStart = new Date(freshExam.startsAt).toLocaleString('id-ID', {
+        const formattedStart = new Date(freshExam.startsAt.replace(' ', 'T')).toLocaleString('id-ID', {
           weekday: 'long',
           day: 'numeric',
           month: 'long',
@@ -381,17 +383,24 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       }
     }
 
-    // 1c. Cek waktu berakhir dan status selesai (Kecuali jika toleransi terlambat aktif!)
+    // 1c. Cek waktu berakhir dan status selesai
+    const isSessionActive = freshExam.sessionStatus === 'active';
     const isLateAllowed = Boolean(freshExam.allowLateSubmission) || (Number(freshExam.lateExtensionMinutes) || 0) > 0;
-    if (!isLateAllowed) {
-      if (freshExam.sessionStatus === 'ended') {
-        setLoginError('Sesi ujian ini telah ditutup oleh pengawas ruangan.');
-        return;
-      }
+
+    // Jika guru secara manual menutup sesi ujian (sessionStatus === 'ended')
+    if (freshExam.sessionStatus === 'ended') {
+      setLoginError('Sesi ujian ini telah ditutup oleh pengawas ruangan.');
+      return;
+    }
+
+    // KUNCI: Jika sesi sedang AKTIF (guru telah menekan 'Mulai Sesi Ujian' atau 'Lanjutkan'),
+    // atau toleransi keterlambatan aktif, siswa langsung diizinkan mengerjakan!
+    // Pengecekan batas waktu endsAt HANYA memblokir jika sesi TIDAK sedang aktif secara eksplisit.
+    if (!isSessionActive && !isLateAllowed) {
       if (freshExam.endsAt) {
-        const endTime = new Date(freshExam.endsAt).getTime();
+        const endTime = new Date(freshExam.endsAt.replace(' ', 'T')).getTime();
         if (!isNaN(endTime) && Date.now() > endTime) {
-          setLoginError('Batas waktu pelaksanaan ujian ini telah berakhir.');
+          setLoginError('Batas waktu pelaksanaan ujian ini telah berakhir. Hubungi pengawas ujian untuk membuka kembali sesi pengerjaan.');
           return;
         }
       }

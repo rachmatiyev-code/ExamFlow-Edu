@@ -22,3 +22,13 @@
   - **Status Kelengkapan Soal**: Menampilkan jumlah soal yang sudah/belum dijawab.
   - **Aturan Kuota Revisi**: Menampilkan kuota perubahan jawaban yang telah terpakai (`X / 5 Soal`) beserta daftar nomor soal yang telah diubah.
   - **Konfirmasi Pengiriman**: Dialog peringatan sebelum penyerahan final ujian ke server Google Apps Script dan Google Classroom.
+
+## 5. Analisis Ketercapaian Tujuan Pembelajaran (TP) per Paket Asesmen
+- **Evaluasi Mandiri per Paket Asesmen**:
+  - Pada tampilan **"Gabungan Semua Paket"**, capaian penguasaan Tujuan Pembelajaran (TP) dihitung secara independen per paket asesmen (`examId`), hanya terhadap siswa dan butir soal yang benar-benar diujikan pada paket tersebut.
+  - Mencegah *cross-exam dilution* (di mana submisi dari paket ujian lain yang tidak memiliki soal untuk TP tertentu menyebabkan nilai TP terbagi oleh total submisi luar dan jatuh ke 0%).
+- **Grafik Donat Interaktif & KPI**:
+  - Menampilkan persentase akurat TP yang sudah dikuasai (≥ 75%) vs belum dikuasai (< 75%) baik secara Klasikal maupun Per Siswa.
+- **Kartu Ringkasan Paket Asesmen**:
+  - Dilengkapi ringkasan visual per paket asesmen (Jumlah TP Tuntas, Rata-rata Skor, dan Jumlah Peserta) dengan tombol *Fokus ke Paket Ini*.
+  - Label/badge paket asesmen (`📦 [Nama Paket]`) tersemat pada tiap kartu TP dan kolom tabel ekspor Excel (.xlsx).

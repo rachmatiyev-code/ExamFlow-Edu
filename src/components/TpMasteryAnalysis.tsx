@@ -19,7 +19,8 @@ import {
   Info,
   ChevronRight,
   HelpCircle,
-  BarChart2
+  BarChart2,
+  Layers
 } from 'lucide-react';
 import { Exam, Question, SchoolProfile, Submission, Student } from '../types';
 import { StorageService } from '../services/storage';
@@ -303,42 +304,185 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
   }, [availableStudents, activeStudentId]);
 
   // ==========================================
-  // 1. ANALISIS KLASIKAL (Seluruh Siswa)
+  // 1. ANALISIS KLASIKAL PER PAKET ASESMEN
   // ==========================================
   const classicalAnalysis = useMemo(() => {
     if (allTargetQuestions.length === 0 || targetSubmissions.length === 0) {
       return {
-        objectives: [],
-        masteredList: [],
-        unmasteredList: [],
+        objectives: [] as Array<{
+          objective: string;
+          examId: string;
+          examTitle: string;
+          subject: string;
+          classGrade: string;
+          questionCount: number;
+          questionOrders: number[];
+          averageMastery: number;
+          masteredStudentCount: number;
+          unmasteredStudentCount: number;
+          totalParticipants: number;
+          status: 'Tuntas' | 'Perlu Perbaikan' | 'Kritis';
+        }>,
+        masteredList: [] as any[],
+        unmasteredList: [] as any[],
         totalTp: 0,
         masteredTpCount: 0,
         unmasteredTpCount: 0,
-        averageMasteryPct: 0
+        averageMasteryPct: 0,
+        examSummaries: [] as Array<{
+          examId: string;
+          examTitle: string;
+          subject: string;
+          classGrade: string;
+          totalTp: number;
+          masteredTpCount: number;
+          unmasteredTpCount: number;
+          averageMasteryPct: number;
+          participantCount: number;
+        }>
       };
     }
 
-    const analyzed = AnalysisService.analyzeObjectives(allTargetQuestions, targetSubmissions);
+    const allAnalyzedTp: Array<{
+      objective: string;
+      examId: string;
+      examTitle: string;
+      subject: string;
+      classGrade: string;
+      questionCount: number;
+      questionOrders: number[];
+      averageMastery: number;
+      masteredStudentCount: number;
+      unmasteredStudentCount: number;
+      totalParticipants: number;
+      status: 'Tuntas' | 'Perlu Perbaikan' | 'Kritis';
+    }> = [];
 
-    const masteredList = analyzed.filter(item => item.averageMastery >= 75);
-    const unmasteredList = analyzed.filter(item => item.averageMastery < 75);
+    const examSummaries: Array<{
+      examId: string;
+      examTitle: string;
+      subject: string;
+      classGrade: string;
+      totalTp: number;
+      masteredTpCount: number;
+      unmasteredTpCount: number;
+      averageMasteryPct: number;
+      participantCount: number;
+    }> = [];
 
-    const totalTp = analyzed.length;
+    // Lakukan evaluasi capaian TP per paket asesmen agar pembagi nilai akurat
+    targetExams.forEach(exam => {
+      const examQuestions = StorageService.getQuestionsByExamId(exam.id);
+      if (examQuestions.length === 0) return;
+
+      const examSubs = targetSubmissions.filter(s => s.examId === exam.id);
+      const totalExamSubs = examSubs.length;
+      if (totalExamSubs === 0) return;
+
+      // Kelompokkan butir soal per TP dalam paket ini
+      const tpMap: Record<string, { questions: Question[]; orders: number[] }> = {};
+      examQuestions.forEach(q => {
+        const tp = safeString(q.learningObjective) || safeString(q.indicator) || `Tujuan Pembelajaran Butir Soal #${q.order}`;
+        if (!tpMap[tp]) {
+          tpMap[tp] = { questions: [], orders: [] };
+        }
+        tpMap[tp].questions.push(q);
+        tpMap[tp].orders.push(q.order);
+      });
+
+      let examMasteredTpCount = 0;
+      let examUnmasteredTpCount = 0;
+      let examTpMasterySum = 0;
+      const examTpCount = Object.keys(tpMap).length;
+
+      Object.entries(tpMap).forEach(([tp, group]) => {
+        let totalStudentScoreSum = 0;
+        let masteredStudentCount = 0;
+        let unmasteredStudentCount = 0;
+
+        examSubs.forEach(sub => {
+          let correctInTp = 0;
+          group.questions.forEach(q => {
+            const ans = sub.answers ? sub.answers[q.id] : undefined;
+            if (AnalysisService.isAnswerCorrect(q, ans)) {
+              correctInTp++;
+            }
+          });
+
+          const studentTpScore = group.questions.length > 0 ? (correctInTp / group.questions.length) * 100 : 0;
+          totalStudentScoreSum += studentTpScore;
+
+          if (studentTpScore >= 75) {
+            masteredStudentCount++;
+          } else {
+            unmasteredStudentCount++;
+          }
+        });
+
+        const avgMastery = Math.round(totalStudentScoreSum / totalExamSubs);
+        let status: 'Tuntas' | 'Perlu Perbaikan' | 'Kritis';
+        if (avgMastery >= 75) {
+          status = 'Tuntas';
+          examMasteredTpCount++;
+        } else if (avgMastery >= 50) {
+          status = 'Perlu Perbaikan';
+          examUnmasteredTpCount++;
+        } else {
+          status = 'Kritis';
+          examUnmasteredTpCount++;
+        }
+
+        examTpMasterySum += avgMastery;
+
+        allAnalyzedTp.push({
+          objective: tp,
+          examId: exam.id,
+          examTitle: exam.title,
+          subject: exam.subject,
+          classGrade: exam.grade,
+          questionCount: group.questions.length,
+          questionOrders: group.orders.sort((a, b) => a - b),
+          averageMastery: avgMastery,
+          masteredStudentCount,
+          unmasteredStudentCount,
+          totalParticipants: totalExamSubs,
+          status
+        });
+      });
+
+      examSummaries.push({
+        examId: exam.id,
+        examTitle: exam.title,
+        subject: exam.subject,
+        classGrade: exam.grade,
+        totalTp: examTpCount,
+        masteredTpCount: examMasteredTpCount,
+        unmasteredTpCount: examUnmasteredTpCount,
+        averageMasteryPct: examTpCount > 0 ? Math.round(examTpMasterySum / examTpCount) : 0,
+        participantCount: totalExamSubs
+      });
+    });
+
+    const masteredList = allAnalyzedTp.filter(item => item.averageMastery >= 75);
+    const unmasteredList = allAnalyzedTp.filter(item => item.averageMastery < 75);
+
+    const totalTp = allAnalyzedTp.length;
     const masteredTpCount = masteredList.length;
     const unmasteredTpCount = unmasteredList.length;
-    const avgSum = analyzed.reduce((sum, item) => sum + item.averageMastery, 0);
+    const avgSum = allAnalyzedTp.reduce((sum, item) => sum + item.averageMastery, 0);
     const averageMasteryPct = totalTp > 0 ? Math.round(avgSum / totalTp) : 0;
 
     return {
-      objectives: analyzed,
+      objectives: allAnalyzedTp,
       masteredList,
       unmasteredList,
       totalTp,
       masteredTpCount,
       unmasteredTpCount,
-      averageMasteryPct
+      averageMasteryPct,
+      examSummaries
     };
-  }, [allTargetQuestions, targetSubmissions]);
+  }, [allTargetQuestions, targetSubmissions, targetExams]);
 
   // ==========================================
   // 2. ANALISIS PER SISWA (Individual)
@@ -346,50 +490,54 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
   const studentAnalysis = useMemo(() => {
     if (!currentStudent || allTargetQuestions.length === 0) {
       return {
-        masteredObjectives: [],
-        unmasteredObjectives: [],
+        masteredObjectives: [] as Array<{
+          objective: string;
+          examId: string;
+          examTitle: string;
+          correctCount: number;
+          totalCount: number;
+          percentage: number;
+          questionOrders: number[];
+        }>,
+        unmasteredObjectives: [] as Array<{
+          objective: string;
+          examId: string;
+          examTitle: string;
+          correctCount: number;
+          totalCount: number;
+          percentage: number;
+          questionOrders: number[];
+          missedQuestionOrders: number[];
+        }>,
         totalTp: 0,
         masteredCount: 0,
         unmasteredCount: 0,
         masteryPct: 0,
         studentSubmissions: [],
-        overallScore: 0
+        overallScore: 0,
+        studentExamSummaries: [] as Array<{
+          examId: string;
+          examTitle: string;
+          score: number;
+          percentage: number;
+          passed: boolean;
+          masteredTpCount: number;
+          totalTp: number;
+        }>
       };
     }
 
-    // Get submissions for this specific student
+    // Ambil seluruh submisi siswa ini
     const sSubs = targetSubmissions.filter(s => {
       const matchNo = safeString(s.studentNo).toLowerCase() === safeString(currentStudent.studentNo).toLowerCase();
       const matchName = safeString(s.studentName).toLowerCase() === safeString(currentStudent.studentName).toLowerCase();
       return matchNo || matchName;
     });
 
-    // Group questions by TP
-    const tpMap: Record<string, { questions: Question[]; correctCount: number; totalCount: number; pointsEarned: number; maxPoints: number }> = {};
-
-    allTargetQuestions.forEach(q => {
-      const tp = safeString(q.learningObjective) || safeString(q.indicator) || `Tujuan Pembelajaran Butir Soal #${q.order}`;
-      if (!tpMap[tp]) {
-        tpMap[tp] = { questions: [], correctCount: 0, totalCount: 0, pointsEarned: 0, maxPoints: 0 };
-      }
-      tpMap[tp].questions.push(q);
-      tpMap[tp].totalCount++;
-      tpMap[tp].maxPoints += (q.points || 10);
-
-      // Check if student answered this question correctly across their submissions
-      const relevantSub = sSubs.find(sub => sub.examId === q.examId);
-      if (relevantSub && relevantSub.answers) {
-        const studentAns = relevantSub.answers[q.id];
-        const isCorrect = AnalysisService.isAnswerCorrect(q, studentAns);
-        if (isCorrect) {
-          tpMap[tp].correctCount++;
-          tpMap[tp].pointsEarned += (q.points || 10);
-        }
-      }
-    });
-
     const masteredObjectives: Array<{
       objective: string;
+      examId: string;
+      examTitle: string;
       correctCount: number;
       totalCount: number;
       percentage: number;
@@ -398,6 +546,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
 
     const unmasteredObjectives: Array<{
       objective: string;
+      examId: string;
+      examTitle: string;
       correctCount: number;
       totalCount: number;
       percentage: number;
@@ -405,40 +555,94 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       missedQuestionOrders: number[];
     }> = [];
 
-    Object.entries(tpMap).forEach(([tp, data]) => {
-      const percentage = data.totalCount > 0 ? Math.round((data.correctCount / data.totalCount) * 100) : 0;
-      const questionOrders = data.questions.map(q => q.order).sort((a, b) => a - b);
-      
-      const missedQuestionOrders: number[] = [];
-      data.questions.forEach(q => {
-        const relevantSub = sSubs.find(sub => sub.examId === q.examId);
-        const ans = relevantSub?.answers ? relevantSub.answers[q.id] : undefined;
-        if (!AnalysisService.isAnswerCorrect(q, ans)) {
-          missedQuestionOrders.push(q.order);
+    const studentExamSummaries: Array<{
+      examId: string;
+      examTitle: string;
+      score: number;
+      percentage: number;
+      passed: boolean;
+      masteredTpCount: number;
+      totalTp: number;
+    }> = [];
+
+    // Evaluasi per paket asesmen yang dikerjakan siswa
+    targetExams.forEach(exam => {
+      const relevantSub = sSubs.find(sub => sub.examId === exam.id);
+      if (!relevantSub || !relevantSub.answers) return;
+
+      const examQuestions = StorageService.getQuestionsByExamId(exam.id);
+      if (examQuestions.length === 0) return;
+
+      // Kelompokkan butir soal per TP pada paket ini
+      const tpMap: Record<string, { questions: Question[]; correctCount: number; totalCount: number; pointsEarned: number; maxPoints: number }> = {};
+      examQuestions.forEach(q => {
+        const tp = safeString(q.learningObjective) || safeString(q.indicator) || `Tujuan Pembelajaran Butir Soal #${q.order}`;
+        if (!tpMap[tp]) {
+          tpMap[tp] = { questions: [], correctCount: 0, totalCount: 0, pointsEarned: 0, maxPoints: 0 };
+        }
+        tpMap[tp].questions.push(q);
+        tpMap[tp].totalCount++;
+        tpMap[tp].maxPoints += (q.points || 10);
+
+        const studentAns = relevantSub.answers ? relevantSub.answers[q.id] : undefined;
+        if (AnalysisService.isAnswerCorrect(q, studentAns)) {
+          tpMap[tp].correctCount++;
+          tpMap[tp].pointsEarned += (q.points || 10);
         }
       });
 
-      if (percentage >= 75) {
-        masteredObjectives.push({
-          objective: tp,
-          correctCount: data.correctCount,
-          totalCount: data.totalCount,
-          percentage,
-          questionOrders
+      let examMastered = 0;
+      const examTotal = Object.keys(tpMap).length;
+
+      Object.entries(tpMap).forEach(([tp, data]) => {
+        const percentage = data.totalCount > 0 ? Math.round((data.correctCount / data.totalCount) * 100) : 0;
+        const questionOrders = data.questions.map(q => q.order).sort((a, b) => a - b);
+        
+        const missedQuestionOrders: number[] = [];
+        data.questions.forEach(q => {
+          const ans = relevantSub.answers ? relevantSub.answers[q.id] : undefined;
+          if (!AnalysisService.isAnswerCorrect(q, ans)) {
+            missedQuestionOrders.push(q.order);
+          }
         });
-      } else {
-        unmasteredObjectives.push({
-          objective: tp,
-          correctCount: data.correctCount,
-          totalCount: data.totalCount,
-          percentage,
-          questionOrders,
-          missedQuestionOrders
-        });
-      }
+
+        if (percentage >= 75) {
+          examMastered++;
+          masteredObjectives.push({
+            objective: tp,
+            examId: exam.id,
+            examTitle: exam.title,
+            correctCount: data.correctCount,
+            totalCount: data.totalCount,
+            percentage,
+            questionOrders
+          });
+        } else {
+          unmasteredObjectives.push({
+            objective: tp,
+            examId: exam.id,
+            examTitle: exam.title,
+            correctCount: data.correctCount,
+            totalCount: data.totalCount,
+            percentage,
+            questionOrders,
+            missedQuestionOrders
+          });
+        }
+      });
+
+      studentExamSummaries.push({
+        examId: exam.id,
+        examTitle: exam.title,
+        score: Number(relevantSub.score) || 0,
+        percentage: Number(relevantSub.percentage) || 0,
+        passed: Boolean(relevantSub.passed),
+        masteredTpCount: examMastered,
+        totalTp: examTotal
+      });
     });
 
-    const totalTp = Object.keys(tpMap).length;
+    const totalTp = masteredObjectives.length + unmasteredObjectives.length;
     const masteredCount = masteredObjectives.length;
     const unmasteredCount = unmasteredObjectives.length;
     const masteryPct = totalTp > 0 ? Math.round((masteredCount / totalTp) * 100) : 0;
@@ -455,9 +659,10 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       unmasteredCount,
       masteryPct,
       studentSubmissions: sSubs,
-      overallScore: avgScore
+      overallScore: avgScore,
+      studentExamSummaries
     };
-  }, [currentStudent, allTargetQuestions, targetSubmissions]);
+  }, [currentStudent, allTargetQuestions, targetSubmissions, targetExams]);
 
   // Export Capaian TP ke Excel (.xlsx)
   const handleExportToExcel = () => {
@@ -470,9 +675,10 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       [`Mata Pelajaran: ${selectedSubject !== 'all' ? selectedSubject : 'Semua Mapel'} | Kelas: ${selectedGrade !== 'all' ? selectedGrade : 'Semua Kelas'}`],
       [`Tahun Ajaran: ${profile.academicYear} | Semester: ${profile.semester}`],
       [''],
-      ['NO', 'TUJUAN PEMBELAJARAN (TP)', 'JUMLAH SOAL', 'NO SOAL', 'SISWA TUNTAS', 'SISWA BELUM TUNTAS', 'RATA-RATA PENGUASAAN (%)', 'STATUS KELAS'],
+      ['NO', 'PAKET ASESMEN', 'TUJUAN PEMBELAJARAN (TP)', 'JUMLAH SOAL', 'NO SOAL', 'SISWA TUNTAS', 'SISWA BELUM TUNTAS', 'RATA-RATA PENGUASAAN (%)', 'STATUS KELAS'],
       ...classicalAnalysis.objectives.map((item, idx) => [
         idx + 1,
+        item.examTitle || 'Semua Paket',
         item.objective,
         item.questionCount,
         item.questionOrders.join(', '),
@@ -492,6 +698,7 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
     const wsClassical = XLSX.utils.aoa_to_sheet(classicalRows);
     wsClassical['!cols'] = [
       { wch: 6 },
+      { wch: 28 },
       { wch: 45 },
       { wch: 14 },
       { wch: 16 },
@@ -510,9 +717,10 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
         [`Nilai Rata-rata: ${studentAnalysis.overallScore} | Ketuntasan TP: ${studentAnalysis.masteryPct}%`],
         [''],
         ['1. TUJUAN PEMBELAJARAN YANG SUDAH DIKUASAI:'],
-        ['NO', 'TUJUAN PEMBELAJARAN', 'SOAL BENAR', 'TOTAL SOAL', 'PERSENTASE (%)', 'STATUS'],
+        ['NO', 'PAKET ASESMEN', 'TUJUAN PEMBELAJARAN', 'SOAL BENAR', 'TOTAL SOAL', 'PERSENTASE (%)', 'STATUS'],
         ...studentAnalysis.masteredObjectives.map((m, idx) => [
           idx + 1,
+          m.examTitle || '-',
           m.objective,
           m.correctCount,
           m.totalCount,
@@ -521,9 +729,10 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
         ]),
         [''],
         ['2. TUJUAN PEMBELAJARAN YANG BELUM DIKUASAI:'],
-        ['NO', 'TUJUAN PEMBELAJARAN', 'SOAL BENAR', 'TOTAL SOAL', 'PERSENTASE (%)', 'NO SOAL SALAH', 'STATUS'],
+        ['NO', 'PAKET ASESMEN', 'TUJUAN PEMBELAJARAN', 'SOAL BENAR', 'TOTAL SOAL', 'PERSENTASE (%)', 'NO SOAL SALAH', 'STATUS'],
         ...studentAnalysis.unmasteredObjectives.map((um, idx) => [
           idx + 1,
+          um.examTitle || '-',
           um.objective,
           um.correctCount,
           um.totalCount,
@@ -536,6 +745,7 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       const wsStudent = XLSX.utils.aoa_to_sheet(studentRows);
       wsStudent['!cols'] = [
         { wch: 6 },
+        { wch: 28 },
         { wch: 45 },
         { wch: 14 },
         { wch: 14 },
@@ -824,6 +1034,83 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
             </div>
           </div>
 
+          {/* Ringkasan Capaian TP per Paket Asesmen (Hanya tampil saat mode Gabungan Semua Paket) */}
+          {selectedExamId === 'all' && classicalAnalysis.examSummaries.length > 0 && (
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                    Capaian TP per Paket Asesmen
+                  </h4>
+                </div>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {classicalAnalysis.examSummaries.length} Paket Asesmen
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Setiap paket asesmen mengevaluasi capaian TP berdasarkan peserta dan butir soal pada masing-masing paket secara independen.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                {classicalAnalysis.examSummaries.map((summary) => {
+                  const pctTuntas = summary.totalTp > 0 ? Math.round((summary.masteredTpCount / summary.totalTp) * 100) : 0;
+                  return (
+                    <div
+                      key={summary.examId}
+                      className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-3 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h5 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-1">
+                            {summary.examTitle}
+                          </h5>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                            pctTuntas >= 75 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300' : 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300'
+                          }`}>
+                            {pctTuntas}% Tuntas
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {summary.subject} • Kelas {summary.classGrade}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 text-center py-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg text-[11px]">
+                        <div>
+                          <div className="text-[10px] text-slate-400">TP Tuntas</div>
+                          <div className="font-bold text-emerald-600 dark:text-emerald-400">
+                            {summary.masteredTpCount}/{summary.totalTp}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-400">Rata-rata</div>
+                          <div className="font-bold text-slate-800 dark:text-slate-200">
+                            {summary.averageMasteryPct}%
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-slate-400">Peserta</div>
+                          <div className="font-bold text-indigo-600 dark:text-indigo-400">
+                            {summary.participantCount} Siswa
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedExamId(summary.examId)}
+                        className="w-full text-center py-1.5 px-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                      >
+                        Fokus ke Paket Ini →
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Two Distinct Sections: TP Dikuasai vs TP Belum Dikuasai */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* 1. KARTU TP YANG SUDAH DIKUASAI (KLASIKAL) */}
@@ -858,6 +1145,15 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                       key={idx}
                       className="p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-950/20 space-y-2.5"
                     >
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          📦 {item.examTitle}
+                        </span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          {item.subject} • {item.classGrade}
+                        </span>
+                      </div>
+
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-2">
                           <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
@@ -928,6 +1224,15 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                       key={idx}
                       className="p-4 rounded-xl border border-rose-100 dark:border-rose-900/50 bg-rose-50/30 dark:bg-rose-950/20 space-y-2.5"
                     >
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          📦 {item.examTitle}
+                        </span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          {item.subject} • {item.classGrade}
+                        </span>
+                      </div>
+
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-2">
                           <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
@@ -1062,6 +1367,68 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
             </div>
           </div>
 
+          {/* Ringkasan Hasil per Paket Asesmen Siswa (Saat mode Gabungan Semua Paket) */}
+          {selectedExamId === 'all' && studentAnalysis.studentExamSummaries.length > 0 && (
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                    Rekap Capaian {currentStudent.studentName} per Paket Asesmen
+                  </h4>
+                </div>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {studentAnalysis.studentExamSummaries.length} Paket Dikerjakan
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                {studentAnalysis.studentExamSummaries.map((summary) => (
+                  <div
+                    key={summary.examId}
+                    className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-3 shadow-xs hover:border-purple-300 dark:hover:border-purple-700 transition-colors"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <h5 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-1">
+                          {summary.examTitle}
+                        </h5>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                          summary.percentage >= 75 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300'
+                        }`}>
+                          {summary.percentage >= 75 ? 'Tuntas' : 'Remedial'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-center py-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg text-[11px]">
+                      <div>
+                        <div className="text-[10px] text-slate-400">Nilai Ujian</div>
+                        <div className="font-bold text-slate-800 dark:text-slate-200">
+                          {summary.percentage} / 100
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-slate-400">TP Dikuasai</div>
+                        <div className="font-bold text-purple-600 dark:text-purple-400">
+                          {summary.masteredTpCount}/{summary.totalTp} TP
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedExamId(summary.examId)}
+                      className="w-full text-center py-1.5 px-2 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/50 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                    >
+                      Fokus ke Paket Ini →
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Two Distinct Sections per Siswa */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* 1. TP YANG SUDAH DIKUASAI OLEH SISWA */}
@@ -1096,6 +1463,12 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                       key={idx}
                       className="p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/50 bg-emerald-50/30 dark:bg-emerald-950/20 space-y-2"
                     >
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          📦 {item.examTitle}
+                        </span>
+                      </div>
+
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-2">
                           <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
@@ -1154,6 +1527,12 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                       key={idx}
                       className="p-4 rounded-xl border border-rose-100 dark:border-rose-900/50 bg-rose-50/30 dark:bg-rose-950/20 space-y-2"
                     >
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          📦 {item.examTitle}
+                        </span>
+                      </div>
+
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-2">
                           <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />

@@ -141,36 +141,65 @@ export class AnalysisService {
     questions: Question[],
     submissions: Submission[]
   ): ObjectiveAnalysis[] {
-    const objectiveMap: Record<string, { questions: Question[]; orders: number[] }> = {};
+    const objectiveMap: Record<string, { 
+      questions: Question[]; 
+      orders: number[];
+      examIds: Set<string>;
+    }> = {};
 
     questions.forEach(q => {
       const tp = q.learningObjective?.trim() || q.indicator?.trim() || 'Pemahaman Pokok Materi';
       if (!objectiveMap[tp]) {
-        objectiveMap[tp] = { questions: [], orders: [] };
+        objectiveMap[tp] = { questions: [], orders: [], examIds: new Set() };
       }
       objectiveMap[tp].questions.push(q);
       objectiveMap[tp].orders.push(q.order);
+      if (q.examId) {
+        objectiveMap[tp].examIds.add(q.examId);
+      }
     });
 
     const results: ObjectiveAnalysis[] = [];
-    const totalSubs = submissions.length;
 
     Object.entries(objectiveMap).forEach(([tp, group]) => {
-      const qIds = group.questions.map(q => q.id);
+      // Saring hanya submisi dari paket ujian yang memuat butir soal untuk TP ini
+      const relevantSubmissions = submissions.filter(sub => {
+        if (group.examIds.size === 0) return true;
+        return group.examIds.has(sub.examId);
+      });
+
+      const totalRelevantSubs = relevantSubmissions.length;
+      if (totalRelevantSubs === 0) {
+        results.push({
+          objective: tp,
+          questionCount: group.questions.length,
+          questionOrders: group.orders.sort((a, b) => a - b),
+          averageMastery: 0,
+          masteredStudentCount: 0,
+          unmasteredStudentCount: 0,
+          status: 'Kritis'
+        });
+        return;
+      }
+
       let totalMasteryPercentSum = 0;
       let masteredStudentCount = 0;
       let unmasteredStudentCount = 0;
 
-      submissions.forEach(sub => {
+      relevantSubmissions.forEach(sub => {
+        // Hanya hitung butir soal dari paket ujian yang dikerjakan pada submisi ini
+        const examQuestions = group.questions.filter(q => !q.examId || q.examId === sub.examId);
+        if (examQuestions.length === 0) return;
+
         let correctInTp = 0;
-        group.questions.forEach(q => {
+        examQuestions.forEach(q => {
           const ans = sub.answers ? sub.answers[q.id] : undefined;
           if (this.isAnswerCorrect(q, ans)) {
             correctInTp++;
           }
         });
 
-        const studentTpScore = qIds.length > 0 ? (correctInTp / qIds.length) * 100 : 0;
+        const studentTpScore = (correctInTp / examQuestions.length) * 100;
         totalMasteryPercentSum += studentTpScore;
 
         if (studentTpScore >= 75) {
@@ -180,7 +209,7 @@ export class AnalysisService {
         }
       });
 
-      const avgMastery = totalSubs > 0 ? Math.round(totalMasteryPercentSum / totalSubs) : 0;
+      const avgMastery = Math.round(totalMasteryPercentSum / totalRelevantSubs);
       let status: 'Tuntas' | 'Perlu Perbaikan' | 'Kritis';
       if (avgMastery >= 75) {
         status = 'Tuntas';

@@ -27,11 +27,13 @@ import { RichTextEditor } from './RichTextEditor';
 import { OptionRichTextEditor } from './OptionRichTextEditor';
 import { TeacherChatPanel } from './TeacherChatPanel';
 import { ClassroomSyncModal } from './ClassroomSyncModal';
+import { TpMasteryAnalysis } from './TpMasteryAnalysis';
 import { chatService } from '../services/chatService';
 import { MathRenderer } from '../services/mathRenderer';
 import { detectMediaType } from '../services/mediaHelper';
 import { exportGradeRecapToDocx, exportItemAnalysisToDocx } from '../services/exportDocxService';
 import { exportGradeRecapToExcel, exportItemAnalysisToExcel } from '../services/exportExcelService';
+import * as XLSX from 'xlsx';
 import { 
   Plus, 
   CloudUpload,
@@ -97,7 +99,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Sliders
+  Sliders,
+  PieChart
 } from 'lucide-react';
 import { sanitizeLogoUrl, PEMKOT_MALANG_LOGO_SVG, SDN_PISANGCANDI_1_LOGO_SVG } from '../services/logoAssets';
 import { QuestionTypeBreakdown } from '../services/aiGenerator';
@@ -111,7 +114,7 @@ interface TeacherDashboardProps {
   onRefreshData: () => void;
   onSelectTab: (tab: any, examId?: string, extra?: { reportMode?: 'klasikal' | 'individu'; studentNis?: string }) => void;
   onOpenSettings?: () => void;
-  initialSubTab?: 'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'students' | 'users' | 'profile' | 'gas' | 'chat';
+  initialSubTab?: 'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'students' | 'users' | 'profile' | 'gas' | 'chat';
 }
 
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
@@ -132,7 +135,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
 
   // Sub-tabs
-  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>(initialSubTab || 'exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>(initialSubTab || 'exams');
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
   // Sync activeTab when initialSubTab changes
@@ -197,6 +200,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [rekapSortKey, setRekapSortKey] = useState<string>('percentage');
   const [rekapSortDir, setRekapSortDir] = useState<'asc' | 'desc'>('desc');
   const [isSyncingRekapToSheets, setIsSyncingRekapToSheets] = useState(false);
+  const [rekapViewType, setRekapViewType] = useState<'matrix' | 'list'>('matrix');
+  const [rekapSelectedStudentNis, setRekapSelectedStudentNis] = useState<string>('');
 
   // Question Management State
   const [questionVersion, setQuestionVersion] = useState(0);
@@ -1830,7 +1835,9 @@ const rekapDistinctGrades = useMemo(() => {
         safeString(e?.grade).toLowerCase() === safeString(rekapGradeFilter).toLowerCase();
 
       return matchSubject && matchGrade;
-    });
+    }).sort((a, b) =>
+      safeString(a.title).localeCompare(safeString(b.title), undefined, { numeric: true, sensitivity: 'base' })
+    );
   }, [exams, rekapSubjectFilter, rekapGradeFilter]);
 
   const filteredRekapSubmissions = useMemo(() => {
@@ -1955,8 +1962,178 @@ const rekapDistinctGrades = useMemo(() => {
     return { total, avg, highest, lowest, passedCount, passedPct };
   }, [filteredRekapSubmissions, exams]);
 
+  // Baris Matriks Nilai Siswa per Paket Asesmen & Nilai Rata-rata
+  const matrixStudentRows = useMemo(() => {
+    const studentMap = new Map<string, { studentNo: string; studentName: string; classGrade: string }>();
+
+    // 1. Dari master data siswa (terapkan filter kelas jika bukan 'all')
+    students.forEach(st => {
+      const stGrade = safeString(st.classGrade);
+      if (rekapGradeFilter !== 'all' && stGrade.toLowerCase() !== safeString(rekapGradeFilter).toLowerCase()) {
+        return;
+      }
+      const key = safeString(st.studentNo || st.nis || st.fullName).trim();
+      if (key) {
+        studentMap.set(key, {
+          studentNo: st.studentNo || st.nis || '-',
+          studentName: st.fullName || 'Siswa',
+          classGrade: st.classGrade || '-'
+        });
+      }
+    });
+
+    // 2. Dari riwayat submisi yang sesuai filter
+    filteredRekapSubmissions.forEach(sub => {
+      const ex = exams.find(e => e.id === sub.examId);
+      const subGrade = safeString(sub.classGrade) || safeString(ex?.grade);
+      const key = safeString(sub.studentNo || sub.studentName).trim();
+      if (key && !studentMap.has(key)) {
+        studentMap.set(key, {
+          studentNo: sub.studentNo || '-',
+          studentName: sub.studentName || 'Peserta Ujian',
+          classGrade: subGrade || '-'
+        });
+      }
+    });
+
+    const defaultSubject = rekapSubjectFilter !== 'all' ? rekapSubjectFilter : (availableRekapExams[0]?.subject || 'Multi Mapel');
+    const defaultPassingScore = availableRekapExams.length > 0
+      ? Math.round(availableRekapExams.reduce((acc, e) => acc + (e.passingScore ?? 75), 0) / availableRekapExams.length)
+      : 75;
+
+    const rows: Array<{
+      studentNo: string;
+      studentName: string;
+      classGrade: string;
+      subject: string;
+      examScores: Record<string, {
+        score: number;
+        maxScore: number;
+        percentage: number;
+        passed: boolean;
+        submittedAt?: string;
+      }>;
+      completedCount: number;
+      totalExamsCount: number;
+      averageScore: number;
+      isPassed: boolean;
+    }> = [];
+
+    studentMap.forEach((stInfo) => {
+      const examScores: Record<string, {
+        score: number;
+        maxScore: number;
+        percentage: number;
+        passed: boolean;
+        submittedAt?: string;
+      }> = {};
+
+      let completedCount = 0;
+      let totalPercentage = 0;
+
+      availableRekapExams.forEach(exam => {
+        const studentSubs = safeSubmissions.filter(s =>
+          s.examId === exam.id &&
+          (safeString(s.studentNo).trim().toLowerCase() === safeString(stInfo.studentNo).trim().toLowerCase() ||
+           safeString(s.studentName).trim().toLowerCase() === safeString(stInfo.studentName).trim().toLowerCase())
+        );
+
+        if (studentSubs.length > 0) {
+          const bestSub = [...studentSubs].sort((a, b) => (Number(b.percentage) || 0) - (Number(a.percentage) || 0))[0];
+          const kkm = exam.passingScore ?? 75;
+          const pct = Number(bestSub.percentage) || 0;
+          examScores[exam.id] = {
+            score: Number(bestSub.score) || 0,
+            maxScore: Number(bestSub.maxScore) || 100,
+            percentage: pct,
+            passed: pct >= kkm,
+            submittedAt: bestSub.submittedAt
+          };
+          completedCount += 1;
+          totalPercentage += pct;
+        }
+      });
+
+      const averageScore = completedCount > 0 ? Math.round(totalPercentage / completedCount) : 0;
+      const isPassed = averageScore >= defaultPassingScore;
+
+      // Filter query pencarian
+      if (rekapSearchQuery.trim()) {
+        const q = rekapSearchQuery.toLowerCase();
+        const matchName = stInfo.studentName.toLowerCase().includes(q);
+        const matchNo = stInfo.studentNo.toLowerCase().includes(q);
+        const matchGrade = stInfo.classGrade.toLowerCase().includes(q);
+        if (!matchName && !matchNo && !matchGrade) return;
+      }
+
+      rows.push({
+        studentNo: stInfo.studentNo,
+        studentName: stInfo.studentName,
+        classGrade: stInfo.classGrade,
+        subject: defaultSubject,
+        examScores,
+        completedCount,
+        totalExamsCount: availableRekapExams.length,
+        averageScore,
+        isPassed
+      });
+    });
+
+    return rows.sort((a, b) => {
+      let valA: any = '';
+      let valB: any = '';
+
+      if (rekapSortKey === 'studentNo') {
+        valA = a.studentNo;
+        valB = b.studentNo;
+      } else if (rekapSortKey === 'studentName') {
+        valA = a.studentName;
+        valB = b.studentName;
+      } else if (rekapSortKey === 'classGrade') {
+        valA = a.classGrade;
+        valB = b.classGrade;
+      } else if (rekapSortKey === 'averageScore' || rekapSortKey === 'percentage' || rekapSortKey === 'score') {
+        valA = a.averageScore;
+        valB = b.averageScore;
+      } else if (rekapSortKey.startsWith('exam_')) {
+        const exId = rekapSortKey.replace('exam_', '');
+        valA = a.examScores[exId]?.percentage ?? -1;
+        valB = b.examScores[exId]?.percentage ?? -1;
+      } else {
+        valA = a.averageScore;
+        valB = b.averageScore;
+      }
+
+      if (typeof valA === 'number' && typeof valB === 'number') {
+        return rekapSortDir === 'asc' ? valA - valB : valB - valA;
+      }
+      const strA = String(valA).toLowerCase();
+      const strB = String(valB).toLowerCase();
+      return rekapSortDir === 'asc' ? strA.localeCompare(strB) : strB.localeCompare(strA);
+    });
+  }, [students, filteredRekapSubmissions, availableRekapExams, safeSubmissions, exams, rekapGradeFilter, rekapSubjectFilter, rekapSearchQuery, rekapSortKey, rekapSortDir]);
+
+  const matrixKpiStats = useMemo(() => {
+    const total = matrixStudentRows.length;
+    if (total === 0) {
+      return { total: 0, avg: 0, highest: 0, lowest: 0, passedCount: 0, passedPct: 0, completedAny: 0 };
+    }
+    const withScores = matrixStudentRows.filter(r => r.completedCount > 0);
+    if (withScores.length === 0) {
+      return { total, avg: 0, highest: 0, lowest: 0, passedCount: 0, passedPct: 0, completedAny: 0 };
+    }
+    const avgs = withScores.map(r => r.averageScore);
+    const sum = avgs.reduce((a, b) => a + b, 0);
+    const avg = Math.round(sum / withScores.length);
+    const highest = Math.max(...avgs);
+    const lowest = Math.min(...avgs);
+    const passedCount = withScores.filter(r => r.isPassed).length;
+    const passedPct = Math.round((passedCount / withScores.length) * 100);
+    return { total, avg, highest, lowest, passedCount, passedPct, completedAny: withScores.length };
+  }, [matrixStudentRows]);
+
   const handleSyncRekapToGoogleSheets = async () => {
-    if (filteredRekapSubmissions.length === 0) {
+    if (filteredRekapSubmissions.length === 0 && matrixStudentRows.length === 0) {
       alert('Tidak ada data rekap nilai yang memenuhi filter untuk disimpan ke Google Sheets.');
       return;
     }
@@ -2006,6 +2183,46 @@ const rekapDistinctGrades = useMemo(() => {
   };
 
   const handleExportRekapToExcel = () => {
+    if (rekapViewType === 'matrix') {
+      if (matrixStudentRows.length === 0) {
+        alert('Tidak ada data matriks nilai untuk diunduh.');
+        return;
+      }
+      const wb = XLSX.utils.book_new();
+      const headers = [
+        'No',
+        'NIS',
+        'Nama Siswa',
+        'Kelas',
+        'Mata Pelajaran',
+        ...availableRekapExams.map(ex => ex.title),
+        'Nilai Rata-rata',
+        'Status Ketuntasan'
+      ];
+      const rows = matrixStudentRows.map((r, idx) => {
+        const examValues = availableRekapExams.map(ex => {
+          const item = r.examScores[ex.id];
+          return item ? item.percentage : '-';
+        });
+        return [
+          idx + 1,
+          r.studentNo,
+          r.studentName,
+          r.classGrade,
+          r.subject,
+          ...examValues,
+          r.completedCount > 0 ? r.averageScore : '-',
+          r.completedCount === 0 ? 'Belum Mengerjakan' : (r.isPassed ? 'TUNTAS' : 'REMEDIAL')
+        ];
+      });
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Matriks_Rekap_Nilai');
+      const gradeLabel = rekapGradeFilter !== 'all' ? rekapGradeFilter : 'SemuaKelas';
+      const subjLabel = rekapSubjectFilter !== 'all' ? rekapSubjectFilter.replace(/\s+/g, '_') : 'SemuaMapel';
+      XLSX.writeFile(wb, `Matriks_Rekap_Nilai_${gradeLabel}_${subjLabel}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      return;
+    }
+
     if (filteredRekapSubmissions.length === 0) {
       alert('Tidak ada data rekap nilai untuk diunduh.');
       return;
@@ -2583,6 +2800,21 @@ const rekapDistinctGrades = useMemo(() => {
         >
           <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
           <span>Rekap Nilai (Mapel &amp; Kelas)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('tp_mastery')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+            activeTab === 'tp_mastery'
+              ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 border-b-2 border-purple-600 dark:border-purple-400 font-bold'
+              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <Target className="w-3.5 h-3.5 text-purple-500" />
+          <span>Analisis Capaian TP</span>
+          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+            Dikuasai &amp; Belum
+          </span>
         </button>
 
         <button
@@ -4559,6 +4791,16 @@ const rekapDistinctGrades = useMemo(() => {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                onClick={() => setActiveTab('tp_mastery')}
+                className="flex items-center gap-2 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-xl border border-indigo-200 dark:border-indigo-800 transition-all shadow-xs cursor-pointer"
+                title="Buka Analisis Capaian Tujuan Pembelajaran (TP) Klasikal & Individu beserta Grafik Donat"
+              >
+                <PieChart className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Analisis Capaian TP & Donut</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => {
                   setClassroomSyncExamId(rekapExamFilter !== 'all' ? rekapExamFilter : (exams[0]?.id || ''));
                   setIsClassroomModalOpen(true);
@@ -4584,12 +4826,12 @@ const rekapDistinctGrades = useMemo(() => {
               <button
                 type="button"
                 onClick={handleExportRekapToExcel}
-                disabled={filteredRekapSubmissions.length === 0}
+                disabled={filteredRekapSubmissions.length === 0 && matrixStudentRows.length === 0}
                 className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
                 title="Ekspor rekapitulasi nilai ini ke file Excel (.xlsx)"
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Ekspor .xlsx</span>
+                <span>{rekapViewType === 'matrix' ? 'Ekspor Matriks (.xlsx)' : 'Ekspor .xlsx'}</span>
               </button>
 
               <button
@@ -4602,6 +4844,50 @@ const rekapDistinctGrades = useMemo(() => {
                 <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 <span>Ekspor .docx</span>
               </button>
+            </div>
+          </div>
+
+          {/* View Mode Switcher Pills */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl w-fit">
+              <button
+                type="button"
+                onClick={() => setRekapViewType('matrix')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  rekapViewType === 'matrix'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Matriks Nilai per Paket Asesmen & Rata-rata</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-mono font-bold">
+                  {matrixStudentRows.length} Siswa
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRekapViewType('list')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  rekapViewType === 'list'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Riwayat Submisi Individual</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-mono font-bold">
+                  {filteredRekapSubmissions.length} Data
+                </span>
+              </button>
+            </div>
+            <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>
+                {rekapViewType === 'matrix'
+                  ? `Format Buku Nilai: Kolom paket ujian 1..${availableRekapExams.length || 'N'} & nilai rata-rata`
+                  : 'Format Rinci: 1 baris per catatan waktu pengerjaan'}
+              </span>
             </div>
           </div>
 
@@ -4716,280 +5002,594 @@ const rekapDistinctGrades = useMemo(() => {
           </div>
 
           {/* KPI Summary Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Total Peserta</span>
-                <Users className="w-4 h-4 text-indigo-500" />
-              </div>
-              <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">
-                {rekapKpiStats.total}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">Siswa terdata</div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Rata-rata Nilai</span>
-                <TrendingUp className="w-4 h-4 text-blue-500" />
-              </div>
-              <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">
-                {rekapKpiStats.avg}
-                <span className="text-xs font-normal text-slate-500 ml-1">/ 100</span>
-              </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">Skor rata-rata</div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Nilai Tertinggi</span>
-                <Award className="w-4 h-4 text-emerald-500" />
-              </div>
-              <div className="mt-2 text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                {rekapKpiStats.highest}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">Skor maksimum</div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Nilai Terendah</span>
-                <Target className="w-4 h-4 text-amber-500" />
-              </div>
-              <div className="mt-2 text-2xl font-black text-amber-600 dark:text-amber-400">
-                {rekapKpiStats.lowest}
-              </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">Skor minimum</div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 col-span-2 sm:col-span-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Ketuntasan</span>
-                <CheckCircle className="w-4 h-4 text-emerald-500" />
-              </div>
-              <div className="mt-2 text-2xl font-black text-indigo-600 dark:text-indigo-400">
-                {rekapKpiStats.passedPct}%
-              </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
-                {rekapKpiStats.passedCount} dari {rekapKpiStats.total} tuntas
-              </div>
-            </div>
-          </div>
-
-          {/* Table Container */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-400">
-                    <th className="py-3 px-3.5 text-center w-12">No</th>
-                    <th
-                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
-                      onClick={() => handleRekapSort('studentNo')}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span>NIS</span>
-                        {rekapSortKey === 'studentNo' ? (
-                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                        )}
-                      </div>
-                    </th>
-                    <th
-                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
-                      onClick={() => handleRekapSort('studentName')}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span>Nama Siswa</span>
-                        {rekapSortKey === 'studentName' ? (
-                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                        )}
-                      </div>
-                    </th>
-                    <th
-                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
-                      onClick={() => handleRekapSort('classGrade')}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span>Kelas</span>
-                        {rekapSortKey === 'classGrade' ? (
-                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                        )}
-                      </div>
-                    </th>
-                    <th
-                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
-                      onClick={() => handleRekapSort('subject')}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span>Mata Pelajaran</span>
-                        {rekapSortKey === 'subject' ? (
-                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                        )}
-                      </div>
-                    </th>
-                    <th
-                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
-                      onClick={() => handleRekapSort('examTitle')}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span>Paket Asesmen</span>
-                        {rekapSortKey === 'examTitle' ? (
-                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                        )}
-                      </div>
-                    </th>
-                    <th
-                      className="py-3 px-3.5 text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
-                      onClick={() => handleRekapSort('score')}
-                    >
-                      <div className="flex items-center justify-center gap-1">
-                        <span>Skor</span>
-                        {rekapSortKey === 'score' ? (
-                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                        )}
-                      </div>
-                    </th>
-                    <th
-                      className="py-3 px-3.5 text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
-                      onClick={() => handleRekapSort('percentage')}
-                    >
-                      <div className="flex items-center justify-center gap-1">
-                        <span>Nilai Akhir</span>
-                        {rekapSortKey === 'percentage' ? (
-                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                        )}
-                      </div>
-                    </th>
-                    <th className="py-3 px-3.5 text-center">Status</th>
-                    <th className="py-3 px-3.5 text-center">Durasi</th>
-                    <th
-                      className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
-                      onClick={() => handleRekapSort('submittedAt')}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span>Waktu Pengumpulan</span>
-                        {rekapSortKey === 'submittedAt' ? (
-                          rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-                        )}
-                      </div>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs text-slate-700 dark:text-slate-300">
-                  {filteredRekapSubmissions.map((sub, idx) => {
-                    const ex = exams.find(e => e.id === sub.examId);
-                    const kkm = ex?.passingScore ?? 75;
-                    const pct = Number(sub.percentage) || 0;
-                    const isPassed = pct >= kkm;
-                    const mins = Math.floor((sub.timeSpentSeconds || 0) / 60);
-                    const secs = (sub.timeSpentSeconds || 0) % 60;
-
-                    return (
-                      <tr key={sub.id || idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                        <td className="py-2.5 px-3.5 text-center text-slate-400 font-mono text-[11px]">
-                          {idx + 1}
-                        </td>
-                        <td className="py-2.5 px-3.5 font-mono text-[11px] font-semibold text-slate-600 dark:text-slate-400">
-                          {sub.studentNo || '-'}
-                        </td>
-                        <td className="py-2.5 px-3.5 font-bold text-slate-900 dark:text-white">
-                          {sub.studentName}
-                        </td>
-                        <td className="py-2.5 px-3.5">
-                          <span className="inline-block px-2 py-0.5 text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-md">
-                            {sub.classGrade || ex?.grade || '-'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3.5">
-                          <span className="inline-block px-2 py-0.5 text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-md border border-indigo-100 dark:border-indigo-900">
-                            {ex?.subject || 'Umum'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3.5 max-w-xs truncate" title={sub.examTitle || ex?.title}>
-                          {sub.examTitle || ex?.title || '-'}
-                        </td>
-                        <td className="py-2.5 px-3.5 text-center font-mono text-[11px] text-slate-500">
-                          {sub.score} / {sub.maxScore}
-                        </td>
-                        <td className="py-2.5 px-3.5 text-center">
-                          <span className={`inline-block font-black text-xs font-mono px-2 py-0.5 rounded-md ${
-                            isPassed
-                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                              : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
-                          }`}>
-                            {pct}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3.5 text-center">
-                          {isPassed ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                              <CheckCircle2 className="w-3 h-3" />
-                              <span>TUNTAS</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
-                              <AlertCircle className="w-3 h-3" />
-                              <span>REMEDIAL</span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3.5 text-center text-slate-500 font-mono text-[11px]">
-                          {mins}m {secs}s
-                        </td>
-                        <td className="py-2.5 px-3.5 text-slate-500 text-[11px] whitespace-nowrap">
-                          {sub.submittedAt ? new Date(sub.submittedAt).toLocaleString('id-ID', {
-                            day: '2-digit',
-                            month: 'short',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          }) : '-'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {filteredRekapSubmissions.length === 0 && (
-                <div className="p-12 text-center text-slate-400 dark:text-slate-500">
-                  <FileSpreadsheet className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700 mb-2" />
-                  <p className="text-sm font-semibold">Tidak ada data rekap nilai yang sesuai dengan filter.</p>
-                  <p className="text-xs text-slate-400 mt-1">Coba ubah pilihan mata pelajaran, kelas, paket asesmen, atau kata kunci pencarian.</p>
+          {rekapViewType === 'matrix' ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Total Siswa Terdaftar</span>
+                  <Users className="w-4 h-4 text-indigo-500" />
                 </div>
-              )}
-            </div>
+                <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">
+                  {matrixKpiStats.total}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">{matrixKpiStats.completedAny} siswa telah mengerjakan</div>
+              </div>
 
-            {/* Table Footer */}
-            <div className="flex flex-col sm:flex-row items-center justify-between p-3.5 bg-slate-50/75 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 gap-2">
-              <div>
-                Menampilkan <span className="font-bold text-slate-700 dark:text-slate-300">{filteredRekapSubmissions.length}</span> dari{' '}
-                <span className="font-bold text-slate-700 dark:text-slate-300">{safeSubmissions.length}</span> total rekaman ujian siswa
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Paket Asesmen</span>
+                  <BookOpen className="w-4 h-4 text-teal-500" />
+                </div>
+                <div className="mt-2 text-2xl font-black text-teal-600 dark:text-teal-400">
+                  {availableRekapExams.length}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Paket ujian terdata</div>
               </div>
-              <div className="flex items-center gap-3">
-                <span>Filter Mapel: <strong className="text-slate-700 dark:text-slate-300">{rekapSubjectFilter}</strong></span>
-                <span>•</span>
-                <span>Filter Kelas: <strong className="text-slate-700 dark:text-slate-300">{rekapGradeFilter}</strong></span>
+
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Nilai Rata-rata Kelas</span>
+                  <TrendingUp className="w-4 h-4 text-blue-500" />
+                </div>
+                <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">
+                  {matrixKpiStats.avg}
+                  <span className="text-xs font-normal text-slate-500 ml-1">/ 100</span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Rata-rata kumulatif</div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Rentang Nilai</span>
+                  <Award className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white flex items-baseline gap-1">
+                  <span className="text-emerald-600 dark:text-emerald-400">{matrixKpiStats.highest}</span>
+                  <span className="text-slate-400 text-sm font-normal">/</span>
+                  <span className="text-amber-600 dark:text-amber-400 text-lg">{matrixKpiStats.lowest}</span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Maksimum / Minimum</div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 col-span-2 sm:col-span-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Ketuntasan Klasikal</span>
+                  <CheckCircle className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div className="mt-2 text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                  {matrixKpiStats.passedPct}%
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  {matrixKpiStats.passedCount} dari {matrixKpiStats.completedAny} siswa tuntas
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Total Peserta</span>
+                  <Users className="w-4 h-4 text-indigo-500" />
+                </div>
+                <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">
+                  {rekapKpiStats.total}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Siswa terdata</div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Rata-rata Nilai</span>
+                  <TrendingUp className="w-4 h-4 text-blue-500" />
+                </div>
+                <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">
+                  {rekapKpiStats.avg}
+                  <span className="text-xs font-normal text-slate-500 ml-1">/ 100</span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Skor rata-rata</div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Nilai Tertinggi</span>
+                  <Award className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div className="mt-2 text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                  {rekapKpiStats.highest}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Skor maksimum</div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Nilai Terendah</span>
+                  <Target className="w-4 h-4 text-amber-500" />
+                </div>
+                <div className="mt-2 text-2xl font-black text-amber-600 dark:text-amber-400">
+                  {rekapKpiStats.lowest}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Skor minimum</div>
+              </div>
+
+              <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 col-span-2 sm:col-span-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Ketuntasan</span>
+                  <CheckCircle className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div className="mt-2 text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                  {rekapKpiStats.passedPct}%
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  {rekapKpiStats.passedCount} dari {rekapKpiStats.total} tuntas
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Table Container: Switch between Matrix View (Columns per Exam + Nilai Rata-rata) vs Raw List View */}
+          {rekapViewType === 'matrix' ? (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[900px]">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                      <th className="py-3 px-3 text-center w-12 whitespace-nowrap">No</th>
+                      <th
+                        className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none whitespace-nowrap"
+                        onClick={() => handleRekapSort('studentNo')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>NIS</span>
+                          {rekapSortKey === 'studentNo' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none whitespace-nowrap"
+                        onClick={() => handleRekapSort('studentName')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Nama Siswa</span>
+                          {rekapSortKey === 'studentName' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none whitespace-nowrap"
+                        onClick={() => handleRekapSort('classGrade')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Kelas</span>
+                          {rekapSortKey === 'classGrade' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                      <th className="py-3 px-3.5 whitespace-nowrap">
+                        <span>Mata Pelajaran</span>
+                      </th>
+
+                      {/* Dynamic Columns: Kolom Nilai per Paket Asesmen (Formatif 1, Formatif 2, ...) */}
+                      {availableRekapExams.map((exam, exIdx) => {
+                        const isSorted = rekapSortKey === `exam_${exam.id}`;
+                        return (
+                          <th
+                            key={exam.id}
+                            className="py-3 px-3 text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none whitespace-nowrap max-w-[150px]"
+                            onClick={() => handleRekapSort(`exam_${exam.id}`)}
+                            title={`${exam.title} (KKM: ${exam.passingScore ?? 75}) - Klik untuk mengurutkan`}
+                          >
+                            <div className="flex flex-col items-center gap-0.5">
+                              <div className="flex items-center gap-1">
+                                <span className="truncate max-w-[120px]">{exam.title}</span>
+                                {isSorted ? (
+                                  rekapSortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-indigo-600" /> : <ChevronDown className="w-3 h-3 text-indigo-600" />
+                                ) : (
+                                  <ArrowUpDown className="w-2.5 h-2.5 text-slate-300 dark:text-slate-600" />
+                                )}
+                              </div>
+                              <span className="text-[9px] font-normal text-slate-400 dark:text-slate-500 font-mono">
+                                KKM: {exam.passingScore ?? 75}
+                              </span>
+                            </div>
+                          </th>
+                        );
+                      })}
+
+                      {/* Nilai Rata-rata (Menggantikan Nilai Akhir) */}
+                      <th
+                        className="py-3 px-3.5 text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none whitespace-nowrap bg-indigo-50/60 dark:bg-indigo-950/30"
+                        onClick={() => handleRekapSort('averageScore')}
+                        title="Nilai rata-rata dari seluruh paket asesmen yang telah dikerjakan siswa"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span className="text-indigo-700 dark:text-indigo-300 font-extrabold">Nilai Rata-rata</span>
+                          {rekapSortKey === 'averageScore' || rekapSortKey === 'percentage' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-indigo-600" /> : <ChevronDown className="w-3.5 h-3.5 text-indigo-600" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+
+                      <th className="py-3 px-3.5 text-center whitespace-nowrap">Status Ketuntasan</th>
+                      <th className="py-3 px-3.5 text-center whitespace-nowrap">Aksi / Capaian TP</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs text-slate-700 dark:text-slate-300">
+                    {matrixStudentRows.map((row, idx) => {
+                      return (
+                        <tr key={row.studentNo || idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">
+                            {idx + 1}
+                          </td>
+                          <td className="py-2.5 px-3.5 font-mono text-[11px] font-semibold text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                            {row.studentNo}
+                          </td>
+                          <td className="py-2.5 px-3.5 font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                            {row.studentName}
+                          </td>
+                          <td className="py-2.5 px-3.5 whitespace-nowrap">
+                            <span className="inline-block px-2 py-0.5 text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-md">
+                              {row.classGrade}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3.5 whitespace-nowrap">
+                            <span className="inline-block px-2 py-0.5 text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-md border border-indigo-100 dark:border-indigo-900">
+                              {row.subject}
+                            </span>
+                          </td>
+
+                          {/* Kolom Nilai per Paket Asesmen (Formatif 1, 2, ...) */}
+                          {availableRekapExams.map(exam => {
+                            const exScore = row.examScores[exam.id];
+                            if (!exScore) {
+                              return (
+                                <td key={exam.id} className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">
+                                  <span className="inline-block px-2 py-0.5 rounded text-slate-400 dark:text-slate-500 bg-slate-100/60 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700" title="Belum mengerjakan">
+                                    —
+                                  </span>
+                                </td>
+                              );
+                            }
+                            return (
+                              <td key={exam.id} className="py-2.5 px-3 text-center">
+                                <span
+                                  className={`inline-block font-black text-xs font-mono px-2 py-0.5 rounded-md ${
+                                    exScore.passed
+                                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                      : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                                  }`}
+                                  title={`Skor: ${exScore.score}/${exScore.maxScore} (${exScore.passed ? 'Tuntas' : 'Remedial'})`}
+                                >
+                                  {exScore.percentage}
+                                </span>
+                              </td>
+                            );
+                          })}
+
+                          {/* Kolom Nilai Rata-rata */}
+                          <td className="py-2.5 px-3.5 text-center bg-indigo-50/30 dark:bg-indigo-950/10">
+                            {row.completedCount > 0 ? (
+                              <div className="flex flex-col items-center">
+                                <span
+                                  className={`inline-block font-black text-sm font-mono px-2.5 py-0.5 rounded-md shadow-2xs ${
+                                    row.isPassed
+                                      ? 'bg-emerald-600 text-white'
+                                      : 'bg-rose-600 text-white'
+                                  }`}
+                                >
+                                  {row.averageScore}
+                                </span>
+                                <span className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                                  {row.completedCount}/{row.totalExamsCount} tes
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 font-mono text-xs">Belum Tes</span>
+                            )}
+                          </td>
+
+                          {/* Status Ketuntasan */}
+                          <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                            {row.completedCount === 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                BELUM TES
+                              </span>
+                            ) : row.isPassed ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>TUNTAS</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                                <AlertCircle className="w-3 h-3" />
+                                <span>REMEDIAL</span>
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Aksi / Capaian TP: Navigasi ke subtab Analisis TP */}
+                          <td className="py-2.5 px-3.5 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRekapSelectedStudentNis(row.studentNo);
+                                setActiveTab('tp_mastery');
+                              }}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-semibold border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
+                              title={`Lihat capaian TP yang sudah & belum dikuasai oleh ${row.studentName}`}
+                            >
+                              <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                              <span>Capaian TP</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {matrixStudentRows.length === 0 && (
+                  <div className="p-12 text-center text-slate-400 dark:text-slate-500">
+                    <FileSpreadsheet className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700 mb-2" />
+                    <p className="text-sm font-semibold">Tidak ada data matriks nilai siswa yang sesuai dengan filter.</p>
+                    <p className="text-xs text-slate-400 mt-1">Coba sesuaikan pilihan mata pelajaran, kelas, atau kata kunci pencarian.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Matrix Table Footer */}
+              <div className="flex flex-col sm:flex-row items-center justify-between p-3.5 bg-slate-50/75 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 gap-2">
+                <div>
+                  Menampilkan <span className="font-bold text-slate-700 dark:text-slate-300">{matrixStudentRows.length}</span> siswa terdaftar lintas{' '}
+                  <span className="font-bold text-slate-700 dark:text-slate-300">{availableRekapExams.length}</span> paket asesmen
+                </div>
+                <div className="flex items-center gap-3">
+                  <span>Filter Mapel: <strong className="text-slate-700 dark:text-slate-300">{rekapSubjectFilter}</strong></span>
+                  <span>•</span>
+                  <span>Filter Kelas: <strong className="text-slate-700 dark:text-slate-300">{rekapGradeFilter}</strong></span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/75 dark:bg-slate-950/50 text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                      <th className="py-3 px-3.5 text-center w-12">No</th>
+                      <th
+                        className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                        onClick={() => handleRekapSort('studentNo')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>NIS</span>
+                          {rekapSortKey === 'studentNo' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                        onClick={() => handleRekapSort('studentName')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Nama Siswa</span>
+                          {rekapSortKey === 'studentName' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                        onClick={() => handleRekapSort('classGrade')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Kelas</span>
+                          {rekapSortKey === 'classGrade' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                        onClick={() => handleRekapSort('subject')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Mata Pelajaran</span>
+                          {rekapSortKey === 'subject' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                        onClick={() => handleRekapSort('examTitle')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Paket Asesmen</span>
+                          {rekapSortKey === 'examTitle' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="py-3 px-3.5 text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                        onClick={() => handleRekapSort('score')}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span>Skor</span>
+                          {rekapSortKey === 'score' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        className="py-3 px-3.5 text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                        onClick={() => handleRekapSort('percentage')}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span>Nilai Akhir</span>
+                          {rekapSortKey === 'percentage' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                      <th className="py-3 px-3.5 text-center">Status</th>
+                      <th className="py-3 px-3.5 text-center">Durasi</th>
+                      <th
+                        className="py-3 px-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                        onClick={() => handleRekapSort('submittedAt')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Waktu Pengumpulan</span>
+                          {rekapSortKey === 'submittedAt' ? (
+                            rekapSortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+                          )}
+                        </div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs text-slate-700 dark:text-slate-300">
+                    {filteredRekapSubmissions.map((sub, idx) => {
+                      const ex = exams.find(e => e.id === sub.examId);
+                      const kkm = ex?.passingScore ?? 75;
+                      const pct = Number(sub.percentage) || 0;
+                      const isPassed = pct >= kkm;
+                      const mins = Math.floor((sub.timeSpentSeconds || 0) / 60);
+                      const secs = (sub.timeSpentSeconds || 0) % 60;
+
+                      return (
+                        <tr key={sub.id || idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                          <td className="py-2.5 px-3.5 text-center text-slate-400 font-mono text-[11px]">
+                            {idx + 1}
+                          </td>
+                          <td className="py-2.5 px-3.5 font-mono text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                            {sub.studentNo || '-'}
+                          </td>
+                          <td className="py-2.5 px-3.5 font-bold text-slate-900 dark:text-white">
+                            {sub.studentName}
+                          </td>
+                          <td className="py-2.5 px-3.5">
+                            <span className="inline-block px-2 py-0.5 text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-md">
+                              {sub.classGrade || ex?.grade || '-'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3.5">
+                            <span className="inline-block px-2 py-0.5 text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-md border border-indigo-100 dark:border-indigo-900">
+                              {ex?.subject || 'Umum'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3.5 max-w-xs truncate" title={sub.examTitle || ex?.title}>
+                            {sub.examTitle || ex?.title || '-'}
+                          </td>
+                          <td className="py-2.5 px-3.5 text-center font-mono text-[11px] text-slate-500">
+                            {sub.score} / {sub.maxScore}
+                          </td>
+                          <td className="py-2.5 px-3.5 text-center">
+                            <span className={`inline-block font-black text-xs font-mono px-2 py-0.5 rounded-md ${
+                              isPassed
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                            }`}>
+                              {pct}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3.5 text-center">
+                            {isPassed ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>TUNTAS</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-800">
+                                <AlertCircle className="w-3 h-3" />
+                                <span>REMEDIAL</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3.5 text-center text-slate-500 font-mono text-[11px]">
+                            {mins}m {secs}s
+                          </td>
+                          <td className="py-2.5 px-3.5 text-slate-500 text-[11px] whitespace-nowrap">
+                            {sub.submittedAt ? new Date(sub.submittedAt).toLocaleString('id-ID', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            }) : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {filteredRekapSubmissions.length === 0 && (
+                  <div className="p-12 text-center text-slate-400 dark:text-slate-500">
+                    <FileSpreadsheet className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700 mb-2" />
+                    <p className="text-sm font-semibold">Tidak ada data rekap nilai yang sesuai dengan filter.</p>
+                    <p className="text-xs text-slate-400 mt-1">Coba ubah pilihan mata pelajaran, kelas, paket asesmen, atau kata kunci pencarian.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* List Table Footer */}
+              <div className="flex flex-col sm:flex-row items-center justify-between p-3.5 bg-slate-50/75 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 gap-2">
+                <div>
+                  Menampilkan <span className="font-bold text-slate-700 dark:text-slate-300">{filteredRekapSubmissions.length}</span> dari{' '}
+                  <span className="font-bold text-slate-700 dark:text-slate-300">{safeSubmissions.length}</span> total rekaman ujian siswa
+                </div>
+                <div className="flex items-center gap-3">
+                  <span>Filter Mapel: <strong className="text-slate-700 dark:text-slate-300">{rekapSubjectFilter}</strong></span>
+                  <span>•</span>
+                  <span>Filter Kelas: <strong className="text-slate-700 dark:text-slate-300">{rekapGradeFilter}</strong></span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* ---------------------------------------------------------
+          SUB-TAB: ANALISIS CAPAIAN TUJUAN PEMBELAJARAN (TP) & GRAFIK DONAT
+         --------------------------------------------------------- */}
+      {activeTab === 'tp_mastery' && (
+        <TpMasteryAnalysis
+          profile={profile}
+          exams={exams}
+          submissions={safeSubmissions}
+          students={students}
+          initialExamId={rekapExamFilter !== 'all' ? rekapExamFilter : (selectedExamId || exams[0]?.id)}
+          initialStudentNis={rekapSelectedStudentNis}
+          onNavigateToRekap={() => setActiveTab('rekap')}
+        />
       )}
 
       {/* ---------------------------------------------------------

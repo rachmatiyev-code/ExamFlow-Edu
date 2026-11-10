@@ -36,7 +36,7 @@ export default function App() {
 
   // UI Navigation State
   const [currentTab, setCurrentTab] = useState<'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'laporan-cetak' | 'analisis-butir' | 'logs'>('student');
-  const [teacherSubTab, setTeacherSubTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>('exams');
+  const [teacherSubTab, setTeacherSubTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>('exams');
   const [printTargetExamId, setPrintTargetExamId] = useState<string | undefined>(undefined);
   const [reportPrintMode, setReportPrintMode] = useState<'klasikal' | 'individu'>('klasikal');
   const [reportPrintStudentNis, setReportPrintStudentNis] = useState<string>('');

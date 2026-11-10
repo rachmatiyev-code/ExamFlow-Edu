@@ -155,9 +155,9 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
       const itemToSave: CurriculumItem = {
         id: editingId || `CUR-${Date.now()}`,
         subject: finalSubject,
-        grade: grade.trim(),
-        element: element.trim(),
-        learningOutcome: learningOutcome.trim(),
+        grade: String(grade || '').trim(),
+        element: String(element || '').trim(),
+        learningOutcome: String(learningOutcome || '').trim(),
         learningObjectives: objectives,
         updatedAt: new Date().toISOString()
       };

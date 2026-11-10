@@ -157,6 +157,13 @@ export const DonutChart: React.FC<{
   );
 };
 
+const safeString = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value).trim();
+  return '';
+};
+
 export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
   profile,
   exams,
@@ -182,7 +189,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
   const distinctSubjects = useMemo(() => {
     const set = new Set<string>();
     exams.forEach(e => {
-      if (e.subject) set.add(e.subject.trim());
+      const subj = safeString(e?.subject);
+      if (subj) set.add(subj);
     });
     return Array.from(set).sort();
   }, [exams]);
@@ -190,19 +198,23 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
   const distinctGrades = useMemo(() => {
     const set = new Set<string>();
     exams.forEach(e => {
-      if (e.grade) set.add(e.grade.trim());
+      const grd = safeString(e?.grade);
+      if (grd) set.add(grd);
     });
     students.forEach(st => {
-      if (st.classGrade) set.add(st.classGrade.trim());
+      const cls = safeString(st?.classGrade);
+      if (cls) set.add(cls);
     });
-    return Array.from(set).sort();
+    return Array.from(set).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
   }, [exams, students]);
 
   // Available Exams matching subject and grade filter
   const filteredExams = useMemo(() => {
     return exams.filter(e => {
-      const matchSubj = selectedSubject === 'all' || (e.subject || '').toLowerCase() === selectedSubject.toLowerCase();
-      const matchGrd = selectedGrade === 'all' || (e.grade || '').toLowerCase() === selectedGrade.toLowerCase();
+      const matchSubj = selectedSubject === 'all' || safeString(e?.subject).toLowerCase() === selectedSubject.toLowerCase();
+      const matchGrd = selectedGrade === 'all' || safeString(e?.grade).toLowerCase() === selectedGrade.toLowerCase();
       return matchSubj && matchGrd;
     });
   }, [exams, selectedSubject, selectedGrade]);
@@ -233,7 +245,7 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       if (!targetExamIds.has(s.examId)) return false;
       if (s.statusNote === 'Mengulang Ujian') return false;
       if (selectedGrade !== 'all') {
-        const studentClass = s.classGrade || '';
+        const studentClass = safeString(s.classGrade);
         if (studentClass.toLowerCase() !== selectedGrade.toLowerCase()) return false;
       }
       return true;
@@ -245,12 +257,14 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
     const map = new Map<string, { studentNo: string; studentName: string; classGrade: string }>();
 
     targetSubmissions.forEach(sub => {
-      const key = (sub.studentNo || sub.studentName).trim().toLowerCase();
-      if (!map.has(key)) {
+      const sNo = safeString(sub.studentNo);
+      const sName = safeString(sub.studentName);
+      const key = (sNo || sName).toLowerCase();
+      if (key && !map.has(key)) {
         map.set(key, {
-          studentNo: sub.studentNo || '-',
-          studentName: sub.studentName,
-          classGrade: sub.classGrade || '-'
+          studentNo: sNo || '-',
+          studentName: sName || 'Peserta Ujian',
+          classGrade: safeString(sub.classGrade) || '-'
         });
       }
     });
@@ -258,13 +272,15 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
     // Also include students from roster if matching grade
     if (selectedGrade !== 'all') {
       students.forEach(st => {
-        if ((st.classGrade || '').toLowerCase() === selectedGrade.toLowerCase()) {
-          const key = (st.studentNo || st.nis || st.fullName).trim().toLowerCase();
-          if (!map.has(key)) {
+        if (safeString(st.classGrade).toLowerCase() === selectedGrade.toLowerCase()) {
+          const sNo = safeString(st.studentNo || st.nis);
+          const sName = safeString(st.fullName);
+          const key = (sNo || sName).toLowerCase();
+          if (key && !map.has(key)) {
             map.set(key, {
-              studentNo: st.studentNo || st.nis || '-',
-              studentName: st.fullName,
-              classGrade: st.classGrade
+              studentNo: sNo || '-',
+              studentName: sName || 'Siswa',
+              classGrade: safeString(st.classGrade) || '-'
             });
           }
         }
@@ -343,8 +359,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
 
     // Get submissions for this specific student
     const sSubs = targetSubmissions.filter(s => {
-      const matchNo = (s.studentNo || '').trim().toLowerCase() === currentStudent.studentNo.trim().toLowerCase();
-      const matchName = (s.studentName || '').trim().toLowerCase() === currentStudent.studentName.trim().toLowerCase();
+      const matchNo = safeString(s.studentNo).toLowerCase() === safeString(currentStudent.studentNo).toLowerCase();
+      const matchName = safeString(s.studentName).toLowerCase() === safeString(currentStudent.studentName).toLowerCase();
       return matchNo || matchName;
     });
 
@@ -352,7 +368,7 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
     const tpMap: Record<string, { questions: Question[]; correctCount: number; totalCount: number; pointsEarned: number; maxPoints: number }> = {};
 
     allTargetQuestions.forEach(q => {
-      const tp = q.learningObjective?.trim() || q.indicator?.trim() || `Tujuan Pembelajaran Butir Soal #${q.order}`;
+      const tp = safeString(q.learningObjective) || safeString(q.indicator) || `Tujuan Pembelajaran Butir Soal #${q.order}`;
       if (!tpMap[tp]) {
         tpMap[tp] = { questions: [], correctCount: 0, totalCount: 0, pointsEarned: 0, maxPoints: 0 };
       }

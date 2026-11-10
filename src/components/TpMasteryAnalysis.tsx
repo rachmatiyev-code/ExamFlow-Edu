@@ -22,7 +22,7 @@ import {
   BarChart2,
   Layers
 } from 'lucide-react';
-import { Exam, Question, SchoolProfile, Submission, Student } from '../types';
+import { Exam, Question, SchoolProfile, Submission, Student, normalizeLearningObjectives } from '../types';
 import { StorageService } from '../services/storage';
 import { AnalysisService } from '../services/analysisService';
 import * as XLSX from 'xlsx';
@@ -163,6 +163,39 @@ const safeString = (value: unknown): string => {
   if (typeof value === 'string') return value.trim();
   if (typeof value === 'number' || typeof value === 'boolean') return String(value).trim();
   return '';
+};
+
+const isStudentMatch = (
+  subStudentNo: unknown,
+  subStudentName: unknown,
+  targetStudentNo: unknown,
+  targetStudentName: unknown
+): boolean => {
+  const subNo = safeString(subStudentNo).toLowerCase();
+  const tgtNo = safeString(targetStudentNo).toLowerCase();
+  if (tgtNo && tgtNo !== '-' && subNo && subNo !== '-') {
+    if (subNo === tgtNo) return true;
+  }
+  const subNm = safeString(subStudentName).toLowerCase();
+  const tgtNm = safeString(targetStudentName).toLowerCase();
+  if (subNm && tgtNm && subNm === tgtNm) return true;
+  return false;
+};
+
+const getSafeAnswers = (sub: Submission | null | undefined): Record<string, any> => {
+  if (!sub) return {};
+  let ans = sub.answers;
+  if (!ans && (sub as any).answersJson) {
+    ans = (sub as any).answersJson;
+  }
+  if (typeof ans === 'string') {
+    try {
+      ans = JSON.parse(ans);
+    } catch {
+      ans = {};
+    }
+  }
+  return typeof ans === 'object' && ans !== null ? ans : {};
 };
 
 export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
@@ -508,6 +541,7 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
           percentage: number;
           questionOrders: number[];
           missedQuestionOrders: number[];
+          statusNote?: string;
         }>,
         totalTp: 0,
         masteredCount: 0,
@@ -523,15 +557,14 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
           passed: boolean;
           masteredTpCount: number;
           totalTp: number;
+          hasSubmission: boolean;
         }>
       };
     }
 
-    // Ambil seluruh submisi siswa ini
+    // Ambil seluruh submisi siswa ini dengan pencocokan akurat
     const sSubs = targetSubmissions.filter(s => {
-      const matchNo = safeString(s.studentNo).toLowerCase() === safeString(currentStudent.studentNo).toLowerCase();
-      const matchName = safeString(s.studentName).toLowerCase() === safeString(currentStudent.studentName).toLowerCase();
-      return matchNo || matchName;
+      return isStudentMatch(s.studentNo, s.studentName, currentStudent.studentNo, currentStudent.studentName);
     });
 
     const masteredObjectives: Array<{
@@ -553,6 +586,7 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       percentage: number;
       questionOrders: number[];
       missedQuestionOrders: number[];
+      statusNote?: string;
     }> = [];
 
     const studentExamSummaries: Array<{
@@ -563,83 +597,145 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       passed: boolean;
       masteredTpCount: number;
       totalTp: number;
+      hasSubmission: boolean;
     }> = [];
 
-    // Evaluasi per paket asesmen yang dikerjakan siswa
+    // Evaluasi seluruh paket asesmen yang masuk dalam cakupan targetExams
     targetExams.forEach(exam => {
-      const relevantSub = sSubs.find(sub => sub.examId === exam.id);
-      if (!relevantSub || !relevantSub.answers) return;
+      // Cari submisi siswa untuk paket ini (ambil submisi terbaik jika ada percobaan ulang)
+      const examSubsForStudent = sSubs.filter(sub =>
+        safeString(sub.examId).toLowerCase() === safeString(exam.id).toLowerCase()
+      );
+      const relevantSub = examSubsForStudent.length > 0
+        ? [...examSubsForStudent].sort((a, b) => (Number(b.percentage) || 0) - (Number(a.percentage) || 0))[0]
+        : null;
 
       const examQuestions = StorageService.getQuestionsByExamId(exam.id);
-      if (examQuestions.length === 0) return;
+      const examTps = normalizeLearningObjectives(exam.learningObjectives);
+      if (examQuestions.length === 0 && examTps.length === 0) return;
 
       // Kelompokkan butir soal per TP pada paket ini
-      const tpMap: Record<string, { questions: Question[]; correctCount: number; totalCount: number; pointsEarned: number; maxPoints: number }> = {};
-      examQuestions.forEach(q => {
-        const tp = safeString(q.learningObjective) || safeString(q.indicator) || `Tujuan Pembelajaran Butir Soal #${q.order}`;
-        if (!tpMap[tp]) {
-          tpMap[tp] = { questions: [], correctCount: 0, totalCount: 0, pointsEarned: 0, maxPoints: 0 };
-        }
-        tpMap[tp].questions.push(q);
-        tpMap[tp].totalCount++;
-        tpMap[tp].maxPoints += (q.points || 10);
+      const tpMap: Record<string, { questions: Question[]; orders: number[]; correctCount: number; totalCount: number }> = {};
+      
+      if (examQuestions.length > 0) {
+        examQuestions.forEach(q => {
+          const tpFromExam = examTps.length > 0 ? examTps[(q.order - 1) % examTps.length] : '';
+          const tp = safeString(q.learningObjective) || safeString(q.indicator) || tpFromExam || `Tujuan Pembelajaran Butir Soal #${q.order}`;
+          if (!tpMap[tp]) {
+            tpMap[tp] = { questions: [], orders: [], correctCount: 0, totalCount: 0 };
+          }
+          tpMap[tp].questions.push(q);
+          tpMap[tp].orders.push(q.order);
+          tpMap[tp].totalCount++;
+        });
+      } else {
+        // Jika belum ada butir soal spesifik, gunakan daftar TP dari definisi paket ujian
+        examTps.forEach((tp, idx) => {
+          tpMap[tp] = { questions: [], orders: [idx + 1], correctCount: 0, totalCount: 1 };
+        });
+      }
 
-        const studentAns = relevantSub.answers ? relevantSub.answers[q.id] : undefined;
-        if (AnalysisService.isAnswerCorrect(q, studentAns)) {
-          tpMap[tp].correctCount++;
-          tpMap[tp].pointsEarned += (q.points || 10);
-        }
-      });
-
+      const examPassingScore = exam.passingScore ?? 75;
       let examMastered = 0;
       const examTotal = Object.keys(tpMap).length;
 
-      Object.entries(tpMap).forEach(([tp, data]) => {
-        const percentage = data.totalCount > 0 ? Math.round((data.correctCount / data.totalCount) * 100) : 0;
-        const questionOrders = data.questions.map(q => q.order).sort((a, b) => a - b);
-        
-        const missedQuestionOrders: number[] = [];
-        data.questions.forEach(q => {
-          const ans = relevantSub.answers ? relevantSub.answers[q.id] : undefined;
-          if (!AnalysisService.isAnswerCorrect(q, ans)) {
-            missedQuestionOrders.push(q.order);
+      if (relevantSub) {
+        // 1. Siswa sudah mengerjakan paket ujian ini
+        const safeAnswers = getSafeAnswers(relevantSub);
+        const hasDetailedAnswers = Object.keys(safeAnswers).length > 0;
+        const subScorePct = Number(relevantSub.percentage) || 0;
+
+        Object.entries(tpMap).forEach(([tp, data]) => {
+          let percentage = 0;
+          let correctCount = 0;
+          const missedQuestionOrders: number[] = [];
+
+          if (hasDetailedAnswers && data.questions.length > 0) {
+            data.questions.forEach(q => {
+              const ans = safeAnswers[q.id];
+              if (AnalysisService.isAnswerCorrect(q, ans)) {
+                correctCount++;
+              } else {
+                missedQuestionOrders.push(q.order);
+              }
+            });
+            percentage = data.totalCount > 0 ? Math.round((correctCount / data.totalCount) * 100) : 0;
+          } else {
+            // Jika butir jawaban detail tidak tersimpan di log, gunakan persentase nilai paket ini
+            percentage = subScorePct;
+            correctCount = percentage >= examPassingScore ? data.totalCount : 0;
+            if (percentage < examPassingScore && data.questions.length > 0) {
+              data.questions.forEach(q => missedQuestionOrders.push(q.order));
+            }
+          }
+
+          const questionOrders = data.orders.sort((a, b) => a - b);
+
+          if (percentage >= examPassingScore) {
+            examMastered++;
+            masteredObjectives.push({
+              objective: tp,
+              examId: exam.id,
+              examTitle: exam.title,
+              correctCount,
+              totalCount: data.totalCount,
+              percentage,
+              questionOrders
+            });
+          } else {
+            unmasteredObjectives.push({
+              objective: tp,
+              examId: exam.id,
+              examTitle: exam.title,
+              correctCount,
+              totalCount: data.totalCount,
+              percentage,
+              questionOrders,
+              missedQuestionOrders,
+              statusNote: 'Perlu Remedial'
+            });
           }
         });
 
-        if (percentage >= 75) {
-          examMastered++;
-          masteredObjectives.push({
-            objective: tp,
-            examId: exam.id,
-            examTitle: exam.title,
-            correctCount: data.correctCount,
-            totalCount: data.totalCount,
-            percentage,
-            questionOrders
-          });
-        } else {
+        studentExamSummaries.push({
+          examId: exam.id,
+          examTitle: exam.title,
+          score: Number(relevantSub.score) || 0,
+          percentage: subScorePct,
+          passed: subScorePct >= examPassingScore,
+          masteredTpCount: examMastered,
+          totalTp: examTotal,
+          hasSubmission: true
+        });
+      } else {
+        // 2. Siswa BELUM mengerjakan paket ujian ini (dalam mode Gabungan Semua Paket)
+        // Maka seluruh TP dari paket ini belum dikuasai (0%) dan dicatat agar pembagi tidak terdistorsi menjadi 100%
+        Object.entries(tpMap).forEach(([tp, data]) => {
+          const questionOrders = data.orders.sort((a, b) => a - b);
           unmasteredObjectives.push({
             objective: tp,
             examId: exam.id,
             examTitle: exam.title,
-            correctCount: data.correctCount,
+            correctCount: 0,
             totalCount: data.totalCount,
-            percentage,
+            percentage: 0,
             questionOrders,
-            missedQuestionOrders
+            missedQuestionOrders: questionOrders,
+            statusNote: 'Belum Mengikuti Asesmen'
           });
-        }
-      });
+        });
 
-      studentExamSummaries.push({
-        examId: exam.id,
-        examTitle: exam.title,
-        score: Number(relevantSub.score) || 0,
-        percentage: Number(relevantSub.percentage) || 0,
-        passed: Boolean(relevantSub.passed),
-        masteredTpCount: examMastered,
-        totalTp: examTotal
-      });
+        studentExamSummaries.push({
+          examId: exam.id,
+          examTitle: exam.title,
+          score: 0,
+          percentage: 0,
+          passed: false,
+          masteredTpCount: 0,
+          totalTp: examTotal,
+          hasSubmission: false
+        });
+      }
     });
 
     const totalTp = masteredObjectives.length + unmasteredObjectives.length;
@@ -1378,7 +1474,7 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                   </h4>
                 </div>
                 <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {studentAnalysis.studentExamSummaries.length} Paket Dikerjakan
+                  {studentAnalysis.studentExamSummaries.length} Paket Asesmen
                 </span>
               </div>
 
@@ -1394,9 +1490,13 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                           {summary.examTitle}
                         </h5>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
-                          summary.percentage >= 75 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300'
+                          summary.hasSubmission === false
+                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300'
+                            : summary.percentage >= 75
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300'
+                            : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300'
                         }`}>
-                          {summary.percentage >= 75 ? 'Tuntas' : 'Remedial'}
+                          {summary.hasSubmission === false ? 'Belum Ujian' : summary.percentage >= 75 ? 'Tuntas' : 'Remedial'}
                         </span>
                       </div>
                     </div>
@@ -1405,7 +1505,7 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                       <div>
                         <div className="text-[10px] text-slate-400">Nilai Ujian</div>
                         <div className="font-bold text-slate-800 dark:text-slate-200">
-                          {summary.percentage} / 100
+                          {summary.hasSubmission ? `${summary.percentage} / 100` : '- (Belum)'}
                         </div>
                       </div>
                       <div>
@@ -1531,6 +1631,15 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                           📦 {item.examTitle}
                         </span>
+                        {item.statusNote && (
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${
+                            item.statusNote === 'Belum Mengikuti Asesmen'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                              : 'bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                          }`}>
+                            {item.statusNote}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-start justify-between gap-3">
@@ -1547,15 +1656,28 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
 
                       <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1">
                         <span>Menjawab benar: <strong>{item.correctCount}</strong> dari {item.totalCount} butir</span>
-                        {item.missedQuestionOrders.length > 0 && (
+                        {item.missedQuestionOrders.length > 0 && item.percentage > 0 && (
                           <span className="text-rose-600 font-semibold">
                             Butir yang Salah: No. {item.missedQuestionOrders.join(', ')}
+                          </span>
+                        )}
+                        {item.percentage === 0 && (
+                          <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                            {item.statusNote || 'Belum Mengerjakan Ujian'}
                           </span>
                         )}
                       </div>
 
                       <div className="text-[11px] text-rose-800 dark:text-rose-300 bg-white/60 dark:bg-slate-900/60 p-2 rounded-lg">
-                        📝 <strong>Program Remedial:</strong> Siswa disarankan mempelajari kembali ringkasan materi dan mengerjakan latihan terarah pada butir soal No. {item.missedQuestionOrders.join(', ') || '-'}.
+                        {item.percentage === 0 ? (
+                          <>
+                            📌 <strong>Rekomendasi Asesmen:</strong> Siswa belum mengikuti paket asesmen ini. Dijadwalkan untuk mengikuti ujian susulan agar capaian TP terukur.
+                          </>
+                        ) : (
+                          <>
+                            📝 <strong>Program Remedial:</strong> Siswa disarankan mempelajari kembali ringkasan materi dan mengerjakan latihan terarah pada butir soal No. {item.missedQuestionOrders.join(', ') || '-'}.
+                          </>
+                        )}
                       </div>
                     </div>
                   ))

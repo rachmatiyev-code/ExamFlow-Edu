@@ -1,44 +1,24 @@
-# Implementasi Fitur & Perbaikan Sistem ExamFlow Edu (SDN Pisangcandi 1)
+# Aturan Pelaksanaan & Alur Ujian Siswa
 
-Berikut adalah rangkuman implementasi 8 poin permintaan pengguna:
+## 1. Pembahasan Butir Soal (Per-Question Explanation)
+- Saat siswa memilih opsi atau mengetikkan esai pada suatu butir soal, **penjelasan/pembahasan konsep materi dan status kebenaran TIDAK langsung muncul**.
+- Pembahasan baru akan terbuka secara interaktif ketika siswa menekan tombol **"Selanjutnya"** (atau tombol "Buka Pembahasan Soal Ini" pada nomor terakhir).
+- Setelah ditekan, pembahasan materi dan status (*Jawaban Anda Benar* / *Jawaban Belum Tepat*) akan ditampilkan, tombol navigasi berubah menjadi **"Lanjut ke Soal No. X"**, dan siswa dapat menelaah konsep materi sebelum berpindah nomor.
+- Kunci jawaban yang benar tetap dirahasiakan selama ujian berlangsung sesuai standar integritas asesmen.
 
-## 1. Pemilih Kelas pada Generator AI & Filter CP/TP Sesuai Kelas
-- Menambahkan pemilih interaktif **"Pilih Tingkat Kelas / Fase"** pada `AiQuestionModal`:
-  - Sekolah Dasar (SD): Kelas 1 & 2 (Fase A), Kelas 3 & 4 (Fase B), Kelas 5 & 6 (Fase C)
-  - SMP: Kelas 7, 8, 9 (Fase D)
-  - SMA: Kelas 10 (Fase E), Kelas 11 & 12 (Fase F)
-  - Kelas Paket Ujian atau Tampilkan Semua.
-- Dropdown **Capaian Pembelajaran (CP)** dan **Tujuan Pembelajaran (TP)** disaring secara dinamis sesuai kelas/fase yang dipilih.
+## 2. Penguncian Jawaban Sementara Hingga Seluruh Soal Dijawab
+- Setelah penjelasan suatu butir soal terbuka, jawaban pada butir tersebut akan dikunci sementara.
+- Siswa **baru diperbolehkan mengubah atau merevisi jawaban setelah SELURUH butir soal dalam ujian selesai dijawab** (`answeredCount === totalQuestions`).
+- Jika siswa mencoba mengganti pilihan sebelum seluruh soal terjawab, sistem akan menampilkan notifikasi bahwa jawaban terkunci sementara.
 
-## 2. Deteksi Sinkronisasi CP/TP Google Sheets (Bebas Masalah Dummy)
-- Mengatasi kendala header Bahasa Indonesia dari Google Sheets (`Mata Pelajaran`, `Capaian Pembelajaran`, `Tujuan Pembelajaran`, `Elemen`, `Jenjang / Kelas`) sehingga langsung terpetakan ke struktur sistem.
-- Menambahkan parser robust untuk butir TP multi-baris/penomoran dari Spreadsheet.
-- Menambahkan filter dan tombol **"Bersihkan Template Dummy"** pada menu Kurikulum agar data contoh lama (seperti Biologi) dapat dibersihkan dengan satu klik tanpa menghapus data asli.
+## 3. Pembatasan Revisi Maksimal 5 Butir Soal
+- Begitu seluruh butir soal selesai dijawab, sistem mengaktifkan **Mode Revisi** dan mencatat snapshot jawaban awal.
+- Siswa hanya diberikan kuota untuk merevisi atau mengubah jawaban dari **maksimal 5 butir soal**.
+- Jika siswa telah mengubah 5 butir soal dan mencoba merevisi soal ke-6, sistem akan memblokir perubahan dan menginformasikan bahwa batas kuota 5 revisi telah penuh.
+- Daftar nomor soal yang telah direvisi ditandai secara visual di daftar nomor soal (lingkaran ungu / badge revisi).
 
-## 3. Logo Pemerintah Daerah di Sebelah Kiri Kop Surat
-- Menambahkan konfigurasi `regionalGovLogoUrl` dengan dukungan:
-  - Input URL gambar logo pemda.
-  - Unggah file logo langsung dari perangkat (Base64).
-  - Pratinjau langsung logo pemda di formulir profil.
-- Menempatkan **Logo Pemda di sebelah KIRI** kop surat pada seluruh dokumen resmi cetak (`OfficialReportPrintView`, `OfficialExamPrintView`, `KisiKisiMatrix`, dan pratinjau dashboard).
-
-## 4. Hirarki Kop Surat: Organisasi Perangkat Daerah (OPD) di Bawah Pemda
-- Menambahkan formulir input `regionalGovName` (Nama Pemerintah Daerah) dan `regionalGovDepartment` (Nama Organisasi Perangkat Daerah / OPD).
-- Mengatur tata naskah dinas resmi pada Kop Surat:
-  - **Baris 1**: Nama Pemerintah Daerah (contoh: `PEMERINTAH KOTA MALANG`)
-  - **Baris 2**: Nama Organisasi Perangkat Daerah (contoh: `DINAS PENDIDIKAN DAN KEBUDAYAAN`)
-  - **Baris 3**: Nama Satuan Pendidikan (contoh: `SD NEGERI PISANGCANDI 1 MALANG`)
-  - **Baris 4**: Alamat Sekolah
-  - **Baris 5**: NPSN, Tahun Ajaran, dan Semester.
-
-## 5. Penyimpanan Mata Pelajaran Baru Secara Persisten
-- Menambahkan manajemen penyimpanan persisten `custom_subjects` di `StorageService`.
-- Setiap mata pelajaran baru yang ditambahkan di menu CP/TP otomatis tersimpan dan langsung muncul di semua dropdown pilihan mapel di seluruh aplikasi.
-
-## 6. Integritas Kunci Jawaban Soal Pilihan Ganda AI
-- Memperbaiki prompt AI agar kunci jawaban (`correctKey`) **selalu menunjuk ke opsi yang memuat pernyataan yang 100% benar dan faktual**.
-- Menghapus double-swapping opsi pada pemrosesan pasca-generasi agar kunci jawaban dan konten pertanyaan selalu sinkron.
-
-## 7. Peningkatan Kualitas Soal HOTS & Stimulus Mendalam
-- Menginstruksikan AI untuk menyusun stimulus soal HOTS yang kaya dan kontekstual (2-4 paragraf narasi, studi kasus, data tabel, atau dialog pemecahan masalah).
-- Murid diarahkan untuk membaca secara teliti (*close reading*) dan melakukan analisis kritis sebelum dapat menentukan pilihan jawaban.
+## 4. Peringatan Khusus di Nomor Terakhir Sebelum Submit
+- Pada nomor soal terakhir sebelum mengirimkan ujian, sistem menyajikan kartu peringatan mencolok (*Alert Warning Banner*):
+  - **Status Kelengkapan Soal**: Menampilkan jumlah soal yang sudah/belum dijawab.
+  - **Aturan Kuota Revisi**: Menampilkan kuota perubahan jawaban yang telah terpakai (`X / 5 Soal`) beserta daftar nomor soal yang telah diubah.
+  - **Konfirmasi Pengiriman**: Dialog peringatan sebelum penyerahan final ujian ke server Google Apps Script dan Google Classroom.

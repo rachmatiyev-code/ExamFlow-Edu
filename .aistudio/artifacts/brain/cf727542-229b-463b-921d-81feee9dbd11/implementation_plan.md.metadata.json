@@ -1,6 +1,6 @@
 {
-  "summary":  "Rangkuman lengkap implementasi 8 fitur dan perbaikan ExamFlow Edu:\n1. Pilihan kelas dan filter dinamis CP/TP pada Generator Soal AI.\n2. Pemetaan header GSheets & pembersihan template dummy.\n3. Konfigurasi Logo Pemda (kiri) & Logo Sekolah (kanan).\n4. Hirarki kedinasan Kop Surat: Pemda -> OPD -> Nama Sekolah.\n5. Penyimpanan persisten mata pelajaran baru.\n6. Validasi akurasi kunci jawaban PG AI dan pengayaan stimulus HOTS mendalam.",
-  "updatedAt":  "2026-10-30T15:50:13.288203070Z",
+  "summary":  "Dokumentasi aturan ujian terkini:\n1. Penjelasan butir soal hanya muncul setelah siswa menekan tombol 'Selanjutnya' (bukan saat memilih/mengisi jawaban).\n2. Jawaban terkunci sementara hingga seluruh soal selesai dijawab.\n3. Siswa hanya dapat mengubah jawaban maksimal 5 butir soal setelah semua soal selesai dijawab.\n4. Peringatan khusus, status kelengkapan, dan kuota revisi dimunculkan di nomor terakhir sebelum submit ujian.",
+  "updatedAt":  "2026-11-09T23:58:03.277206312Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

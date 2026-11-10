@@ -42,7 +42,11 @@ import {
   ChevronUp,
   FileText,
   Check,
-  Award
+  Award,
+  Lock,
+  Unlock,
+  Edit3,
+  Info
 } from 'lucide-react';
 
 interface StudentPortalProps {
@@ -104,8 +108,95 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [completedSubmission, setCompletedSubmission] = useState<Submission | null>(null);
   const [showDetailedReview, setShowDetailedReview] = useState<boolean>(true);
 
-  // Per-Question Instant Explanation (pembahasan soal setiap siswa selesai mengerjakan butir soal)
+  // Per-Question Instant Explanation (pembahasan soal muncul saat siswa sudah menekan tombol selanjutnya)
   const [showCurrentExplanation, setShowCurrentExplanation] = useState<boolean>(false);
+  const [unlockedExplanationIds, setUnlockedExplanationIds] = useState<string[]>([]);
+  
+  // Revision Control: Dapat mengubah jawaban setelah semua soal dijawab, maksimal 5 soal
+  const [initialLockedAnswers, setInitialLockedAnswers] = useState<Record<string, string | string[]> | null>(null);
+  const [revisionAlertMessage, setRevisionAlertMessage] = useState<string | null>(null);
+  const MAX_REVISION_QUESTIONS = 5;
+
+  // Helper untuk mengecek apakah suatu butir soal telah dijawab
+  const isQuestionAnswered = (qId: string, answers: Record<string, string | string[]>) => {
+    const a = answers[qId];
+    if (a === undefined || a === null) return false;
+    if (typeof a === 'string') return a.trim().length > 0;
+    if (Array.isArray(a)) return a.length > 0;
+    return false;
+  };
+
+  // Helper pembanding jawaban
+  const areAnswersEqual = (a: string | string[] | undefined, b: string | string[] | undefined): boolean => {
+    if (a === undefined && b === undefined) return true;
+    if (a === undefined || b === undefined) return false;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) return false;
+      const sortedA = [...a].sort();
+      const sortedB = [...b].sort();
+      return sortedA.every((val, idx) => val === sortedB[idx]);
+    }
+    return String(a).trim() === String(b).trim();
+  };
+
+  // Status kelengkapan pengerjaan seluruh butir soal
+  const answeredQuestionsCount = examQuestions.filter(q => isQuestionAnswered(q.id, userAnswers)).length;
+  const isAllQuestionsAnswered = examQuestions.length > 0 && answeredQuestionsCount === examQuestions.length;
+
+  // Kunci snapshot jawaban awal saat seluruh soal pertama kali selesai dijawab (untuk batas maksimal 5 perubahan jawaban)
+  useEffect(() => {
+    if (isExamActive && examQuestions.length > 0 && isAllQuestionsAnswered && !initialLockedAnswers) {
+      setInitialLockedAnswers({ ...userAnswers });
+    }
+  }, [isExamActive, examQuestions.length, isAllQuestionsAnswered, initialLockedAnswers, userAnswers]);
+
+  // Daftar nomor soal yang telah direvisi/diubah dari snapshot awal
+  const changedQuestionIds = React.useMemo(() => {
+    if (!initialLockedAnswers) return [];
+    const changed: string[] = [];
+    examQuestions.forEach(q => {
+      const qId = q.id;
+      if (initialLockedAnswers[qId] !== undefined) {
+        if (!areAnswersEqual(userAnswers[qId], initialLockedAnswers[qId])) {
+          changed.push(qId);
+        }
+      }
+    });
+    return changed;
+  }, [examQuestions, initialLockedAnswers, userAnswers]);
+
+  // Validasi apakah siswa diperbolehkan memilih atau mengubah jawaban pada butir soal ini
+  const canModifyQuestion = (questionId: string): { allowed: boolean; reason?: string } => {
+    const isUnlocked = unlockedExplanationIds.includes(questionId);
+
+    // Jika pembahasan butir soal ini belum pernah dibuka (belum pernah menekan Selanjutnya):
+    // Siswa masih bebas memilih jawaban saat pertama kali mengerjakan butir ini
+    if (!isUnlocked) {
+      return { allowed: true };
+    }
+
+    // Jika pembahasan sudah dibuka:
+    // Aturan 1: Siswa baru dapat mengubah jawaban setelah SEMUA soal dijawab
+    if (!isAllQuestionsAnswered) {
+      return {
+        allowed: false,
+        reason: `Jawaban pada soal ini terkunci sementara karena pembahasan telah dibuka.\n\nSesuai aturan ujian, Anda baru dapat mengubah jawaban setelah SELURUH soal (${answeredQuestionsCount}/${examQuestions.length}) selesai Anda jawab.`
+      };
+    }
+
+    // Aturan 2: Setelah semua soal dijawab, siswa hanya dapat mengubah jawaban dari maksimal 5 soal
+    if (initialLockedAnswers) {
+      const isAlreadyChanged = changedQuestionIds.includes(questionId);
+      if (!isAlreadyChanged && changedQuestionIds.length >= MAX_REVISION_QUESTIONS) {
+        return {
+          allowed: false,
+          reason: `Batas Maksimal Revisi Tercapai!\n\nAnda hanya dapat mengubah jawaban dari maksimal ${MAX_REVISION_QUESTIONS} butir soal.\nKuota 5 soal Anda telah terpakai untuk soal lain.\n\nUntuk merevisi soal ini, Anda dapat mengembalikan salah satu jawaban soal yang telah diubah ke pilihan semula.`
+        };
+      }
+    }
+
+    return { allowed: true };
+  };
 
   // Media Zoom Modal State
   const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
@@ -279,6 +370,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     let restoredAnswers: Record<string, string | string[]> = {};
     let restoredFlagged: Record<string, boolean> = {};
     let restoredIndex = 0;
+    let restoredUnlockedExps: string[] = [];
+    let restoredInitialSnapshot: Record<string, string | string[]> | null = null;
     let hasRestored = false;
 
     if (progressKey) {
@@ -299,6 +392,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           if (typeof parsed.timeRemaining === 'number' && parsed.timeRemaining > 0) {
             setTimeRemainingSeconds(parsed.timeRemaining);
           }
+          if (Array.isArray(parsed.unlockedExplanationIds)) {
+            restoredUnlockedExps = parsed.unlockedExplanationIds;
+          }
+          if (parsed.initialLockedAnswers && typeof parsed.initialLockedAnswers === 'object') {
+            restoredInitialSnapshot = parsed.initialLockedAnswers;
+          }
         }
       } catch (err) {
         console.warn('Gagal membaca progress tersimpan:', err);
@@ -308,6 +407,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     setUserAnswers(restoredAnswers);
     setFlaggedQuestions(restoredFlagged);
     setCurrentQuestionIndex(restoredIndex);
+    setUnlockedExplanationIds(restoredUnlockedExps);
+    setInitialLockedAnswers(restoredInitialSnapshot);
+    setShowCurrentExplanation(false);
+
     if (!hasRestored) {
       setTimeRemainingSeconds(selectedExam ? selectedExam.durationMinutes * 60 : 3600);
     }
@@ -336,6 +439,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           flagged: flaggedQuestions,
           currentIndex: currentQuestionIndex,
           timeRemaining: timeRemainingSeconds,
+          unlockedExplanationIds,
+          initialLockedAnswers,
           updatedAt: Date.now()
         }));
         setLastAutoSavedTime(Date.now());
@@ -343,7 +448,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         console.warn('Gagal menyimpan draft jawaban ke perangkat:', e);
       }
     }
-  }, [isExamActive, selectedExam, userAnswers, flaggedQuestions, currentQuestionIndex, timeRemainingSeconds, studentNo, studentName, studentClass]);
+  }, [isExamActive, selectedExam, userAnswers, flaggedQuestions, currentQuestionIndex, timeRemainingSeconds, studentNo, studentName, studentClass, unlockedExplanationIds, initialLockedAnswers]);
 
   const handleConfirmLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -563,6 +668,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   };
 
   const handleSelectOption = (questionId: string, optionId: string, isCheckbox = false) => {
+    const check = canModifyQuestion(questionId);
+    if (!check.allowed) {
+      setRevisionAlertMessage(check.reason || 'Jawaban tidak dapat diubah.');
+      setTimeout(() => setRevisionAlertMessage(null), 7000);
+      return;
+    }
+
     if (isCheckbox) {
       const current = (userAnswers[questionId] as string[]) || [];
       if (current.includes(optionId)) {
@@ -585,6 +697,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   };
 
   const handleEssayChange = (questionId: string, text: string) => {
+    const check = canModifyQuestion(questionId);
+    if (!check.allowed) {
+      setRevisionAlertMessage(check.reason || 'Jawaban esai tidak dapat diubah.');
+      setTimeout(() => setRevisionAlertMessage(null), 7000);
+      return;
+    }
+
     setUserAnswers(prev => ({
       ...prev,
       [questionId]: text
@@ -601,6 +720,25 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // Submit Logic
   const handleSubmitExam = async (reason?: string) => {
     if (!selectedExam) return;
+
+    if (!reason) {
+      if (!isAllQuestionsAnswered) {
+        const remaining = examQuestions.length - answeredQuestionsCount;
+        const confirmMsg = `⚠️ Peringatan Pengumpulan Ujian:\n\n` +
+          `• Masih ada ${remaining} butir soal yang BELUM Anda jawab!\n` +
+          `• Sesuai aturan, Anda baru dapat merevisi jawaban setelah seluruh butir soal selesai dijawab.\n` +
+          `• Kuota revisi yang telah terpakai: ${changedQuestionIds.length}/${MAX_REVISION_QUESTIONS} butir soal.\n\n` +
+          `Apakah Anda yakin tetap ingin mengumpulkan dan mengakhiri ujian sekarang?`;
+        if (!confirm(confirmMsg)) return;
+      } else {
+        const confirmMsg = `Konfirmasi Pengiriman Ujian:\n\n` +
+          `• Seluruh butir soal (${examQuestions.length}/${examQuestions.length}) telah selesai Anda jawab.\n` +
+          `• Kuota revisi jawaban yang terpakai: ${changedQuestionIds.length}/${MAX_REVISION_QUESTIONS} butir soal.\n\n` +
+          `Apakah Anda yakin ingin mengirimkan lembar ujian sekarang?`;
+        if (!confirm(confirmMsg)) return;
+      }
+    }
+
     setIsSubmitting(true);
 
     // Hitung Skor Otomatis
@@ -977,6 +1115,23 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     return (
       <div className="min-h-screen pb-16 bg-slate-100 dark:bg-slate-950 transition-colors">
+        {/* Floating Notification for Revision Quota & Locked Answers */}
+        {revisionAlertMessage && (
+          <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[92%] p-4 bg-rose-600 text-white rounded-2xl shadow-2xl flex items-start gap-3 animate-fadeIn border border-white/20">
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-200" />
+            <div className="flex-1 text-xs">
+              <div className="font-bold text-amber-100 mb-0.5">Pemberitahuan Ujian:</div>
+              <div className="whitespace-pre-line leading-relaxed">{revisionAlertMessage}</div>
+            </div>
+            <button 
+              onClick={() => setRevisionAlertMessage(null)}
+              className="p-1 rounded-lg hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Sticky Header with Timer and Progress */}
         <header className="sticky top-16 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-3 shadow-xs">
           <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
@@ -1097,17 +1252,25 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
                   Daftar Nomor Soal
                 </span>
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  {answeredCount}/{examQuestions.length} Terjawab
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    {answeredCount}/{examQuestions.length} Terjawab
+                  </span>
+                  {isAllQuestionsAnswered && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                      Revisi: {changedQuestionIds.length}/{MAX_REVISION_QUESTIONS}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Grid of Question Numbers */}
               <div className="grid grid-cols-5 gap-2">
                 {examQuestions.map((q, idx) => {
                   const isCurrent = idx === currentQuestionIndex;
-                  const hasAnswer = userAnswers[q.id] !== undefined && userAnswers[q.id] !== '' && (Array.isArray(userAnswers[q.id]) ? (userAnswers[q.id] as string[]).length > 0 : true);
+                  const hasAnswer = isQuestionAnswered(q.id, userAnswers);
                   const isFlagged = flaggedQuestions[q.id];
+                  const isRevised = changedQuestionIds.includes(q.id);
 
                   return (
                     <button
@@ -1118,6 +1281,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                           ? 'ring-2 ring-indigo-600 dark:ring-indigo-400 bg-indigo-600 text-white shadow-sm'
                           : isFlagged
                           ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
+                          : isRevised
+                          ? 'bg-purple-100 dark:bg-purple-950/70 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-700 ring-1 ring-purple-400'
                           : hasAnswer
                           ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -1126,6 +1291,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       {idx + 1}
                       {isFlagged && (
                         <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full" />
+                      )}
+                      {isRevised && !isFlagged && (
+                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-purple-500 rounded-full" title="Jawaban telah direvisi" />
                       )}
                     </button>
                   );
@@ -1141,6 +1309,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded bg-amber-500 shrink-0" />
                   <span>Ragu-Ragu</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded bg-purple-500 shrink-0" />
+                  <span>Direvisi ({changedQuestionIds.length}/{MAX_REVISION_QUESTIONS})</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded bg-indigo-600 shrink-0" />
+                  <span>Soal Aktif</span>
                 </div>
               </div>
 
@@ -1209,9 +1385,71 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   />
                 </div>
 
+                {/* Status Keterangan Soal & Revisi Jawaban */}
+                {(() => {
+                  const isUnlocked = unlockedExplanationIds.includes(currentQ.id);
+                  const isRevised = changedQuestionIds.includes(currentQ.id);
+
+                  if (isUnlocked && !isAllQuestionsAnswered) {
+                    return (
+                      <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2.5 animate-fadeIn">
+                        <Lock className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        <span>
+                          <strong>Jawaban Terkunci Sementara:</strong> Pembahasan butir soal ini telah dibuka. Sesuai aturan ujian, Anda baru dapat mengubah kembali jawaban setelah <strong>seluruh soal ({answeredCount}/{examQuestions.length})</strong> selesai dijawab.
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  if (isAllQuestionsAnswered) {
+                    if (isRevised) {
+                      return (
+                        <div className="mb-4 p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 flex items-center justify-between gap-2 animate-fadeIn">
+                          <div className="flex items-center gap-2">
+                            <Edit3 className="w-4 h-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                            <span>
+                              <strong>Jawaban Butir Soal Ini Telah Direvisi</strong> (dari jawaban semula).
+                            </span>
+                          </div>
+                          <span className="font-bold text-[11px] px-2.5 py-0.5 rounded-full bg-indigo-200 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-200 shrink-0">
+                            Kuota: {changedQuestionIds.length}/{MAX_REVISION_QUESTIONS}
+                          </span>
+                        </div>
+                      );
+                    } else if (changedQuestionIds.length >= MAX_REVISION_QUESTIONS) {
+                      return (
+                        <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-800 dark:text-rose-300 flex items-center gap-2.5 animate-fadeIn">
+                          <Lock className="w-4 h-4 shrink-0 text-rose-600 dark:text-rose-400" />
+                          <span>
+                            <strong>Batas Kuota Revisi Penuh ({MAX_REVISION_QUESTIONS}/{MAX_REVISION_QUESTIONS}):</strong> Anda telah merevisi 5 butir soal lain. Anda tidak dapat mengubah butir soal ini lagi.
+                          </span>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <div className="mb-4 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 animate-fadeIn">
+                          <div className="flex items-center gap-2">
+                            <Unlock className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                            <span>
+                              <strong>Mode Revisi Terbuka:</strong> Seluruh soal telah terjawab. Anda dapat mengubah pilihan jawaban jika diperlukan.
+                            </span>
+                          </div>
+                          <span className="font-bold text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-200 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-200 shrink-0">
+                            Sisa Kuota: {MAX_REVISION_QUESTIONS - changedQuestionIds.length} Soal
+                          </span>
+                        </div>
+                      );
+                    }
+                  }
+
+                  return null;
+                })()}
+
                 {/* Option Choices */}
                 {currentQ.type === 'multiple_choice' && (() => {
                   const safeOpts = normalizeQuestionOptions(currentQ.options);
+                  const canModify = canModifyQuestion(currentQ.id);
+
                   return (
                     <div className="space-y-3">
                       {safeOpts.map((opt, optIdx) => {
@@ -1222,7 +1460,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         return (
                           <label
                             key={opt.id}
-                            className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition-all ${
+                            className={`flex items-start gap-3.5 p-4 rounded-xl border transition-all ${
+                              !canModify.allowed ? 'cursor-not-allowed opacity-90' : 'cursor-pointer'
+                            } ${
                               isSelected
                                 ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500 dark:border-indigo-500 shadow-xs'
                                 : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -1251,6 +1491,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
                 {currentQ.type === 'checkbox' && (() => {
                   const safeOpts = normalizeQuestionOptions(currentQ.options);
+                  const canModify = canModifyQuestion(currentQ.id);
+
                   return (
                     <div className="space-y-3">
                       <div className="text-xs text-amber-600 dark:text-amber-400 font-medium">
@@ -1265,7 +1507,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         return (
                           <label
                             key={opt.id}
-                            className={`flex items-start gap-3.5 p-4 rounded-xl border cursor-pointer transition-all ${
+                            className={`flex items-start gap-3.5 p-4 rounded-xl border transition-all ${
+                              !canModify.allowed ? 'cursor-not-allowed opacity-90' : 'cursor-pointer'
+                            } ${
                               isSelected
                                 ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-500 dark:border-indigo-500 shadow-xs'
                                 : 'bg-white dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
@@ -1291,30 +1535,37 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   );
                 })()}
 
-                {currentQ.type === 'essay' && (
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400 block">
-                      Tuliskan jawaban uraian Anda pada kotak di bawah ini:
-                    </label>
-                    <textarea
-                      rows={6}
-                      value={(userAnswers[currentQ.id] as string) || ''}
-                      onChange={(e) => handleEssayChange(currentQ.id, e.target.value)}
-                      placeholder="Ketik jawaban lengkap di sini..."
-                      className="w-full p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors"
-                    />
-                    <div className="text-[11px] text-slate-400 text-right">
-                      {((userAnswers[currentQ.id] as string) || '').length} karakter
+                {currentQ.type === 'essay' && (() => {
+                  const canModify = canModifyQuestion(currentQ.id);
+                  return (
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-slate-500 dark:text-slate-400 block">
+                        Tuliskan jawaban uraian Anda pada kotak di bawah ini:
+                      </label>
+                      <textarea
+                        rows={6}
+                        readOnly={!canModify.allowed}
+                        value={(userAnswers[currentQ.id] as string) || ''}
+                        onChange={(e) => handleEssayChange(currentQ.id, e.target.value)}
+                        placeholder={canModify.allowed ? "Ketik jawaban lengkap di sini..." : "Jawaban terkunci sesuai aturan ujian."}
+                        className={`w-full p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors ${
+                          !canModify.allowed ? 'opacity-80 cursor-not-allowed' : ''
+                        }`}
+                      />
+                      <div className="text-[11px] text-slate-400 text-right">
+                        {((userAnswers[currentQ.id] as string) || '').length} karakter
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
-                {/* Fitur Pembahasan Soal Setiap Siswa Selesai Mengerjakan Butir Soal (Tanpa Menampilkan Kunci Jawaban) */}
+                {/* Fitur Pembahasan Soal: HANYA muncul saat siswa sudah menekan tombol Selanjutnya */}
                 {(() => {
                   const currentAns = userAnswers[currentQ.id];
-                  const hasAnsweredCurrent = currentAns !== undefined && currentAns !== '' && (Array.isArray(currentAns) ? currentAns.length > 0 : true);
+                  const isExplanationUnlocked = unlockedExplanationIds.includes(currentQ.id);
 
-                  if (!hasAnsweredCurrent) return null;
+                  // Penjelasan TIDAK muncul saat memilih/mengisi jawaban, hanya setelah menekan Selanjutnya
+                  if (!isExplanationUnlocked) return null;
 
                   let isCorrect = false;
 
@@ -1380,48 +1631,163 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   );
                 })()}
 
-                {/* Question Navigation Footer */}
-                <div className="flex items-center justify-between mt-8 pt-4 border-t border-slate-100 dark:border-slate-800">
-                  <button
-                    onClick={() => setCurrentQuestionIndex(i => Math.max(i - 1, 0))}
-                    disabled={isFirst}
-                    className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${
-                      isFirst
-                        ? 'opacity-40 cursor-not-allowed text-slate-400'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
-                    }`}
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Sebelumnya</span>
-                  </button>
+                {/* Warning Banner Khusus di Nomor Terakhir Sebelum Mengirimkan Ujian */}
+                {isLast && (
+                  <div className="mt-8 p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-700/80 shadow-xs space-y-3 animate-fadeIn">
+                    <div className="flex items-center gap-2.5 text-amber-900 dark:text-amber-200 font-bold text-sm">
+                      <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span>Peringatan Nomor Terakhir Sebelum Mengirimkan Ujian</span>
+                    </div>
 
-                  <div className="text-xs text-slate-400 font-medium">
-                    Tersimpan otomatis di perangkat
+                    <div className="space-y-2.5 text-xs text-slate-700 dark:text-slate-300">
+                      {/* Status Kelengkapan Soal */}
+                      <div className="flex items-start gap-2.5">
+                        {isAllQuestionsAnswered ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                        )}
+                        <div>
+                          <span className="font-semibold text-slate-900 dark:text-white">
+                            Status Kelengkapan Soal: {answeredCount} dari {examQuestions.length} butir soal telah dijawab.
+                          </span>
+                          {!isAllQuestionsAnswered ? (
+                            <p className="text-rose-700 dark:text-rose-400 text-[11px] mt-0.5 font-medium">
+                              ⚠️ Perhatian: Masih ada {examQuestions.length - answeredCount} butir soal yang belum dijawab. Anda baru dapat mengubah jawaban setelah SELURUH soal terjawab lengkap.
+                            </p>
+                          ) : (
+                            <p className="text-emerald-700 dark:text-emerald-400 text-[11px] mt-0.5 font-medium">
+                              ✓ Seluruh soal telah selesai dijawab. Fitur revisi jawaban telah aktif.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Aturan Batas Revisi 5 Soal */}
+                      <div className="flex items-start gap-2.5 pt-2 border-t border-amber-200/80 dark:border-amber-800/60">
+                        <Info className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+                        <div className="space-y-1">
+                          <span className="font-semibold text-slate-900 dark:text-white">
+                            Aturan Perubahan Jawaban: Siswa dapat mengubah jawaban setelah semua soal dijawab, dan hanya dapat mengubah jawaban dari maksimal 5 butir soal.
+                          </span>
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                              changedQuestionIds.length >= MAX_REVISION_QUESTIONS
+                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800'
+                                : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                            }`}>
+                              Kuota Revisi Terpakai: {changedQuestionIds.length} / {MAX_REVISION_QUESTIONS} Butir Soal
+                            </span>
+                            {changedQuestionIds.length > 0 && (
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                                (Nomor yang telah diubah: {examQuestions.map((q, idx) => changedQuestionIds.includes(q.id) ? `No. ${idx + 1}` : null).filter(Boolean).join(', ')})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Konfirmasi Akhir */}
+                      <div className="pt-2 border-t border-amber-200/80 dark:border-amber-800/60 text-[11px] text-slate-600 dark:text-slate-400">
+                        * Periksa kembali seluruh lembar jawaban Anda. Setelah tombol <strong>"Kirim Jawaban"</strong> ditekan, sesi ujian akan langsung diakhiri dan nilai tercatat secara permanen.
+                      </div>
+                    </div>
                   </div>
+                )}
 
-                  {isLast ? (
-                    <button
-                      onClick={() => {
-                        if (confirm('Anda berada di nomor terakhir. Kumpulkan jawaban sekarang?')) {
-                          handleSubmitExam();
-                        }
-                      }}
-                      disabled={isSubmitting}
-                      className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
-                    >
-                      <span>Kirim Jawaban</span>
-                      <Send className="w-3.5 h-3.5" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => setCurrentQuestionIndex(i => Math.min(i + 1, examQuestions.length - 1))}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
-                    >
-                      <span>Selanjutnya</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
+                {/* Question Navigation Footer */}
+                {(() => {
+                  const hasAnsweredCurrent = isQuestionAnswered(currentQ.id, userAnswers);
+                  const isExplanationUnlocked = unlockedExplanationIds.includes(currentQ.id);
+
+                  const handleNextQuestion = () => {
+                    // Jika butir soal ini sudah dijawab dan penjelasan belum pernah dibuka:
+                    // Buka penjelasan terlebih dahulu saat tombol selanjutnya ditekan
+                    if (hasAnsweredCurrent && !isExplanationUnlocked) {
+                      setUnlockedExplanationIds(prev => (prev.includes(currentQ.id) ? prev : [...prev, currentQ.id]));
+                      setShowCurrentExplanation(true);
+                      return;
+                    }
+
+                    // Jika penjelasan sudah dibuka atau belum dijawab, langsung berpindah nomor
+                    setShowCurrentExplanation(false);
+                    setCurrentQuestionIndex(i => Math.min(i + 1, examQuestions.length - 1));
+                  };
+
+                  return (
+                    <div className="mt-8 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                      {/* Hint Banner when Explanation Was Just Unlocked */}
+                      {hasAnsweredCurrent && isExplanationUnlocked && !isLast && showCurrentExplanation && (
+                        <div className="p-3 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-between text-xs text-indigo-900 dark:text-indigo-200 animate-fadeIn">
+                          <div className="flex items-center gap-2">
+                            <BookOpen className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                            <span>💡 Pembahasan soal nomor ini telah terbuka di atas. Pelajari konsepnya, lalu tekan <strong>Lanjut ke Soal No. {currentQuestionIndex + 2}</strong>.</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between">
+                        <button
+                          onClick={() => {
+                            setShowCurrentExplanation(false);
+                            setCurrentQuestionIndex(i => Math.max(i - 1, 0));
+                          }}
+                          disabled={isFirst}
+                          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${
+                            isFirst
+                              ? 'opacity-40 cursor-not-allowed text-slate-400'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'
+                          }`}
+                        >
+                          <ArrowLeft className="w-3.5 h-3.5" />
+                          <span>Sebelumnya</span>
+                        </button>
+
+                        <div className="text-xs text-slate-400 font-medium hidden sm:block">
+                          Tersimpan otomatis di perangkat
+                        </div>
+
+                        {isLast ? (
+                          <div className="flex items-center gap-2">
+                            {hasAnsweredCurrent && !isExplanationUnlocked && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUnlockedExplanationIds(prev => (prev.includes(currentQ.id) ? prev : [...prev, currentQ.id]));
+                                  setShowCurrentExplanation(true);
+                                }}
+                                className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-semibold rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
+                              >
+                                <BookOpen className="w-3.5 h-3.5" />
+                                <span>Buka Pembahasan Soal Ini</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleSubmitExam()}
+                              disabled={isSubmitting}
+                              className="flex items-center gap-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                            >
+                              <span>Kirim Jawaban</span>
+                              <Send className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={handleNextQuestion}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                          >
+                            <span>
+                              {hasAnsweredCurrent && isExplanationUnlocked
+                                ? `Lanjut ke Soal No. ${currentQuestionIndex + 2}`
+                                : 'Selanjutnya'}
+                            </span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
               <div className="p-8 sm:p-12 text-center space-y-4">

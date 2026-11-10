@@ -527,6 +527,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
           objective: string;
           examId: string;
           examTitle: string;
+          subject: string;
+          classGrade: string;
           correctCount: number;
           totalCount: number;
           percentage: number;
@@ -536,6 +538,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
           objective: string;
           examId: string;
           examTitle: string;
+          subject: string;
+          classGrade: string;
           correctCount: number;
           totalCount: number;
           percentage: number;
@@ -552,6 +556,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
         studentExamSummaries: [] as Array<{
           examId: string;
           examTitle: string;
+          subject: string;
+          classGrade: string;
           score: number;
           percentage: number;
           passed: boolean;
@@ -571,6 +577,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       objective: string;
       examId: string;
       examTitle: string;
+      subject: string;
+      classGrade: string;
       correctCount: number;
       totalCount: number;
       percentage: number;
@@ -581,6 +589,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       objective: string;
       examId: string;
       examTitle: string;
+      subject: string;
+      classGrade: string;
       correctCount: number;
       totalCount: number;
       percentage: number;
@@ -592,6 +602,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
     const studentExamSummaries: Array<{
       examId: string;
       examTitle: string;
+      subject: string;
+      classGrade: string;
       score: number;
       percentage: number;
       passed: boolean;
@@ -677,6 +689,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
               objective: tp,
               examId: exam.id,
               examTitle: exam.title,
+              subject: exam.subject,
+              classGrade: exam.grade,
               correctCount,
               totalCount: data.totalCount,
               percentage,
@@ -687,6 +701,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
               objective: tp,
               examId: exam.id,
               examTitle: exam.title,
+              subject: exam.subject,
+              classGrade: exam.grade,
               correctCount,
               totalCount: data.totalCount,
               percentage,
@@ -700,6 +716,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
         studentExamSummaries.push({
           examId: exam.id,
           examTitle: exam.title,
+          subject: exam.subject,
+          classGrade: exam.grade,
           score: Number(relevantSub.score) || 0,
           percentage: subScorePct,
           passed: subScorePct >= examPassingScore,
@@ -716,6 +734,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
             objective: tp,
             examId: exam.id,
             examTitle: exam.title,
+            subject: exam.subject,
+            classGrade: exam.grade,
             correctCount: 0,
             totalCount: data.totalCount,
             percentage: 0,
@@ -728,6 +748,8 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
         studentExamSummaries.push({
           examId: exam.id,
           examTitle: exam.title,
+          subject: exam.subject,
+          classGrade: exam.grade,
           score: 0,
           percentage: 0,
           passed: false,
@@ -771,10 +793,11 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       [`Mata Pelajaran: ${selectedSubject !== 'all' ? selectedSubject : 'Semua Mapel'} | Kelas: ${selectedGrade !== 'all' ? selectedGrade : 'Semua Kelas'}`],
       [`Tahun Ajaran: ${profile.academicYear} | Semester: ${profile.semester}`],
       [''],
-      ['NO', 'PAKET ASESMEN', 'TUJUAN PEMBELAJARAN (TP)', 'JUMLAH SOAL', 'NO SOAL', 'SISWA TUNTAS', 'SISWA BELUM TUNTAS', 'RATA-RATA PENGUASAAN (%)', 'STATUS KELAS'],
+      ['NO', 'PAKET ASESMEN', 'MATA PELAJARAN', 'TUJUAN PEMBELAJARAN (TP)', 'JUMLAH SOAL', 'NO SOAL', 'SISWA TUNTAS', 'SISWA BELUM TUNTAS', 'RATA-RATA PENGUASAAN (%)', 'STATUS KELAS'],
       ...classicalAnalysis.objectives.map((item, idx) => [
         idx + 1,
         item.examTitle || 'Semua Paket',
+        item.subject || '-',
         item.objective,
         item.questionCount,
         item.questionOrders.join(', '),
@@ -795,6 +818,7 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
     wsClassical['!cols'] = [
       { wch: 6 },
       { wch: 28 },
+      { wch: 20 },
       { wch: 45 },
       { wch: 14 },
       { wch: 16 },
@@ -813,10 +837,11 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
         [`Nilai Rata-rata: ${studentAnalysis.overallScore} | Ketuntasan TP: ${studentAnalysis.masteryPct}%`],
         [''],
         ['1. TUJUAN PEMBELAJARAN YANG SUDAH DIKUASAI:'],
-        ['NO', 'PAKET ASESMEN', 'TUJUAN PEMBELAJARAN', 'SOAL BENAR', 'TOTAL SOAL', 'PERSENTASE (%)', 'STATUS'],
+        ['NO', 'PAKET ASESMEN', 'MATA PELAJARAN', 'TUJUAN PEMBELAJARAN', 'SOAL BENAR', 'TOTAL SOAL', 'PERSENTASE (%)', 'STATUS'],
         ...studentAnalysis.masteredObjectives.map((m, idx) => [
           idx + 1,
           m.examTitle || '-',
+          m.subject || '-',
           m.objective,
           m.correctCount,
           m.totalCount,
@@ -825,16 +850,17 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
         ]),
         [''],
         ['2. TUJUAN PEMBELAJARAN YANG BELUM DIKUASAI:'],
-        ['NO', 'PAKET ASESMEN', 'TUJUAN PEMBELAJARAN', 'SOAL BENAR', 'TOTAL SOAL', 'PERSENTASE (%)', 'NO SOAL SALAH', 'STATUS'],
+        ['NO', 'PAKET ASESMEN', 'MATA PELAJARAN', 'TUJUAN PEMBELAJARAN', 'SOAL BENAR', 'TOTAL SOAL', 'PERSENTASE (%)', 'NO SOAL SALAH', 'STATUS'],
         ...studentAnalysis.unmasteredObjectives.map((um, idx) => [
           idx + 1,
           um.examTitle || '-',
+          um.subject || '-',
           um.objective,
           um.correctCount,
           um.totalCount,
           `${um.percentage}%`,
           um.missedQuestionOrders.join(', ') || '-',
-          'BELUM DIKUASAI (REMEDIAL)'
+          um.statusNote || 'BELUM DIKUASAI (REMEDIAL)'
         ])
       ];
 
@@ -842,6 +868,7 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
       wsStudent['!cols'] = [
         { wch: 6 },
         { wch: 28 },
+        { wch: 20 },
         { wch: 45 },
         { wch: 14 },
         { wch: 14 },
@@ -1499,6 +1526,17 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                           {summary.hasSubmission === false ? 'Belum Ujian' : summary.percentage >= 75 ? 'Tuntas' : 'Remedial'}
                         </span>
                       </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                        <span className="font-semibold text-purple-600 dark:text-purple-400">
+                          {summary.subject}
+                        </span>
+                        {summary.classGrade && (
+                          <>
+                            <span>•</span>
+                            <span>Kelas {summary.classGrade}</span>
+                          </>
+                        )}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-center py-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg text-[11px]">
@@ -1567,6 +1605,9 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                           📦 {item.examTitle}
                         </span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          {item.subject} {item.classGrade ? `• Kelas ${item.classGrade}` : ''}
+                        </span>
                       </div>
 
                       <div className="flex items-start justify-between gap-3">
@@ -1630,6 +1671,9 @@ export const TpMasteryAnalysis: React.FC<TpMasteryAnalysisProps> = ({
                       <div className="flex flex-wrap items-center gap-2 mb-1">
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                           📦 {item.examTitle}
+                        </span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          {item.subject} {item.classGrade ? `• Kelas ${item.classGrade}` : ''}
                         </span>
                         {item.statusNote && (
                           <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${

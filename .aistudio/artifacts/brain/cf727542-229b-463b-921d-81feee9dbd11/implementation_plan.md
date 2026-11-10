@@ -31,4 +31,5 @@
   - Menampilkan persentase akurat TP yang sudah dikuasai (≥ 75%) vs belum dikuasai (< 75%) baik secara Klasikal maupun Per Siswa.
 - **Kartu Ringkasan Paket Asesmen**:
   - Dilengkapi ringkasan visual per paket asesmen (Jumlah TP Tuntas, Rata-rata Skor, dan Jumlah Peserta) dengan tombol *Fokus ke Paket Ini*.
-  - Label/badge paket asesmen (`📦 [Nama Paket]`) tersemat pada tiap kartu TP dan kolom tabel ekspor Excel (.xlsx).
+  - Menampilkan nama paket asesmen sekaligus **nama mata pelajaran** dan kelas (`{summary.subject} • Kelas {summary.classGrade}`).
+  - Label/badge paket asesmen (`📦 [Nama Paket] • [Nama Mapel]`) tersemat pada tiap kartu TP siswa dan kolom tabel ekspor Excel (.xlsx).

@@ -8,6 +8,7 @@ import {
   getFirestore, 
   collection, 
   addDoc, 
+  getDocs,
   onSnapshot, 
   query, 
   orderBy, 
@@ -103,6 +104,42 @@ export class FirebaseChatService {
     } catch (err) {
       console.warn('[FirebaseChat] Subscribe error:', err);
       return () => {};
+    }
+  }
+
+  /**
+   * Mengambil riwayat pesan terkini dari Firebase Firestore
+   */
+  static async getRecentMessages(): Promise<ChatMessage[]> {
+    if (!firestoreDb) return [];
+    try {
+      const colRef = collection(firestoreDb, this.COLLECTION_NAME);
+      const q = query(colRef, orderBy('timestamp', 'asc'), limit(150));
+      const snapshot = await getDocs(q);
+      const msgs: ChatMessage[] = [];
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        msgs.push({
+          id: data.id || doc.id,
+          senderRole: data.senderRole || 'student',
+          senderType: data.senderType || data.senderRole || 'student',
+          senderName: data.senderName || 'Siswa',
+          senderNis: data.senderNis || '',
+          classGrade: data.classGrade || '',
+          examId: data.examId || '',
+          examTitle: data.examTitle || '',
+          targetNis: data.targetNis || 'all',
+          targetName: data.targetName || '',
+          text: data.text || '',
+          timestamp: typeof data.timestamp === 'number' ? data.timestamp : Date.now(),
+          quickAction: data.quickAction || undefined,
+          isRead: Boolean(data.isRead)
+        });
+      });
+      return msgs;
+    } catch (e) {
+      console.warn('[FirebaseChat] Failed to get recent messages from Firestore:', e);
+      return [];
     }
   }
 

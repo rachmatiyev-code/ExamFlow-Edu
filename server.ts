@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -541,18 +542,43 @@ interface ServerChatMessage {
   quickAction?: any;
 }
 
-const chatMessages: ServerChatMessage[] = [
-  {
-    id: 'MSG-INIT-001',
-    senderType: 'system',
-    senderRole: 'system',
-    senderName: 'Pengawas Ujian SDN Pisangcandi 1',
-    text: 'Selamat datang di Ruang Bantuan Pengawas Ujian! Silakan hubungi pengawas jika Anda membutuhkan token ujian, izin mengulang, atau mengalami kendala sebelum masuk ujian.',
-    timestamp: Date.now(),
-    targetNis: 'all',
-    isRead: true
+const CHAT_DATA_FILE = path.join(__dirname, '.chat_messages_cache.json');
+
+function loadChatMessages(): ServerChatMessage[] {
+  try {
+    if (fs.existsSync(CHAT_DATA_FILE)) {
+      const content = fs.readFileSync(CHAT_DATA_FILE, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('Error reading chat cache:', err);
   }
-];
+  return [
+    {
+      id: 'MSG-INIT-001',
+      senderType: 'system',
+      senderRole: 'system',
+      senderName: 'Pengawas Ujian SDN Pisangcandi 1',
+      text: 'Selamat datang di Ruang Bantuan Pengawas Ujian! Silakan hubungi pengawas jika Anda membutuhkan token ujian, izin mengulang, atau mengalami kendala sebelum masuk ujian.',
+      timestamp: Date.now(),
+      targetNis: 'all',
+      isRead: true
+    }
+  ];
+}
+
+const chatMessages: ServerChatMessage[] = loadChatMessages();
+
+function saveChatMessagesToDisk() {
+  try {
+    fs.writeFileSync(CHAT_DATA_FILE, JSON.stringify(chatMessages.slice(-500), null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Error saving chat cache:', err);
+  }
+}
 
 interface ConnectedClient {
   ws: WebSocket;
@@ -592,9 +618,9 @@ function broadcastChatMessage(msg: ServerChatMessage) {
         const targetName = String(msg.targetName || '').trim().toLowerCase();
 
         const isBroadcast = !cleanTarget || cleanTarget === 'all';
-        const isTargetedToMe = Boolean(clientNis && cleanTarget && cleanTarget === clientNis) ||
+        const isTargetedToMe = Boolean(clientNis && cleanTarget && (cleanTarget === clientNis || clientNis.includes(cleanTarget) || cleanTarget.includes(clientNis))) ||
                               Boolean(clientName && targetName && targetName === clientName);
-        const isSentByMe = Boolean(clientNis && cleanSender && cleanSender === clientNis);
+        const isSentByMe = Boolean(clientNis && cleanSender && (cleanSender === clientNis || clientNis.includes(cleanSender) || cleanSender.includes(clientNis)));
 
         if (isBroadcast || isTargetedToMe || isSentByMe) {
           try { client.ws.send(payload); } catch {}
@@ -710,6 +736,7 @@ apiRouter.post('/chat/messages', (req, res) => {
 
     // Broadcast ke semua WebSocket yang tersambung
     broadcastChatMessage(newMsg);
+    saveChatMessagesToDisk();
 
     return res.json({ success: true, message: newMsg });
   } catch (err: any) {
@@ -725,11 +752,13 @@ apiRouter.post('/chat/mark-read', (req, res) => {
     chatMessages.forEach(m => {
       if (idSet.has(m.id)) m.isRead = true;
     });
+    saveChatMessagesToDisk();
   } else if (nis) {
     const cleanNis = String(nis).trim().toLowerCase();
     chatMessages.forEach(m => {
       if (m.senderNis && m.senderNis.toLowerCase() === cleanNis) m.isRead = true;
     });
+    saveChatMessagesToDisk();
   }
   return res.json({ success: true });
 });
@@ -748,6 +777,7 @@ apiRouter.delete('/chat/messages', (_req, res) => {
     isRead: true
   });
   broadcastChatMessage(chatMessages[0]);
+  saveChatMessagesToDisk();
   return res.json({ success: true, message: 'Riwayat chat berhasil dibersihkan.' });
 });
 
@@ -837,6 +867,7 @@ async function startServer() {
             chatMessages.push(newMsg);
             if (chatMessages.length > 500) chatMessages.shift();
             broadcastChatMessage(newMsg);
+            saveChatMessagesToDisk();
           }
           return;
         }

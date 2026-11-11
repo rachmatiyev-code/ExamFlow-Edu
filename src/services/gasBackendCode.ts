@@ -148,9 +148,11 @@ function initDatabase() {
       'Guru Kelas & Koordinator Asesmen',
       new Date().toISOString()
     ]);
-    formatHeaderRow(shProfile);
   } else {
     ensureMinColumns(shProfile, CANONICAL_PROFILE_HEADERS.length);
+    // Auto-heal row 1 headers agar kolom logo pemkot, nama pemda, dan nama OPD selalu muncul di sheet
+    shProfile.getRange(1, 1, 1, CANONICAL_PROFILE_HEADERS.length).setValues([CANONICAL_PROFILE_HEADERS]);
+    formatHeaderRow(shProfile);
   }
 
   // 2. Exams (Didukung attemptMode: 'single' | 'unlimited')
@@ -1040,14 +1042,17 @@ function doPost(e) {
         sh = ss.getSheetByName(SHEETS.PROFILE);
       }
       ensureMinColumns(sh, CANONICAL_PROFILE_HEADERS.length);
+      // Selalu perbarui row 1 header agar kolom regionalGovLogoUrl, regionalGovName, regionalGovDepartment tertera jelas di sheet
+      sh.getRange(1, 1, 1, CANONICAL_PROFILE_HEADERS.length).setValues([CANONICAL_PROFILE_HEADERS]);
+      formatHeaderRow(sh);
       clearAndSetSingleRow(sh, [
         p.name || '',
         p.npsn || '',
         p.address || '',
         p.logoUrl || '',
-        p.regionalGovLogoUrl || '',
-        p.regionalGovName || '',
-        p.regionalGovDepartment || '',
+        p.regionalGovLogoUrl || p.pemkotLogoUrl || '',
+        p.regionalGovName || p.pemdaName || '',
+        p.regionalGovDepartment || p.opdName || '',
         p.academicYear || '',
         p.semester || 'Ganjil',
         p.principalName || '',
@@ -1176,14 +1181,16 @@ function doPost(e) {
         let shProf = ss.getSheetByName(SHEETS.PROFILE);
         if (!shProf) { initDatabase(); shProf = ss.getSheetByName(SHEETS.PROFILE); }
         ensureMinColumns(shProf, CANONICAL_PROFILE_HEADERS.length);
+        shProf.getRange(1, 1, 1, CANONICAL_PROFILE_HEADERS.length).setValues([CANONICAL_PROFILE_HEADERS]);
+        formatHeaderRow(shProf);
         clearAndSetSingleRow(shProf, [
           payload.profile.name || '',
           payload.profile.npsn || '',
           payload.profile.address || '',
           payload.profile.logoUrl || '',
-          payload.profile.regionalGovLogoUrl || '',
-          payload.profile.regionalGovName || '',
-          payload.profile.regionalGovDepartment || '',
+          payload.profile.regionalGovLogoUrl || payload.profile.pemkotLogoUrl || '',
+          payload.profile.regionalGovName || payload.profile.pemdaName || '',
+          payload.profile.regionalGovDepartment || payload.profile.opdName || '',
           payload.profile.academicYear || '',
           payload.profile.semester || 'Ganjil',
           payload.profile.principalName || '',
@@ -1350,9 +1357,9 @@ function normalizeGasHeader(h) {
   if (['namasiswa', 'studentname', 'nama', 'namalengkap'].includes(clean)) return 'studentName';
   if (['nis', 'nisn', 'nomorinduk', 'studentno'].includes(clean)) return 'studentNo';
   if (['namapaketujian', 'paketujian', 'judulujian', 'examtitle', 'title'].includes(clean)) return 'examTitle';
-  if (['namapemerintahdaerah', 'pemda', 'pemkot', 'regionalgovname'].includes(clean)) return 'regionalGovName';
-  if (['namadinas', 'opd', 'dinas', 'organisasiperangkatdaerah', 'regionalgovdepartment'].includes(clean)) return 'regionalGovDepartment';
-  if (['logopemda', 'logopemkot', 'regionalgovlogourl'].includes(clean)) return 'regionalGovLogoUrl';
+  if (['namapemerintahdaerah', 'pemda', 'pemkot', 'regionalgovname', 'namapemda', 'namapemkot', 'pemerintahdaerah', 'kotapemerintah', 'pemerintah'].includes(clean)) return 'regionalGovName';
+  if (['namadinas', 'opd', 'dinas', 'organisasiperangkatdaerah', 'regionalgovdepartment', 'namaopd', 'perangkatdaerah', 'dinasdanopd'].includes(clean)) return 'regionalGovDepartment';
+  if (['logopemda', 'logopemkot', 'regionalgovlogourl', 'urllogopemkot', 'urllogopemda', 'logopemerintahdaerah', 'urllogopemerintahdaerah', 'pemkotlogourl', 'pemdalogourl'].includes(clean)) return 'regionalGovLogoUrl';
   return raw;
 }
 

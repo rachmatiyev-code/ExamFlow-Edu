@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Exam, Question, SchoolProfile, Student, Submission, normalizeQuestionOptions } from '../types';
 import { StorageService } from '../services/storage';
+import { AnalysisService } from '../services/analysisService';
 import { GasClient } from '../services/gasClient';
 import { MediaViewer } from './MediaViewer';
 import { QuestionMedia, QuestionPromptRenderer } from './QuestionMedia';
@@ -121,7 +122,20 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const isQuestionAnswered = (qId: string, answers: Record<string, string | string[]>) => {
     const a = answers[qId];
     if (a === undefined || a === null) return false;
-    if (typeof a === 'string') return a.trim().length > 0;
+    if (typeof a === 'string') {
+      const trimmed = a.trim();
+      if (!trimmed) return false;
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          const values = Object.values(parsed).filter(v => typeof v === 'string' && (v as string).trim() !== '');
+          return values.length > 0;
+        } catch {
+          return true;
+        }
+      }
+      return trimmed.length > 0;
+    }
     if (Array.isArray(a)) return a.length > 0;
     return false;
   };
@@ -135,6 +149,23 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       const sortedA = [...a].sort();
       const sortedB = [...b].sort();
       return sortedA.every((val, idx) => val === sortedB[idx]);
+    }
+    if (typeof a === 'string' && typeof b === 'string') {
+      const trimA = a.trim();
+      const trimB = b.trim();
+      if (trimA.startsWith('{') && trimB.startsWith('{')) {
+        try {
+          const objA = JSON.parse(trimA);
+          const objB = JSON.parse(trimB);
+          const keysA = Object.keys(objA).sort();
+          const keysB = Object.keys(objB).sort();
+          if (keysA.length !== keysB.length) return false;
+          return keysA.every((k, idx) => k === keysB[idx] && objA[k] === objB[k]);
+        } catch {
+          // fallback to string equality
+        }
+      }
+      return trimA === trimB;
     }
     return String(a).trim() === String(b).trim();
   };
@@ -710,6 +741,30 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }));
   };
 
+  const handleMatchingChange = (questionId: string, pairId: string, selectedMatch: string) => {
+    const check = canModifyQuestion(questionId);
+    if (!check.allowed) {
+      setRevisionAlertMessage(check.reason || 'Jawaban menjodohkan tidak dapat diubah.');
+      setTimeout(() => setRevisionAlertMessage(null), 7000);
+      return;
+    }
+
+    const currentRaw = userAnswers[questionId];
+    let map: Record<string, string> = {};
+    if (typeof currentRaw === 'string') {
+      try {
+        map = JSON.parse(currentRaw) || {};
+      } catch {
+        map = {};
+      }
+    }
+    map[pairId] = selectedMatch;
+    setUserAnswers(prev => ({
+      ...prev,
+      [questionId]: JSON.stringify(map)
+    }));
+  };
+
   const toggleFlagQuestion = (questionId: string) => {
     setFlaggedQuestions(prev => ({
       ...prev,
@@ -759,6 +814,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         const studentKeys = Array.isArray(ans) ? ans : [];
         const isMatch = correctKeys.length === studentKeys.length && correctKeys.every(k => studentKeys.includes(k));
         if (isMatch) {
+          totalScore += points;
+        }
+      } else if (q.type === 'matching') {
+        if (AnalysisService.isAnswerCorrect(q, ans)) {
           totalScore += points;
         }
       } else if (q.type === 'essay') {
@@ -973,6 +1032,22 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     studentAnswerText = sList.length > 0 
                       ? safeOpts.filter(o => sList.includes(o.id)).map(o => o.text).join(', ')
                       : 'Tidak dijawab';
+                  } else if (q.type === 'matching') {
+                    isCorrect = AnalysisService.isAnswerCorrect(q, studentAns);
+                    const pairs = q.matchingPairs || [];
+                    correctText = pairs.map(p => `${p.premise} ➔ ${p.match}`).join('<br/>');
+                    let sMap: Record<string, string> = {};
+                    if (typeof studentAns === 'string') {
+                      try { sMap = JSON.parse(studentAns); } catch {}
+                    }
+                    if (Object.keys(sMap).length > 0) {
+                      studentAnswerText = pairs.map(p => {
+                        const m = sMap[p.id] || '<em>(Belum dipilih)</em>';
+                        return `${p.premise} ➔ ${m}`;
+                      }).join('<br/>');
+                    } else {
+                      studentAnswerText = 'Tidak dijawab';
+                    }
                   } else if (q.type === 'essay') {
                     studentAnswerText = typeof studentAns === 'string' && studentAns.trim() ? studentAns : 'Tidak dijawab';
                     isCorrect = Boolean(studentAns && String(studentAns).trim().length > 5);
@@ -996,7 +1071,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                             {idx + 1}
                           </span>
                           <span className="font-semibold text-slate-700 dark:text-slate-300">
-                            {q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'Pilihan Ganda Kompleks' : 'Uraian / Esai'}
+                            {q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'Pilihan Ganda Kompleks' : q.type === 'matching' ? 'Menjodohkan / Mencocokkan' : 'Uraian / Esai'}
                           </span>
                           <span className="text-[11px] text-slate-400 font-mono">
                             ({q.points || 10} Poin)
@@ -1559,6 +1634,67 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   );
                 })()}
 
+                {currentQ.type === 'matching' && (() => {
+                  const pairs = currentQ.matchingPairs || [];
+                  const canModify = canModifyQuestion(currentQ.id);
+                  let currentMap: Record<string, string> = {};
+                  const rawAns = userAnswers[currentQ.id];
+                  if (typeof rawAns === 'string') {
+                    try {
+                      currentMap = JSON.parse(rawAns) || {};
+                    } catch {
+                      currentMap = {};
+                    }
+                  }
+
+                  // Kumpulkan semua pilihan respon yang unik untuk dropdown
+                  const availableMatches = Array.from(new Set(pairs.map(p => p.match).filter(Boolean)));
+
+                  return (
+                    <div className="space-y-3.5">
+                      <div className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+                        * Pasangkan setiap pernyataan / premis di kolom kiri dengan respon pasangan yang tepat di kolom kanan.
+                      </div>
+                      <div className="space-y-3">
+                        {pairs.map((pair, pIdx) => {
+                          const selectedVal = currentMap[pair.id] || '';
+                          return (
+                            <div
+                              key={pair.id || pIdx}
+                              className="p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                            >
+                              <div className="flex-1 text-sm text-slate-800 dark:text-slate-200 flex items-start gap-2.5">
+                                <span className="font-bold text-indigo-600 dark:text-indigo-400 text-xs px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 shrink-0 mt-0.5">
+                                  {pIdx + 1}
+                                </span>
+                                <span dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(pair.premise) }} />
+                              </div>
+
+                              <div className="sm:w-64 shrink-0">
+                                <select
+                                  disabled={!canModify.allowed}
+                                  value={selectedVal}
+                                  onChange={(e) => handleMatchingChange(currentQ.id, pair.id, e.target.value)}
+                                  className={`w-full px-3 py-2 rounded-lg text-xs border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors ${
+                                    !canModify.allowed ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'
+                                  }`}
+                                >
+                                  <option value="">-- Pilih Pasangan --</option>
+                                  {availableMatches.map((mVal, mIdx) => (
+                                    <option key={mIdx} value={mVal}>
+                                      {mVal}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Fitur Pembahasan Soal: HANYA muncul saat siswa sudah menekan tombol Selanjutnya */}
                 {(() => {
                   const currentAns = userAnswers[currentQ.id];
@@ -1575,6 +1711,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     const corrKeys = Array.isArray(currentQ.correctKey) ? currentQ.correctKey : [currentQ.correctKey];
                     const selectedList = Array.isArray(currentAns) ? currentAns : [];
                     isCorrect = corrKeys.length === selectedList.length && corrKeys.every(k => selectedList.includes(k));
+                  } else if (currentQ.type === 'matching') {
+                    isCorrect = AnalysisService.isAnswerCorrect(currentQ, currentAns);
                   }
 
                   return (

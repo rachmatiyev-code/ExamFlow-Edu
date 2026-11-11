@@ -284,7 +284,7 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
       senderType: 'teacher',
       senderName: teacherName,
       text: textToSend,
-      targetNis: isBroadcast ? 'all' : activeConversation.nis,
+      targetNis: isBroadcast ? 'all' : (activeConversation.nis || activeConversation.id),
       targetName: isBroadcast ? 'Semua Siswa' : activeConversation.name,
       quickAction: quickAction,
     };

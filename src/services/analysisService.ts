@@ -30,6 +30,40 @@ export class AnalysisService {
       return studentStr === correctKeyStr || studentStr.includes(correctKeyStr) || correctKeyStr.includes(studentStr);
     }
 
+    if (question.type === 'matching') {
+      let ansObj: Record<string, string> = {};
+      if (typeof studentAnswer === 'string') {
+        try {
+          ansObj = JSON.parse(studentAnswer);
+        } catch {
+          ansObj = {};
+        }
+      } else if (typeof studentAnswer === 'object' && studentAnswer !== null) {
+        ansObj = studentAnswer as Record<string, string>;
+      }
+
+      const pairs = question.matchingPairs || [];
+      if (pairs.length === 0) {
+        // Fallback jika pairs disimpan di correctKey sebagai JSON
+        if (typeof question.correctKey === 'string' && question.correctKey.startsWith('{')) {
+          try {
+            const expected = JSON.parse(question.correctKey);
+            const expectedEntries = Object.entries(expected);
+            if (expectedEntries.length === 0) return true;
+            return expectedEntries.every(([k, v]) => String(ansObj[k] || '').trim().toLowerCase() === String(v).trim().toLowerCase());
+          } catch {
+            return false;
+          }
+        }
+        return true;
+      }
+
+      return pairs.every(pair => {
+        const studentMatch = ansObj[pair.id] ?? ansObj[pair.premise];
+        return studentMatch && String(studentMatch).trim().toLowerCase() === String(pair.match).trim().toLowerCase();
+      });
+    }
+
     // Default: Pilihan Ganda Tunggal / True-False
     return String(studentAnswer).trim().toLowerCase() === String(question.correctKey || '').trim().toLowerCase();
   }

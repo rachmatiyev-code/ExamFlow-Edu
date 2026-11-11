@@ -491,6 +491,20 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       : (editingQuestion.mediaType || 'none');
 
     const safeOptions = normalizeQuestionOptions(editingQuestion.options);
+    const isMatching = editingQuestion.type === 'matching';
+    const matchingPairs = isMatching
+      ? (Array.isArray(editingQuestion.matchingPairs) && editingQuestion.matchingPairs.length > 0
+          ? editingQuestion.matchingPairs
+          : [
+              { id: 'pair_1', premise: 'Pernyataan / Premis 1', match: 'Pasangan Jawaban 1' },
+              { id: 'pair_2', premise: 'Pernyataan / Premis 2', match: 'Pasangan Jawaban 2' }
+            ])
+      : undefined;
+
+    const matchingCorrectKey = isMatching && matchingPairs
+      ? JSON.stringify(matchingPairs.reduce((acc, p) => ({ ...acc, [p.id]: p.match }), {}))
+      : (editingQuestion.correctKey || 'opt_a');
+
     const newQuestion: Question = {
       id: qId,
       examId: selectedExamId,
@@ -499,13 +513,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       type: editingQuestion.type || 'multiple_choice',
       mediaType: resolvedMediaType,
       mediaUrl: rawMediaUrl,
-      options: safeOptions.length > 0 ? safeOptions : (editingQuestion.type === 'essay' ? [] : [
+      options: isMatching ? [] : (safeOptions.length > 0 ? safeOptions : (editingQuestion.type === 'essay' ? [] : [
         { id: 'opt_a', text: 'Pilihan A' },
         { id: 'opt_b', text: 'Pilihan B' },
         { id: 'opt_c', text: 'Pilihan C' },
         { id: 'opt_d', text: 'Pilihan D' }
-      ]),
-      correctKey: editingQuestion.correctKey || 'opt_a',
+      ])),
+      matchingPairs: matchingPairs,
+      correctKey: isMatching ? matchingCorrectKey : (editingQuestion.correctKey || 'opt_a'),
       points: Number(editingQuestion.points) || 20,
       explanation: editingQuestion.explanation || '',
       bloomLevel: editingQuestion.bloomLevel || 'C3 - Menerapkan',
@@ -2328,6 +2343,26 @@ const rekapDistinctGrades = useMemo(() => {
             </div>
           )}
 
+          {/* Kode Exam ID Badge with one-click copy */}
+          <div className="flex items-center justify-between gap-2 px-2.5 py-1 mb-2.5 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-[11px] font-mono">
+            <div className="flex items-center gap-1.5 truncate">
+              <span className="text-slate-400 font-sans font-bold">Exam ID:</span>
+              <span className="font-bold text-indigo-700 dark:text-indigo-400 truncate">{exam.id}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(exam.id);
+                setSessionToast(`Kode Exam ID "${exam.id}" berhasil disalin ke clipboard!`);
+              }}
+              className="px-1.5 py-0.5 rounded text-[10px] bg-white dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 flex items-center gap-1 shrink-0 cursor-pointer"
+              title="Salin Exam ID"
+            >
+              <Copy className="w-3 h-3 text-indigo-500" />
+              <span>Salin ID</span>
+            </button>
+          </div>
+
           <h4 className="text-base font-bold text-slate-900 dark:text-white mb-2 line-clamp-2">
             {exam.title}
           </h4>
@@ -3229,7 +3264,7 @@ const rekapDistinctGrades = useMemo(() => {
                     </span>
                     <span className="text-slate-400">·</span>
                     <span className="font-semibold text-slate-600 dark:text-slate-300">
-                      {q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'PG Kompleks' : 'Uraian'}
+                      {q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'PG Kompleks' : q.type === 'matching' ? 'Menjodohkan' : 'Uraian'}
                     </span>
                     <span className="text-slate-400">·</span>
                     <span className="text-slate-500 font-mono">Bobot: {q.points || 10} Poin</span>
@@ -3246,7 +3281,11 @@ const rekapDistinctGrades = useMemo(() => {
                         const safeOptions = normalizeQuestionOptions(q.options);
                         setEditingQuestion({
                           ...q,
-                          options: safeOptions.length > 0 ? safeOptions : (q.type === 'essay' ? [] : [
+                          matchingPairs: q.matchingPairs || (q.type === 'matching' ? [
+                            { id: 'pair_1', premise: '', match: '' },
+                            { id: 'pair_2', premise: '', match: '' }
+                          ] : undefined),
+                          options: safeOptions.length > 0 ? safeOptions : (q.type === 'essay' || q.type === 'matching' ? [] : [
                             { id: 'opt_a', text: '' },
                             { id: 'opt_b', text: '' },
                             { id: 'opt_c', text: '' },
@@ -3322,6 +3361,22 @@ const rekapDistinctGrades = useMemo(() => {
                   <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs">
                     <span className="font-semibold text-slate-700 dark:text-slate-300">Kunci / Panduan Jawaban: </span>
                     <span className="text-slate-600 dark:text-slate-400">{typeof q.correctKey === 'string' ? q.correctKey : JSON.stringify(q.correctKey)}</span>
+                  </div>
+                )}
+
+                {/* Matching Pairs preview */}
+                {q.type === 'matching' && Array.isArray(q.matchingPairs) && q.matchingPairs.length > 0 && (
+                  <div className="p-3 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/30 dark:bg-indigo-950/20 text-xs space-y-1.5">
+                    <span className="font-bold text-indigo-950 dark:text-indigo-200 block mb-1">Pasangan Menjodohkan:</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {q.matchingPairs.map((pair, pIdx) => (
+                        <div key={pair.id || pIdx} className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                          <span className="font-medium text-slate-800 dark:text-slate-200 truncate">{pIdx + 1}. {pair.premise}</span>
+                          <span className="text-slate-400 font-bold shrink-0">➔</span>
+                          <span className="font-bold text-emerald-700 dark:text-emerald-400 truncate">{pair.match}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -5505,8 +5560,13 @@ const rekapDistinctGrades = useMemo(() => {
                               {ex?.subject || 'Umum'}
                             </span>
                           </td>
-                          <td className="py-2.5 px-3.5 max-w-xs truncate" title={sub.examTitle || ex?.title}>
-                            {sub.examTitle || ex?.title || '-'}
+                          <td className="py-2.5 px-3.5 max-w-xs" title={sub.examTitle || ex?.title}>
+                            <div className="font-semibold text-slate-900 dark:text-white truncate">
+                              {sub.examTitle || ex?.title || '-'}
+                            </div>
+                            <div className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 flex items-center gap-1 mt-0.5">
+                              <span>ID: {sub.examId || ex?.id || '-'}</span>
+                            </div>
                           </td>
                           <td className="py-2.5 px-3.5 text-center font-mono text-[11px] text-slate-500">
                             {sub.score} / {sub.maxScore}
@@ -6841,7 +6901,22 @@ const rekapDistinctGrades = useMemo(() => {
                   onChange={(e) => {
                     const newType = e.target.value;
                     const existingOpts = normalizeQuestionOptions(editingQuestion.options);
-                    if (newType === 'essay') {
+                    if (newType === 'matching') {
+                      const initialPairs = Array.isArray(editingQuestion.matchingPairs) && editingQuestion.matchingPairs.length > 0
+                        ? editingQuestion.matchingPairs
+                        : [
+                            { id: 'pair_1', premise: 'Pernyataan / Premis 1', match: 'Pasangan Jawaban 1' },
+                            { id: 'pair_2', premise: 'Pernyataan / Premis 2', match: 'Pasangan Jawaban 2' },
+                            { id: 'pair_3', premise: 'Pernyataan / Premis 3', match: 'Pasangan Jawaban 3' }
+                          ];
+                      setEditingQuestion({
+                        ...editingQuestion,
+                        type: 'matching',
+                        options: [],
+                        matchingPairs: initialPairs,
+                        correctKey: JSON.stringify(initialPairs.reduce((acc, p) => ({ ...acc, [p.id]: p.match }), {}))
+                      });
+                    } else if (newType === 'essay') {
                       setEditingQuestion({
                         ...editingQuestion,
                         type: 'essay',
@@ -6888,6 +6963,7 @@ const rekapDistinctGrades = useMemo(() => {
                 >
                   <option value="multiple_choice">Pilihan Ganda Biasa (1 Jawaban Benar)</option>
                   <option value="checkbox">Pilihan Ganda Kompleks (Multi Jawaban Benar)</option>
+                  <option value="matching">Menjodohkan / Mencocokkan Premis & Respon</option>
                   <option value="true_false">Benar / Salah (2 Opsi: Benar atau Salah)</option>
                   <option value="essay">Uraian / Isian Singkat</option>
                 </select>
@@ -7056,6 +7132,124 @@ const rekapDistinctGrades = useMemo(() => {
                   />
                 </div>
               )}
+
+              {/* Menjodohkan / Mencocokkan (Matching Pairs Editor) */}
+              {editingQuestion.type === 'matching' && (() => {
+                const pairs = Array.isArray(editingQuestion.matchingPairs) && editingQuestion.matchingPairs.length > 0
+                  ? editingQuestion.matchingPairs
+                  : [
+                      { id: 'pair_1', premise: '', match: '' },
+                      { id: 'pair_2', premise: '', match: '' },
+                      { id: 'pair_3', premise: '', match: '' }
+                    ];
+
+                return (
+                  <div className="space-y-3 p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/40 dark:bg-indigo-950/20">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="block text-xs font-bold text-indigo-950 dark:text-indigo-200">
+                          Pasangan Menjodohkan (Premis Kolom Kiri ➔ Pasangan Jawaban Benar Kolom Kanan):
+                        </label>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Siswa akan diminta mencocokkan setiap premis di kolom kiri dengan jawaban yang benar di kolom kanan. Pada tampilan ujian siswa, opsi respon kanan diacak otomatis.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newPair = {
+                            id: `pair_${pairs.length + 1}_${Date.now().toString().slice(-4)}`,
+                            premise: '',
+                            match: ''
+                          };
+                          const updated = [...pairs, newPair];
+                          setEditingQuestion({
+                            ...editingQuestion,
+                            matchingPairs: updated,
+                            correctKey: JSON.stringify(updated.reduce((acc, p) => ({ ...acc, [p.id]: p.match }), {}))
+                          });
+                        }}
+                        className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-700 shadow-2xs hover:bg-indigo-50 transition-colors shrink-0 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Tambah Pasangan</span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {pairs.map((p, idx) => (
+                        <div key={p.id || idx} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                          <span className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center justify-center shrink-0">
+                            {idx + 1}
+                          </span>
+
+                          <div className="flex-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">
+                              Premis / Pernyataan Kiri #{idx + 1}
+                            </label>
+                            <input
+                              type="text"
+                              value={p.premise}
+                              placeholder="Misal: Ibukota Indonesia"
+                              onChange={(e) => {
+                                const updated = [...pairs];
+                                updated[idx] = { ...updated[idx], premise: e.target.value };
+                                setEditingQuestion({
+                                  ...editingQuestion,
+                                  matchingPairs: updated,
+                                  correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
+                                });
+                              }}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                            />
+                          </div>
+
+                          <div className="text-slate-400 font-bold hidden sm:block shrink-0 px-1">➔</div>
+
+                          <div className="flex-1">
+                            <label className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block mb-0.5">
+                              Pasangan Benar (Kanan) #{idx + 1}
+                            </label>
+                            <input
+                              type="text"
+                              value={p.match}
+                              placeholder="Misal: Jakarta / Nusantara"
+                              onChange={(e) => {
+                                const updated = [...pairs];
+                                updated[idx] = { ...updated[idx], match: e.target.value };
+                                setEditingQuestion({
+                                  ...editingQuestion,
+                                  matchingPairs: updated,
+                                  correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
+                                });
+                              }}
+                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold"
+                            />
+                          </div>
+
+                          {pairs.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = pairs.filter((_, i) => i !== idx);
+                                setEditingQuestion({
+                                  ...editingQuestion,
+                                  matchingPairs: updated,
+                                  correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
+                                });
+                              }}
+                              className="p-1.5 text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg transition-colors self-end sm:self-center cursor-pointer shrink-0"
+                              title="Hapus baris pasangan ini"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Points */}
               <div>

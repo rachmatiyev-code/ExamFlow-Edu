@@ -215,6 +215,9 @@ class ChatService {
   }
 
   public async getHistory(params?: { nis?: string; role?: string; guestNis?: string }): Promise<ChatMessage[]> {
+    let combinedMsgs: ChatMessage[] = [];
+
+    // 1. Ambil dari server REST (low latency & local cache)
     try {
       const query = new URLSearchParams();
       if (params?.nis) query.append('nis', params.nis);
@@ -225,7 +228,7 @@ class ChatService {
       if (res.ok) {
         const data = await res.json();
         const rawMsgs = data.messages || [];
-        return rawMsgs.map((m: any) => ({
+        combinedMsgs = rawMsgs.map((m: any) => ({
           ...m,
           timestamp: typeof m.timestamp === 'number' ? m.timestamp : (Date.parse(m.timestamp) || Date.now()),
         }));
@@ -233,7 +236,35 @@ class ChatService {
     } catch (e) {
       console.warn('[ChatService] Failed to fetch chat history via REST:', e);
     }
-    return [];
+
+    // 2. Sinkronkan dengan Google Cloud / Firebase Firestore
+    try {
+      const fbMsgs = await FirebaseChatService.getRecentMessages();
+      if (Array.isArray(fbMsgs) && fbMsgs.length > 0) {
+        const isTeacher = params?.role === 'teacher';
+        const myNis = String(params?.nis || '').trim().toLowerCase();
+        const myGuestNis = String(params?.guestNis || '').trim().toLowerCase();
+
+        const existingIds = new Set(combinedMsgs.map((m) => m.id));
+        fbMsgs.forEach((fm) => {
+          if (!existingIds.has(fm.id)) {
+            const target = String(fm.targetNis || '').trim().toLowerCase();
+            const sender = String(fm.senderNis || '').trim().toLowerCase();
+            const isBroadcast = !target || target === 'all';
+            const isForStudent = isBroadcast || (myNis && (target === myNis || sender === myNis)) || (myGuestNis && (target === myGuestNis || sender === myGuestNis));
+
+            if (isTeacher || isForStudent) {
+              combinedMsgs.push(fm);
+              existingIds.add(fm.id);
+            }
+          }
+        });
+      }
+    } catch {}
+
+    // Urutkan berdasarkan timestamp asc
+    combinedMsgs.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+    return combinedMsgs;
   }
 
   public async sendMessage(messageData: Partial<ChatMessage>): Promise<ChatMessage | null> {

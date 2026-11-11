@@ -6,6 +6,9 @@ export interface SchoolProfile {
   regionalGovLogoUrl?: string; // Logo Pemerintah Daerah / Kota (kiri kop)
   regionalGovName?: string; // Nama Pemerintah Daerah (misal: PEMERINTAH KOTA MALANG)
   regionalGovDepartment?: string; // Nama Organisasi Perangkat Daerah / Dinas (misal: DINAS PENDIDIKAN DAN KEBUDAYAAN)
+  pemkotLogoUrl?: string; // Alias untuk logo pemkot / pemda
+  pemdaName?: string; // Alias untuk nama pemda
+  opdName?: string; // Alias untuk nama dinas / OPD
   academicYear: string;
   semester: 'Ganjil' | 'Genap';
   principalName: string;
@@ -40,16 +43,23 @@ export interface QuestionOption {
   text: string;
 }
 
+export interface MatchingPair {
+  id: string;
+  premise: string; // Teks premis / pernyataan di kolom kiri
+  match: string; // Teks pasangan / jawaban yang cocok di kolom kanan
+}
+
 export interface Question {
   id: string;
   examId: string;
   order: number;
   prompt: string;
-  type: 'multiple_choice' | 'checkbox' | 'essay';
+  type: 'multiple_choice' | 'checkbox' | 'essay' | 'matching';
   mediaType: 'none' | 'image' | 'audio' | 'video';
   mediaUrl?: string;
   options: QuestionOption[];
-  correctKey: string | string[]; // Option ID or list of IDs or sample answer
+  matchingPairs?: MatchingPair[]; // Pasangan premis dan respon untuk bentuk soal menjodohkan
+  correctKey: string | string[]; // Option ID or list of IDs or sample answer or matching JSON
   points: number;
   explanation?: string;
   bloomLevel?: BloomLevel;

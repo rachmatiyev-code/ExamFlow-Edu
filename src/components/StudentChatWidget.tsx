@@ -27,8 +27,12 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
   const [presence, setPresence] = useState({ teachers: 0, students: 0 });
 
   // Guest / Identified user state
-  const [nis, setNis] = useState(initialStudentNo);
-  const [name, setName] = useState(initialStudentName);
+  const [nis, setNis] = useState(
+    initialStudentNo || (typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') || '' : '')
+  );
+  const [name, setName] = useState(
+    initialStudentName || (typeof window !== 'undefined' ? localStorage.getItem('guest_student_name') || '' : '')
+  );
   const [grade, setGrade] = useState(initialClassGrade);
   const [isEditingIdentity, setIsEditingIdentity] = useState(false);
 
@@ -85,12 +89,12 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
 
       const isBroadcast = !targetNis || targetNis === 'all';
       const isTargetedToMe = 
-        Boolean(currentMyNis && targetNis === currentMyNis) ||
-        Boolean(currentGuestNis && targetNis === currentGuestNis) ||
+        Boolean(currentMyNis && (targetNis === currentMyNis || currentMyNis.includes(targetNis) || targetNis.includes(currentMyNis))) ||
+        Boolean(currentGuestNis && (targetNis === currentGuestNis || currentGuestNis.includes(targetNis) || targetNis.includes(currentGuestNis))) ||
         Boolean(currentMyName && targetName && targetName === currentMyName);
       const isSentByMe = 
-        Boolean(currentMyNis && senderNis === currentMyNis) ||
-        Boolean(currentGuestNis && senderNis === currentGuestNis);
+        Boolean(currentMyNis && (senderNis === currentMyNis || currentMyNis.includes(senderNis) || senderNis.includes(currentMyNis))) ||
+        Boolean(currentGuestNis && (senderNis === currentGuestNis || currentGuestNis.includes(senderNis) || senderNis.includes(currentGuestNis)));
 
       const isForMe = isBroadcast || isTargetedToMe || isSentByMe;
 

@@ -81,7 +81,7 @@ export const PairMediaUploader: React.FC<PairMediaUploaderProps> = ({
       onChange('none', '');
       return;
     }
-    const detected = detectMediaType(cleanUrl, effectiveType !== 'none' ? effectiveType : 'image');
+    const detected = detectMediaType(cleanUrl, effectiveType);
     onChange(detected, cleanUrl);
   };
 

@@ -375,6 +375,60 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
                   </div>
                 )}
 
+                {/* Bentuk Soal Menjodohkan / Mencocokkan */}
+                {q.type === 'matching' && Array.isArray(q.matchingPairs) && q.matchingPairs.length > 0 && (
+                  <div className="mt-3 pl-1">
+                    <div className="text-[10.5px] italic text-slate-600 mb-2">
+                      Petunjuk: Jodohkan setiap pernyataan/premis di Kolom A dengan pilihan pasangan yang tepat di Kolom B!
+                    </div>
+                    <table className="w-full border-collapse border border-black text-xs">
+                      <thead>
+                        <tr className="bg-slate-100">
+                          <th className="border border-black p-1.5 w-1/2 text-left font-bold">Kolom A (Pernyataan / Gambar)</th>
+                          <th className="border border-black p-1.5 w-16 text-center font-bold">Pasangan</th>
+                          <th className="border border-black p-1.5 w-1/2 text-left font-bold">Kolom B (Pilihan Jawaban)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {q.matchingPairs.map((p, pIdx) => {
+                          const letter = getLetterBadge(pIdx);
+                          return (
+                            <tr key={p.id || pIdx}>
+                              <td className="border border-black p-2 align-top">
+                                <div className="font-semibold mb-1">
+                                  {pIdx + 1}. <span dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(p.premise) }} />
+                                </div>
+                                {Boolean(p.mediaUrl && p.mediaUrl.trim() !== '') && (
+                                  <div className="mt-1">
+                                    {(p.mediaType === 'image' || !p.mediaType || p.mediaType === 'none') ? (
+                                      <img
+                                        src={p.mediaUrl}
+                                        alt={`Media premis ${pIdx + 1}`}
+                                        className="max-h-28 max-w-full object-contain border border-slate-300 rounded"
+                                      />
+                                    ) : (
+                                      <span className="text-[10px] text-slate-500 italic">
+                                        [{p.mediaType === 'audio' ? 'Audio terlampir' : 'Video terlampir'}]
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="border border-black p-2 text-center align-middle font-mono font-bold">
+                                ( ... )
+                              </td>
+                              <td className="border border-black p-2 align-top font-medium">
+                                <span className="font-bold mr-1.5">{letter}.</span>
+                                <span dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(p.match) }} />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
                 {/* Ruang Isian / Garis Jawaban (Jika Soal Uraian / Essay) */}
                 {q.type === 'essay' && (
                   <div className="mt-3 pl-1">
@@ -472,6 +526,9 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
                       const optIdx = q.options?.findIndex(o => o.id === k) ?? -1;
                       return optIdx >= 0 ? getLetterBadge(optIdx) : k.replace('opt_', '').toUpperCase();
                     }).join(', ');
+                  } else if (q.type === 'matching') {
+                    const pairs = q.matchingPairs || [];
+                    keyLabel = pairs.map((p, pIdx) => `${pIdx + 1}➔${p.match}`).join(', ');
                   } else if (q.type === 'essay') {
                     keyLabel = typeof q.correctKey === 'string' ? q.correctKey : 'Rubrik Esai';
                   }
@@ -482,7 +539,7 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
                         {idx + 1}
                       </td>
                       <td className="border border-black p-1.5 text-center text-[11px]">
-                        {q.type === 'checkbox' ? 'PG Kompleks' : q.type === 'essay' ? 'Uraian' : 'PG Biasa'}
+                        {q.type === 'checkbox' ? 'PG Kompleks' : q.type === 'essay' ? 'Uraian' : q.type === 'matching' ? 'Menjodohkan' : 'PG Biasa'}
                       </td>
                       <td className="border border-black p-1.5 text-center font-bold text-indigo-700 print:text-black">
                         {keyLabel}

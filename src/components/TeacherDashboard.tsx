@@ -21,6 +21,7 @@ import { GAS_BACKEND_SCRIPT } from '../services/gasBackendCode';
 import { MediaViewer } from './MediaViewer';
 import { QuestionMedia, QuestionPromptRenderer } from './QuestionMedia';
 import { MediaUploaderInput } from './MediaUploaderInput';
+import { PairMediaUploader } from './PairMediaUploader';
 import { CurriculumManagement } from './CurriculumManagement';
 import { AiQuestionModal } from './AiQuestionModal';
 import { RichTextEditor } from './RichTextEditor';
@@ -3367,13 +3368,37 @@ const rekapDistinctGrades = useMemo(() => {
                 {/* Matching Pairs preview */}
                 {q.type === 'matching' && Array.isArray(q.matchingPairs) && q.matchingPairs.length > 0 && (
                   <div className="p-3 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/30 dark:bg-indigo-950/20 text-xs space-y-1.5">
-                    <span className="font-bold text-indigo-950 dark:text-indigo-200 block mb-1">Pasangan Menjodohkan:</span>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-indigo-950 dark:text-indigo-200 block">Pasangan Menjodohkan:</span>
+                      <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">{q.matchingPairs.length} Pasangan</span>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {q.matchingPairs.map((pair, pIdx) => (
-                        <div key={pair.id || pIdx} className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
-                          <span className="font-medium text-slate-800 dark:text-slate-200 truncate">{pIdx + 1}. {pair.premise}</span>
-                          <span className="text-slate-400 font-bold shrink-0">➔</span>
-                          <span className="font-bold text-emerald-700 dark:text-emerald-400 truncate">{pair.match}</span>
+                        <div key={pair.id || pIdx} className="bg-white dark:bg-slate-900 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1.5 shadow-2xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-slate-800 dark:text-slate-200 truncate">
+                              {pIdx + 1}. {pair.premise || '(Premis)'}
+                            </span>
+                            <span className="text-slate-400 font-bold shrink-0">➔</span>
+                            <span className="font-bold text-emerald-700 dark:text-emerald-400 truncate">
+                              {pair.match || '(Pasangan)'}
+                            </span>
+                          </div>
+                          {Boolean(pair.mediaUrl && pair.mediaUrl.trim() !== '') && (
+                            <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60">
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                                {pair.mediaType === 'audio' ? '🎵 Audio' : pair.mediaType === 'video' ? '🎬 Video' : '📷 Foto / Gambar'}
+                              </span>
+                              {(pair.mediaType === 'image' || !pair.mediaType || pair.mediaType === 'none') && (
+                                <img
+                                  src={pair.mediaUrl}
+                                  alt={`Media premis ${pIdx + 1}`}
+                                  className="w-8 h-8 object-cover rounded border border-slate-200 dark:border-slate-700 cursor-pointer hover:opacity-90"
+                                  onClick={() => setZoomImageUrl(pair.mediaUrl || null)}
+                                />
+                              )}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -7178,72 +7203,92 @@ const rekapDistinctGrades = useMemo(() => {
 
                     <div className="space-y-2.5">
                       {pairs.map((p, idx) => (
-                        <div key={p.id || idx} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
-                          <span className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center justify-center shrink-0">
-                            {idx + 1}
-                          </span>
+                        <div key={p.id || idx} className="flex flex-col gap-2 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-xs font-bold flex items-center justify-center shrink-0">
+                              {idx + 1}
+                            </span>
 
-                          <div className="flex-1">
-                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">
-                              Premis / Pernyataan Kiri #{idx + 1}
-                            </label>
-                            <input
-                              type="text"
-                              value={p.premise}
-                              placeholder="Misal: Ibukota Indonesia"
-                              onChange={(e) => {
-                                const updated = [...pairs];
-                                updated[idx] = { ...updated[idx], premise: e.target.value };
-                                setEditingQuestion({
-                                  ...editingQuestion,
-                                  matchingPairs: updated,
-                                  correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
-                                });
-                              }}
-                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
-                            />
+                            <div className="flex-1">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">
+                                Premis / Pernyataan Kiri #{idx + 1}
+                              </label>
+                              <input
+                                type="text"
+                                value={p.premise}
+                                placeholder="Misal: Ibukota Indonesia"
+                                onChange={(e) => {
+                                  const updated = [...pairs];
+                                  updated[idx] = { ...updated[idx], premise: e.target.value };
+                                  setEditingQuestion({
+                                    ...editingQuestion,
+                                    matchingPairs: updated,
+                                    correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
+                                  });
+                                }}
+                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                              />
+                            </div>
+
+                            <div className="text-slate-400 font-bold hidden sm:block shrink-0 px-1">➔</div>
+
+                            <div className="flex-1">
+                              <label className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block mb-0.5">
+                                Pasangan Benar (Kanan) #{idx + 1}
+                              </label>
+                              <input
+                                type="text"
+                                value={p.match}
+                                placeholder="Misal: Jakarta / Nusantara"
+                                onChange={(e) => {
+                                  const updated = [...pairs];
+                                  updated[idx] = { ...updated[idx], match: e.target.value };
+                                  setEditingQuestion({
+                                    ...editingQuestion,
+                                    matchingPairs: updated,
+                                    correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
+                                  });
+                                }}
+                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold"
+                              />
+                            </div>
+
+                            {pairs.length > 2 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = pairs.filter((_, i) => i !== idx);
+                                  setEditingQuestion({
+                                    ...editingQuestion,
+                                    matchingPairs: updated,
+                                    correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
+                                  });
+                                }}
+                                className="p-1.5 text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg transition-colors self-end sm:self-center cursor-pointer shrink-0"
+                                title="Hapus baris pasangan ini"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
 
-                          <div className="text-slate-400 font-bold hidden sm:block shrink-0 px-1">➔</div>
-
-                          <div className="flex-1">
-                            <label className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block mb-0.5">
-                              Pasangan Benar (Kanan) #{idx + 1}
-                            </label>
-                            <input
-                              type="text"
-                              value={p.match}
-                              placeholder="Misal: Jakarta / Nusantara"
-                              onChange={(e) => {
+                          {/* Lampiran Media Premis (Gambar / Foto / Audio / Video) */}
+                          <div className="pt-1 pl-0 sm:pl-8">
+                            <PairMediaUploader
+                              mediaType={p.mediaType || 'none'}
+                              mediaUrl={p.mediaUrl || ''}
+                              onChange={(mType, mUrl) => {
                                 const updated = [...pairs];
-                                updated[idx] = { ...updated[idx], match: e.target.value };
+                                updated[idx] = { ...updated[idx], mediaType: mType, mediaUrl: mUrl };
                                 setEditingQuestion({
                                   ...editingQuestion,
-                                  matchingPairs: updated,
-                                  correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
+                                  matchingPairs: updated
                                 });
                               }}
-                              className="w-full px-3 py-1.5 text-xs rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold"
+                              onZoomImage={(url) => setZoomImageUrl(url)}
+                              label={`Media Premis #${idx + 1} (Gambar / Foto / Audio / Video)`}
                             />
                           </div>
-
-                          {pairs.length > 2 && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const updated = pairs.filter((_, i) => i !== idx);
-                                setEditingQuestion({
-                                  ...editingQuestion,
-                                  matchingPairs: updated,
-                                  correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
-                                });
-                              }}
-                              className="p-1.5 text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg transition-colors self-end sm:self-center cursor-pointer shrink-0"
-                              title="Hapus baris pasangan ini"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
                         </div>
                       ))}
                     </div>

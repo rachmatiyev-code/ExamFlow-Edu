@@ -1,6 +1,0 @@
-{
-  "summary":  "Dokumentasi aturan ujian terkini:\n1. Penjelasan butir soal hanya muncul setelah siswa menekan tombol 'Selanjutnya' (bukan saat memilih/mengisi jawaban).\n2. Jawaban terkunci sementara hingga seluruh soal selesai dijawab.\n3. Siswa hanya dapat mengubah jawaban maksimal 5 butir soal setelah semua soal selesai dijawab.\n4. Peringatan khusus, status kelengkapan, dan kuota revisi dimunculkan di nomor terakhir sebelum submit ujian.",
-  "updatedAt":  "2026-11-09T23:58:03.277206312Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}

@@ -981,7 +981,7 @@ function doPost(e) {
           String(q.type || 'multiple_choice'),
           String(q.mediaType || 'none'),
           String(q.mediaUrl || ''),
-          typeof q.options === 'string' ? q.options : JSON.stringify(q.options || []),
+          typeof q.options === 'string' ? q.options : JSON.stringify((q.matchingPairs && q.matchingPairs.length > 0) ? q.matchingPairs : (q.options || [])),
           typeof q.correctKey === 'string' ? q.correctKey : JSON.stringify(q.correctKey || ''),
           Number(q.points || 10),
           String(q.explanation || ''),

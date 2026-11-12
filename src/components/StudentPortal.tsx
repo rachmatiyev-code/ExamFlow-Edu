@@ -50,6 +50,29 @@ import {
   Info
 } from 'lucide-react';
 
+export interface StudentScoreItem {
+  id: string;
+  examId: string;
+  examTitle: string;
+  subject: string;
+  grade: string;
+  passingScore: number;
+  status: 'completed_passed' | 'completed_remedial' | 'not_taken';
+  statusLabel: string; // 'Tuntas' | 'Remidi' | 'Siswa Belum Mengerjakan'
+  submission?: Submission;
+  exam?: Exam;
+  score?: number;
+  maxScore?: number;
+  percentage?: number;
+  timeSpentSeconds?: number;
+  submittedAt?: string;
+  tabSwitchCount?: number;
+  feedback?: string;
+  scheduledTime?: string;
+  durationMinutes?: number;
+  isSessionActive?: boolean;
+}
+
 interface StudentPortalProps {
   profile: SchoolProfile;
   exams: Exam[];
@@ -239,7 +262,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // Student Score Lookup State
   const [isScoreLookupOpen, setIsScoreLookupOpen] = useState(false);
   const [scoreLookupNis, setScoreLookupNis] = useState('');
-  const [studentLookupResults, setStudentLookupResults] = useState<Submission[] | null>(null);
+  const [studentLookupResults, setStudentLookupResults] = useState<StudentScoreItem[] | null>(null);
+  const [lookupStudentInfo, setLookupStudentInfo] = useState<{ name: string; no: string; classGrade: string } | null>(null);
 
   // Filter exams available today
   const todayStr = new Date().toISOString().split('T')[0];
@@ -2051,7 +2075,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             onClick={() => {
               setIsScoreLookupOpen(true);
               setStudentLookupResults(null);
-              setScoreLookupNis('');
+              setLookupStudentInfo(null);
+              setScoreLookupNis(studentNo ? studentNo.trim() : '');
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
           >
@@ -2490,18 +2515,113 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 e.preventDefault();
                 const query = scoreLookupNis.trim().toLowerCase();
                 if (!query) return;
+
+                const foundStudent = students.find(s => 
+                  s.studentNo.toLowerCase() === query || 
+                  s.fullName.toLowerCase().includes(query)
+                );
+
                 const allSubs = StorageService.getSubmissions();
-                const matched = allSubs.filter(s => {
-                  return String(s.studentNo || '').trim().toLowerCase() === query ||
-                         String(s.studentName || '').toLowerCase().includes(query);
+                const matchedSubs = allSubs.filter(s => {
+                  const sNo = String(s.studentNo || '').trim().toLowerCase();
+                  const sName = String(s.studentName || '').toLowerCase();
+                  if (sNo === query || sName.includes(query)) return true;
+                  if (foundStudent) {
+                    if (sNo === foundStudent.studentNo.toLowerCase()) return true;
+                    if (sName.includes(foundStudent.fullName.toLowerCase()) || foundStudent.fullName.toLowerCase().includes(sName)) return true;
+                  }
+                  return false;
                 });
-                setStudentLookupResults(matched);
+
+                // Urutkan submission dari yang terbaru
+                matchedSubs.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+
+                if (!foundStudent && matchedSubs.length === 0) {
+                  setStudentLookupResults([]);
+                  setLookupStudentInfo(null);
+                  return;
+                }
+
+                const sName = foundStudent?.fullName || matchedSubs[0]?.studentName || scoreLookupNis.trim();
+                const sNo = foundStudent?.studentNo || matchedSubs[0]?.studentNo || scoreLookupNis.trim();
+                const sClass = foundStudent?.classGrade || matchedSubs[0]?.classGrade || '';
+
+                setLookupStudentInfo({ name: sName, no: sNo, classGrade: sClass });
+
+                // Ambil daftar paket ujian aktif / terjadwal
+                let relevantExams = exams.filter(e => {
+                  if (e.status === 'archived') return false;
+                  if (!sClass || !e.grade) return true;
+                  const cleanExamGrade = e.grade.trim().toLowerCase();
+                  const cleanStudentClass = sClass.trim().toLowerCase();
+                  return cleanStudentClass.includes(cleanExamGrade) || cleanExamGrade.includes(cleanStudentClass);
+                });
+                if (relevantExams.length === 0) {
+                  relevantExams = exams.filter(e => e.status !== 'archived');
+                }
+
+                const items: StudentScoreItem[] = [];
+                const processedExamIds = new Set<string>();
+
+                // 1. Masukkan ujian yang SUDAH dikerjakan oleh siswa
+                matchedSubs.forEach(sub => {
+                  const cleanExamId = String(sub.examId || '').trim().toLowerCase();
+                  if (processedExamIds.has(cleanExamId)) return; // Hindari duplikat jika pernah submit berulang
+                  processedExamIds.add(cleanExamId);
+
+                  const examObj = exams.find(e => String(e.id).trim().toLowerCase() === cleanExamId);
+                  const passingScore = examObj?.passingScore ?? 75;
+                  const isRemedial = sub.percentage < passingScore;
+
+                  items.push({
+                    id: sub.id,
+                    examId: sub.examId,
+                    examTitle: examObj?.title || sub.examTitle || `Paket Ujian ${sub.examId}`,
+                    subject: examObj?.subject || 'Mata Pelajaran Umum',
+                    grade: examObj?.grade || sub.classGrade || sClass,
+                    passingScore,
+                    status: isRemedial ? 'completed_remedial' : 'completed_passed',
+                    statusLabel: isRemedial ? 'Remidi' : 'Tuntas',
+                    submission: sub,
+                    exam: examObj,
+                    score: sub.score,
+                    maxScore: sub.maxScore,
+                    percentage: sub.percentage,
+                    timeSpentSeconds: sub.timeSpentSeconds,
+                    submittedAt: sub.submittedAt,
+                    tabSwitchCount: sub.tabSwitchCount,
+                    feedback: sub.feedback
+                  });
+                });
+
+                // 2. Masukkan ujian terjadwal yang BELUM dikerjakan oleh siswa
+                relevantExams.forEach(exam => {
+                  const examCleanId = String(exam.id).trim().toLowerCase();
+                  if (!processedExamIds.has(examCleanId)) {
+                    items.push({
+                      id: `not-taken-${exam.id}`,
+                      examId: exam.id,
+                      examTitle: exam.title,
+                      subject: exam.subject,
+                      grade: exam.grade,
+                      passingScore: exam.passingScore,
+                      status: 'not_taken',
+                      statusLabel: 'Siswa Belum Mengerjakan',
+                      exam,
+                      scheduledTime: exam.startsAt,
+                      durationMinutes: exam.durationMinutes,
+                      isSessionActive: exam.sessionStatus === 'active' || exam.status === 'active'
+                    });
+                  }
+                });
+
+                setStudentLookupResults(items);
               }}
               className="space-y-4 mb-5"
             >
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nomor Induk Siswa (NIS) / Nama
+                  Nomor Induk Siswa (NIS) / Nama Lengkap
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -2509,7 +2629,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     required
                     value={scoreLookupNis}
                     onChange={(e) => setScoreLookupNis(e.target.value)}
-                    placeholder="Contoh: 1001 atau Ahmad"
+                    placeholder="Ketik NIS atau Nama, misal: 1001 atau Ahmad"
                     className="flex-1 px-3.5 py-2.5 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                   />
                   <button
@@ -2523,47 +2643,160 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               </div>
             </form>
 
+            {lookupStudentInfo && (
+              <div className="mb-4 p-3 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-900/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div>
+                  <span className="font-bold text-slate-900 dark:text-white block sm:inline mr-2">
+                    {lookupStudentInfo.name}
+                  </span>
+                  <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                    NIS: {lookupStudentInfo.no} {lookupStudentInfo.classGrade ? `· Kelas ${lookupStudentInfo.classGrade}` : ''}
+                  </span>
+                </div>
+
+                {studentLookupResults && (
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold">
+                    <span className="px-2 py-0.5 rounded bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800">
+                      Total: {studentLookupResults.length}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                      Tuntas: {studentLookupResults.filter(i => i.status === 'completed_passed').length}
+                    </span>
+                    {studentLookupResults.some(i => i.status === 'completed_remedial') && (
+                      <span className="px-2 py-0.5 rounded bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300">
+                        Remidi: {studentLookupResults.filter(i => i.status === 'completed_remedial').length}
+                      </span>
+                    )}
+                    {studentLookupResults.some(i => i.status === 'not_taken') && (
+                      <span className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                        Belum: {studentLookupResults.filter(i => i.status === 'not_taken').length}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {studentLookupResults !== null && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs text-slate-500 font-semibold border-b border-slate-100 dark:border-slate-800 pb-2">
-                  <span>Hasil Pencarian ({studentLookupResults.length} Ujian Ditemukan)</span>
+                  <span>Hasil Capaian Asesmen ({studentLookupResults.length} Paket Ujian)</span>
                 </div>
 
                 {studentLookupResults.length > 0 ? (
-                  <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-                    {studentLookupResults.map(sub => {
-                      const examObj = exams.find(e => String(e.id).trim().toLowerCase() === String(sub.examId || '').trim().toLowerCase());
+                  <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                    {studentLookupResults.map(item => {
                       return (
-                        <div key={sub.id} className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 text-xs space-y-2">
+                        <div
+                          key={item.id}
+                          className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 text-xs space-y-2.5 transition-all hover:border-slate-300 dark:hover:border-slate-700"
+                        >
+                          {/* Baris Atas: Mata Pelajaran & Kelas serta Status Badge */}
                           <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <span className="font-bold text-slate-900 dark:text-white text-sm block">
-                                {examObj?.title || examObj?.subject || sub.examId}
-                              </span>
-                              <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">
-                                {sub.studentName} ({sub.studentNo}) · {sub.classGrade}
-                              </span>
+                            <div className="space-y-1">
+                              {/* 1. Nama Mata Pelajaran dan Kelas */}
+                              <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">
+                                <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                                <span>{item.subject}</span>
+                                <span className="text-slate-300 dark:text-slate-700 font-normal">|</span>
+                                <span className="text-slate-500 dark:text-slate-400 font-medium normal-case">
+                                  Kelas {item.grade}
+                                </span>
+                              </div>
+
+                              {/* 2. Nama Ujian */}
+                              <h4 className="font-bold text-slate-900 dark:text-white text-sm leading-snug">
+                                {item.examTitle}
+                              </h4>
                             </div>
-                            <span className={`px-2.5 py-1 rounded-md text-xs font-bold font-mono ${
-                              sub.passed
-                                ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
-                                : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
-                            }`}>
-                              {sub.percentage}% ({sub.passed ? 'Lulus' : 'Remedial'})
-                            </span>
+
+                            {/* Status Badge */}
+                            <div>
+                              {item.status === 'not_taken' && (
+                                <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1 shrink-0">
+                                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                  <span>Siswa Belum Mengerjakan</span>
+                                </span>
+                              )}
+
+                              {item.status === 'completed_remedial' && (
+                                <span className="px-2.5 py-1 rounded-md text-[11px] font-bold font-mono bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1 shrink-0">
+                                  <RotateCcw className="w-3 h-3 text-rose-500" />
+                                  <span>{item.percentage}% · Remidi</span>
+                                </span>
+                              )}
+
+                              {item.status === 'completed_passed' && (
+                                <span className="px-2.5 py-1 rounded-md text-[11px] font-bold font-mono bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1 shrink-0">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <span>{item.percentage}% · Tuntas</span>
+                                </span>
+                              )}
+                            </div>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 font-mono pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                            <span>Durasi: {Math.floor((Number(sub.timeSpentSeconds) || 0) / 60)}m {(Number(sub.timeSpentSeconds) || 0) % 60}s</span>
-                            <span>·</span>
-                            <span>Pindah Tab: {sub.tabSwitchCount || 0}x</span>
-                            <span>·</span>
-                            <span>Kirim: {sub.submittedAt ? new Date(sub.submittedAt).toLocaleDateString('id-ID') : '-'}</span>
-                          </div>
+                          {/* Detail Informasi sesuai status */}
+                          {item.status === 'not_taken' ? (
+                            <div className="space-y-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                              <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                                <span>KKM: {item.passingScore}%</span>
+                                <span>·</span>
+                                <span>Durasi: {item.durationMinutes} Menit</span>
+                                {item.scheduledTime && (
+                                  <>
+                                    <span>·</span>
+                                    <span>Jadwal: {new Date(item.scheduledTime).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+                                  </>
+                                )}
+                              </div>
 
-                          {sub.feedback && (
-                            <div className="p-2 rounded bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-[11px] mt-1">
-                              <strong>Catatan Guru:</strong> {sub.feedback}
+                              <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-900/60 text-amber-800 dark:text-amber-300 text-[11px] flex items-start gap-2">
+                                <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                                <div>
+                                  Ujian ini telah dijadwalkan pada sistem namun <strong>Siswa Belum Mengerjakan</strong> lembar asesmen.
+                                </div>
+                              </div>
+
+                              {item.exam && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsScoreLookupOpen(false);
+                                    handleStartExamClick(item.exam!);
+                                  }}
+                                  className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition-colors"
+                                >
+                                  <Play className="w-3 h-3 fill-white" />
+                                  <span>Mulai Kerjakan Ujian</span>
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                              <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                                <span>Skor: {item.score} / {item.maxScore} (KKM: {item.passingScore}%)</span>
+                                <span>·</span>
+                                <span>Durasi: {Math.floor((Number(item.timeSpentSeconds) || 0) / 60)}m {(Number(item.timeSpentSeconds) || 0) % 60}s</span>
+                                <span>·</span>
+                                <span>Pindah Tab: {item.tabSwitchCount || 0}x</span>
+                                <span>·</span>
+                                <span>Kirim: {item.submittedAt ? new Date(item.submittedAt).toLocaleDateString('id-ID') : '-'}</span>
+                              </div>
+
+                              {item.status === 'completed_remedial' && (
+                                <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/60 text-rose-800 dark:text-rose-200 text-[11px] flex items-start gap-2">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                                  <div>
+                                    Nilai asesmen ({item.percentage}%) belum mencapai batas KKM ({item.passingScore}%). Siswa berstatus <strong>Remidi</strong>. Silakan hubungi guru untuk arahan remidial atau ujian ulang.
+                                  </div>
+                                </div>
+                              )}
+
+                              {item.feedback && (
+                                <div className="p-2 rounded bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-[11px] mt-1">
+                                  <strong>Catatan Guru:</strong> {item.feedback}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -2572,7 +2805,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   </div>
                 ) : (
                   <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
-                    Tidak ditemukan rekaman ujian untuk NIS/Nama "{scoreLookupNis}". Pastikan NIS yang Anda masukkan sudah benar atau ujian sudah berhasil dikirim.
+                    Tidak ditemukan data siswa atau rekaman ujian untuk kata kunci "{scoreLookupNis}". Pastikan NIS atau nama yang Anda masukkan sudah terdaftar.
                   </div>
                 )}
               </div>

@@ -50,7 +50,7 @@ import {
   Info
 } from 'lucide-react';
 
-export const StudentPortal: React.FC<StudentPortalProps> = ({ ... }) => {
+export const StudentPortal: React.FC<StudentPortalProps> = (props) => {
   // --- TEMPATKAN FUNGSI INI DI SINI (Di dalam atau di luar komponen) ---
   const getStudentExamStatus = (exam: Exam, studentNis: string, submissions: Submission[]) => {
     const targetNis = String(studentNis || '').trim().toLowerCase();

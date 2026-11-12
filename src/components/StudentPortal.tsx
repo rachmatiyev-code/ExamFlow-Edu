@@ -50,6 +50,133 @@ import {
   Info
 } from 'lucide-react';
 
+export const StudentPortal: React.FC<StudentPortalProps> = ({ ... }) => {
+  // --- TEMPATKAN FUNGSI INI DI SINI (Di dalam atau di luar komponen) ---
+  const getStudentExamStatus = (exam: Exam, studentNis: string, submissions: Submission[]) => {
+    const targetNis = String(studentNis || '').trim().toLowerCase();
+    const targetExamId = String(exam.id || '').trim();
+
+    // Cari apakah siswa sudah pernah mengirimkan submisi untuk exam ini
+    const submission = submissions.find(sub => {
+      const subExamId = String(sub.examId || sub.id || '').trim();
+      const subNis = String(sub.studentNo || sub.nis || '').trim().toLowerCase();
+      
+      return subExamId === targetExamId && (subNis === targetNis || subNis.includes(targetNis));
+    });
+
+    if (!submission) {
+      return {
+        status: 'Belum Mengerjakan',
+        badgeClass: 'bg-amber-100 text-amber-800 border-amber-300',
+        score: null,
+        isCompleted: false
+      };
+    }
+
+    const score = submission.percentage ?? submission.score ?? 0;
+    const passingScore = exam.passingScore ?? 75;
+
+    if (score < passingScore) {
+      return {
+        status: 'Remidi',
+        badgeClass: 'bg-red-100 text-red-800 border-red-300',
+        score,
+        isCompleted: true,
+        isRemidi: true
+      };
+    }
+
+    return {
+      status: 'Tuntas',
+      badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+      score,
+      isCompleted: true,
+      isRemidi: false
+    };
+  };
+
+// Contoh perbaikan fungsi pengecekan status ujian siswa di StudentPortal.tsx
+const getStudentExamStatus = (exam: Exam, studentNis: string, submissions: ExamSubmission[]) => {
+  // Normalisasi NIS yang dicari
+  const targetNis = String(studentNis || '').trim().toLowerCase();
+
+  // Cari submisi yang cocok berdasarkan examId dan NIS siswa (fleksibel)
+  const submission = submissions.find(sub => {
+    const subExamId = String(sub.examId || sub.id || '').trim();
+    const subNis = String(sub.nis || sub.studentNis || '').trim().toLowerCase();
+    
+    // Sesuaikan dengan struktur data submisi Anda
+    return subExamId === String(exam.id).trim() && (subNis === targetNis || subNis.includes(targetNis));
+  });
+
+  if (!submission) {
+    return {
+      status: 'Belum Mengerjakan',
+      badgeClass: 'bg-amber-100 text-amber-800 border-amber-300',
+      score: null,
+      isCompleted: false
+    };
+  }
+
+  // Jika sudah dikerjakan, bandingkan nilai dengan KKM
+  const score = submission.percentage ?? submission.score ?? 0;
+  const passingScore = exam.passingScore ?? 75;
+
+  if (score < passingScore) {
+    return {
+      status: 'Remidi',
+      badgeClass: 'bg-red-100 text-red-800 border-red-300',
+      score,
+      isCompleted: true,
+      isRemidi: true
+    };
+  }
+
+  return {
+    status: 'Tuntas',
+    badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+    score,
+    isCompleted: true,
+    isRemidi: false
+  };
+};
+
+{exams.map((exam) => {
+  // Panggil fungsi status berdasarkan NIS siswa yang sedang aktif/dicari
+  const examStatus = getStudentExamStatus(exam, activeStudentNis, allSubmissions);
+
+  return (
+    <div key={exam.id} className="border rounded-lg p-4 bg-white shadow-sm">
+      <div className="flex justify-between items-start">
+        <div>
+          <span className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">
+            {exam.subject || 'Mata Pelajaran'} | {exam.className || 'Kelas'}
+          </span>
+          <h4 className="font-bold text-gray-800 text-base">{exam.title}</h4>
+        </div>
+        
+        {/* Badge Status yang terkoneksi otomatis */}
+        <span className={`px-2.5 py-1 text-xs font-bold rounded-full border ${examStatus.badgeClass}`}>
+          {examStatus.isCompleted ? `${examStatus.score}% · ${examStatus.status}` : 'Siswa Belum Mengerjakan'}
+        </span>
+      </div>
+
+      {/* Tombol Aksi jika belum dikerjakan */}
+      {!examStatus.isCompleted && (
+        <div className="mt-3 pt-3 border-t flex justify-between items-center">
+          <span className="text-xs text-amber-700 font-medium">Ujian belum dikerjakan oleh siswa ini.</span>
+          <button
+            onClick={() => handleStartExam(exam)}
+            className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded hover:bg-indigo-700"
+          >
+            Mulai Kerjakan Ujian
+          </button>
+        </div>
+      )}
+    </div>
+  );
+})}
+
 export interface StudentScoreItem {
   id: string;
   examId: string;

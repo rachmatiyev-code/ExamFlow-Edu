@@ -1,6 +1,5 @@
 import * as XLSX from 'xlsx';
 import { Exam, Question, SchoolProfile, Submission, Student } from '../types';
-import { AnalysisService } from './analysisService';
 
 /**
  * 1. Export Naskah Soal & Butir Soal ke .xlsx

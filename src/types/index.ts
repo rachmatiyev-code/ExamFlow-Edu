@@ -47,10 +47,6 @@ export interface MatchingPair {
   id: string;
   premise: string; // Teks premis / pernyataan di kolom kiri
   match: string; // Teks pasangan / jawaban yang cocok di kolom kanan
-  mediaType?: 'none' | 'image' | 'audio' | 'video'; // Jenis media pada premis (gambar/foto/suara/video)
-  mediaUrl?: string; // URL atau base64 berkas media pada premis
-  matchMediaType?: 'none' | 'image' | 'audio' | 'video'; // Jenis media pada respon pasangan (opsional)
-  matchMediaUrl?: string; // URL media pada respon pasangan (opsional)
 }
 
 export interface Question {

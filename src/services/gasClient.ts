@@ -230,9 +230,6 @@ export class GasClient {
               : (q.mediaType || 'none'),
             mediaUrl: q.mediaUrl || '',
             options: Array.isArray(opts) ? opts : [],
-            matchingPairs: Array.isArray(q.matchingPairs) && q.matchingPairs.length > 0
-              ? q.matchingPairs
-              : (Array.isArray(opts) && opts.length > 0 && (opts[0] as any).premise !== undefined ? (opts as any) : undefined),
             correctKey: corrKey || 'opt_a',
             points: Number(q.points || 10),
             explanation: q.explanation || '',

@@ -1003,7 +1003,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     Review Lembar Jawaban & Pembahasan Soal
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Pelajari kembali butir soal, kunci jawaban yang benar, serta pembahasan materi berikut ini.
+                    Pelajari kembali butir soal, analisis jawaban Anda, serta panduan pembahasan materi berikut ini.
                   </p>
                 </div>
                 <span className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-full border border-indigo-200 dark:border-indigo-800 shrink-0">
@@ -1017,27 +1017,22 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   const safeOpts = normalizeQuestionOptions(q.options);
                   
                   let isCorrect = false;
-                  let correctText = '';
                   let studentAnswerText = '-';
 
                   if (q.type === 'multiple_choice') {
                     isCorrect = studentAns === q.correctKey;
-                    const cOpt = safeOpts.find(o => o.id === q.correctKey);
-                    correctText = cOpt ? cOpt.text : String(q.correctKey || '');
                     const sOpt = safeOpts.find(o => o.id === studentAns);
                     studentAnswerText = sOpt ? sOpt.text : (studentAns ? String(studentAns) : 'Tidak dijawab');
                   } else if (q.type === 'checkbox') {
                     const cKeys = Array.isArray(q.correctKey) ? q.correctKey : [q.correctKey];
                     const sList = Array.isArray(studentAns) ? studentAns : [];
                     isCorrect = cKeys.length === sList.length && cKeys.every(k => sList.includes(k));
-                    correctText = safeOpts.filter(o => cKeys.includes(o.id)).map(o => o.text).join(', ');
                     studentAnswerText = sList.length > 0 
                       ? safeOpts.filter(o => sList.includes(o.id)).map(o => o.text).join(', ')
                       : 'Tidak dijawab';
                   } else if (q.type === 'matching') {
                     isCorrect = AnalysisService.isAnswerCorrect(q, studentAns);
                     const pairs = q.matchingPairs || [];
-                    correctText = pairs.map(p => `${p.premise} ➔ ${p.match}`).join('<br/>');
                     let sMap: Record<string, string> = {};
                     if (typeof studentAns === 'string') {
                       try { sMap = JSON.parse(studentAns); } catch {}
@@ -1115,7 +1110,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         />
                       </div>
 
-                      {/* Perbandingan Jawaban */}
+                      {/* Jawaban Siswa & Panduan Mandiri (Kunci jawaban hanya terlihat oleh Guru) */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 mb-3">
                         <div>
                           <span className="text-[11px] text-slate-400 block font-semibold mb-0.5">
@@ -1136,12 +1131,17 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         {q.type !== 'essay' && (
                           <div>
                             <span className="text-[11px] text-slate-400 block font-semibold mb-0.5">
-                              Kunci Jawaban yang Benar:
+                              Evaluasi & Panduan Belajar Mandiri:
                             </span>
-                            <div 
-                              className="font-bold text-emerald-700 dark:text-emerald-400"
-                              dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(correctText) }}
-                            />
+                            <div className={`text-[11.5px] leading-relaxed font-medium ${
+                              isCorrect
+                                ? 'text-emerald-700 dark:text-emerald-400'
+                                : 'text-amber-700 dark:text-amber-300'
+                            }`}>
+                              {isCorrect
+                                ? '✓ Jawaban Anda sudah tepat. Pelajari kembali penjelasan konsep di bawah untuk memperkuat pemahaman.'
+                                : '✗ Jawaban Anda belum tepat. Ikuti langkah analisis, ciri-ciri, atau rumus pada pembahasan di bawah untuk menemukan jawaban yang benar secara mandiri.'}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1745,9 +1745,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
                       {showCurrentExplanation && (
                         <div className="p-4 bg-indigo-50/60 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-800/80 text-xs text-slate-800 dark:text-slate-200 space-y-2.5">
+                          {currentQ.type !== 'essay' && !isCorrect && (
+                            <div className="p-2.5 rounded-lg bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/70 text-[11px] text-rose-800 dark:text-rose-200 leading-relaxed">
+                              <strong>Mengapa jawaban Anda belum tepat?</strong> Pelajari analisis ciri-ciri, konsep, dan langkah penyelesaian berikut untuk meninjau ulang jawaban Anda secara mandiri (kunci jawaban tidak ditampilkan langsung):
+                            </div>
+                          )}
                           <div>
                             <span className="font-bold text-indigo-900 dark:text-indigo-300 block mb-1">
-                              💡 Penjelasan & Pembahasan Konsep:
+                              💡 Penjelasan & Panduan Analisis Konsep:
                             </span>
                             <div 
                               className="leading-relaxed text-slate-700 dark:text-slate-300 pl-3 border-l-2 border-indigo-400 dark:border-indigo-600"

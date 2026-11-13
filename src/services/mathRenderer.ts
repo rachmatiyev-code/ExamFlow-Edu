@@ -51,6 +51,13 @@ export class MathRenderer {
       return `<span class="inline-block mx-0.5 align-middle">${rendered}</span>`;
     });
 
+    // 3. Tingkatkan keterbacaan Aksara Jawa Unicode (U+A980 - U+A9DF) secara otomatis di luar tag HTML
+    processed = processed.replace(/(<[^>]+>)|([\uA980-\uA9DF\u200C\u200D]+(?:\s+[\uA980-\uA9DF\u200C\u200D]+)*)/g, (match, tag, jvRun) => {
+      if (tag) return tag;
+      if (!jvRun) return match;
+      return `<span class="font-javanese text-[1.28em] leading-[2.15] align-baseline">${jvRun}</span>`;
+    });
+
     return processed;
   }
 }

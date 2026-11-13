@@ -28,6 +28,7 @@ import {
   Code
 } from 'lucide-react';
 import { MathRenderer } from '../services/mathRenderer';
+import { AksaraJawaModal } from './AksaraJawaModal';
 
 interface RichTextEditorProps {
   value: string;
@@ -48,6 +49,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const [isSymbolModalOpen, setIsSymbolModalOpen] = useState(false);
   const [isMathModalOpen, setIsMathModalOpen] = useState(false);
   const [isTableModalOpen, setIsTableModalOpen] = useState(false);
+  const [isJavaneseModalOpen, setIsJavaneseModalOpen] = useState(false);
   const [selectedFont, setSelectedFont] = useState('font-sans');
   const [selectedSize, setSelectedSize] = useState('text-sm');
   const [selectedColor, setSelectedColor] = useState('#0f172a');
@@ -454,11 +456,22 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           <button
             type="button"
             onClick={() => setIsMathModalOpen(true)}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-2xs transition-all"
+            className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-2xs transition-all cursor-pointer"
             title="Sisipkan Rumus Matematika (LaTeX / KaTeX)"
           >
             <Sigma className="w-3.5 h-3.5" />
             <span>Rumus Matematika</span>
+          </button>
+
+          {/* 12. INSERT AKSARA JAWA & PANDUAN */}
+          <button
+            type="button"
+            onClick={() => setIsJavaneseModalOpen(true)}
+            className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition-all cursor-pointer"
+            title="Editor & Panduan Penulisan Aksara Jawa (Carakan, Murda, Sandhangan, Pasangan, Pada, Angka Jawa)"
+          >
+            <span className="font-javanese text-sm leading-none">ꦲ</span>
+            <span>Aksara Jawa</span>
           </button>
         </div>
 
@@ -491,7 +504,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         {/* Footer info bar */}
         <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-400 font-mono">
           <div className="flex items-center gap-2">
-            <span>Dukung: HTML, KaTeX ($...$ &amp; $$...$$), Tabel, Simbol</span>
+            <span>Dukung: HTML, KaTeX ($...$ &amp; $$...$$), Aksara Jawa (Unicode), Tabel, Simbol</span>
           </div>
           <div>
             <span>{value.length} karakter</span>
@@ -783,6 +796,12 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           </div>
         </div>
       )}
+      {/* MODAL 4: EDITOR & PANDUAN AKSARA JAWA */}
+      <AksaraJawaModal
+        isOpen={isJavaneseModalOpen}
+        onClose={() => setIsJavaneseModalOpen(false)}
+        onInsert={(jvText) => insertTextAtCursor(jvText, '')}
+      />
     </div>
   );
 };

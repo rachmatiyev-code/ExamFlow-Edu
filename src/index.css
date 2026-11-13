@@ -4,12 +4,22 @@
 
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-family: 'Plus Jakarta Sans', 'Noto Sans Javanese', system-ui, -apple-system, sans-serif;
   }
   
   .font-mono, code, kbd, samp, pre {
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-family: 'JetBrains Mono', 'Noto Sans Javanese', ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
+  }
+
+  .font-javanese {
+    font-family: 'Noto Sans Javanese', 'Javanese Text', 'Tuladha Jejeg', sans-serif;
+    line-height: 2.15;
+    letter-spacing: 0.02em;
+  }
+
+  .font-javanese .font-javanese {
+    font-size: 1em;
   }
 }
 

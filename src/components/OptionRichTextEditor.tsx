@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { QuestionOption } from '../types';
 import { MathRenderer } from '../services/mathRenderer';
+import { AksaraJawaModal } from './AksaraJawaModal';
 
 interface OptionRichTextEditorProps {
   option: QuestionOption;
@@ -41,6 +42,7 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
 }) => {
   const [showMathModal, setShowMathModal] = useState(false);
   const [showSymbolModal, setShowSymbolModal] = useState(false);
+  const [showJavaneseModal, setShowJavaneseModal] = useState(false);
   const [mathInput, setMathInput] = useState('\\frac{1}{2}');
   const [showLivePreview, setShowLivePreview] = useState(false);
   const [symbolCategory, setSymbolCategory] = useState<'math' | 'greek' | 'science'>('math');
@@ -48,14 +50,15 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
 
   const letter = String.fromCharCode(65 + index);
 
-  // Deteksi apakah teks opsi mengandung rumus atau HTML format
+  // Deteksi apakah teks opsi mengandung rumus, HTML format, atau Aksara Jawa
   const hasFormattingOrMath = Boolean(
     option.text && (
       option.text.includes('$') || 
       option.text.includes('<') || 
       option.text.includes('\\') || 
       option.text.includes('^') || 
-      option.text.includes('_{')
+      option.text.includes('_{') ||
+      /[\uA980-\uA9DF]/.test(option.text)
     )
   );
 
@@ -230,6 +233,16 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
             <Omega className="w-3.5 h-3.5" />
           </button>
 
+          {/* Tombol Sisipkan Aksara Jawa */}
+          <button
+            type="button"
+            onClick={() => setShowJavaneseModal(true)}
+            className="px-1.5 py-0.5 rounded text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/60 transition-colors font-javanese text-sm leading-none font-bold cursor-pointer"
+            title="Sisipkan Aksara Jawa pada opsi jawaban ini"
+          >
+            ꦲ
+          </button>
+
           {/* Tombol Pratinjau Nyata */}
           <button
             type="button"
@@ -399,6 +412,16 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
           )}
         </div>
       )}
+      {/* Modal Aksara Jawa untuk Opsi */}
+      <AksaraJawaModal
+        isOpen={showJavaneseModal}
+        onClose={() => setShowJavaneseModal(false)}
+        onInsert={(jvText) => {
+          insertAtCursor(jvText, '');
+          setShowLivePreview(true);
+        }}
+        title={`Editor Aksara Jawa — Opsi ${letter}`}
+      />
     </div>
   );
 };

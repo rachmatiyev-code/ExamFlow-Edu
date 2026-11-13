@@ -132,9 +132,9 @@ export class AiGeneratorService {
     const settings = StorageService.getSettings();
     const configuredModel = settings.geminiModel && !settings.geminiModel.includes('1.5') && !settings.geminiModel.includes('2.0')
       ? settings.geminiModel
-      : 'gemini-3.1-flash-lite';
+      : 'gemini-4-hydrogen';
 
-    const modelsToTry = Array.from(new Set(['gemini-3.1-flash-lite', 'gemini-flash-latest', configuredModel, 'gemini-3.8-flash', 'gemini-4-argon']));
+    const modelsToTry = Array.from(new Set(['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-flash-latest', configuredModel]));
     let lastClientError = 'Tidak dapat terhubung ke Google AI Studio.';
     let isKeyConfirmed = false;
 
@@ -262,6 +262,28 @@ export class AiGeneratorService {
         ? `\n- INSTRUKSI / PROMPT KHUSUS DARI GURU:\n"${params.customPrompt.trim()}"\nWajib ikuti instruksi spesifik di atas dalam perumusan konteks, stimulus, atau karakteristik soal.\n`
         : '';
 
+      const combinedContext = `${params.subject} ${params.topic} ${params.customPrompt || ''}`.toLowerCase();
+      const isJavaneseContext =
+        combinedContext.includes('jawa') ||
+        combinedContext.includes('aksara') ||
+        combinedContext.includes('carakan') ||
+        combinedContext.includes('sandhangan') ||
+        combinedContext.includes('murda') ||
+        combinedContext.includes('pasangan') ||
+        combinedContext.includes('tembang') ||
+        combinedContext.includes('unggah');
+
+      const javaneseSection = isJavaneseContext
+        ? `\nPANDUAN KHUSUS BAHASA JAWA & AKSARA JAWA (WAJIB DIPATUHI):
+- Jika soal menyertakan atau menanyakan penulisan Aksara Jawa, WAJIB menuliskan karakter Unicode Aksara Jawa asli (blok U+A980–U+A9DF) secara tepat, bukan sekadar tulisan Latin!
+- Terapkan kaidah penulisan Aksara Jawa baku (Paugeran Sriwedari / KBJ):
+  * Aksara Nglegena/Carakan (ꦲ-ꦔ), Aksara Murda untuk huruf kapital/penghormatan (ꦟ, ꦑ, ꦡ, ꦯ, ꦦ, ꦘ, ꦓ, ꦨ).
+  * Sandhangan Swara (ꦶ wulu, ꦸ suku, ꦺ taling, ꦼ pepet, ꦺꦴ taling tarung), Panyigeg Wanda (ꦁ cecak, ꦂ layar, ꦃ wignyan, ꧀ pangkon hanya di akhir kata/kalimat), dan Wyanjana (ꦿ cakra, ꦽ keret, ꦾ pengkal).
+  * Pasangan (gunakan tanda Pangkon ꧀ tepat di antara konsonan mati dan aksara berikutnya di tengah kata/kalimat, contoh: mangan sega = ꦩꦔꦤ꧀ꦱꦼꦒ).
+  * Tanda baca Pada (꧋ adeg-adeg awal kalimat, ꧈ lingsa koma, ꧉ lungsi titik) dan Angka Jawa (꧐-꧙ wajib diapit Pada Pangkat ꧇...꧇, contoh: ꧇꧒꧐꧒꧕꧇).
+  * Untuk penjelasan tata bahasa/unggah-ungguh basa (Ngoko/Krama), rujuk aturan Paramasastra & Unggah-Ungguh Basa Jawa baku.\n`
+        : '';
+
       const promptText = `
 Anda adalah seorang ahli pembuat asesmen kurikulum nasional (Kurikulum Merdeka / K13).
 Tugas Anda adalah menghasilkan persis ${batchCount} butir soal berkualitas tinggi (bagian ${bIdx + 1} dari ${batchSizes.length}) untuk:
@@ -270,7 +292,7 @@ Tugas Anda adalah menghasilkan persis ${batchCount} butir soal berkualitas tingg
 - Jenjang Kelas: ${params.grade}
 - Tingkat Kesulitan: ${params.difficulty}
 - Kerangka Taksonomi: ${params.taxonomy === 'solo' ? 'SOLO (Prestructural, Unistructural, Multistructural, Relational, Extended Abstract)' : 'Bloom-Anderson (C1 Mengingat, C2 Memahami, C3 Menerapkan, C4 Menganalisis, C5 Mengevaluasi, C6 Mencipta)'}
-- Bentuk Soal: ${typeInstruction}${tpSection}${customPromptSection}
+- Bentuk Soal: ${typeInstruction}${tpSection}${customPromptSection}${javaneseSection}
 
 PANDUAN KHUSUS SOAL HOTS & STIMULUS BACAAN MENDALAM (WAJIB DIPATUHI):
 1. STIMULUS KAYA & KONTEKSTUAL (2 - 4 PARAGRAF / DATA / STUDI KASUS):
@@ -298,8 +320,12 @@ ATURAN MUTLAK KEBENARAN KUNCI JAWABAN & VARIASI OPSI (ANTI SALAH KUNCI):
    - Pastikan teks jawaban yang benar SELALU berada di dalam opsi yang Anda jadikan "correctKey"!
 3. TEKS OPSI JAWABAN MURNI:
    - DILARANG menuliskan huruf "A. ", "B. ", "C. ", "D. " di awal teks opsi! Tuliskan teksnya langsung (Contoh: "Fotosintesis pada daun", BUKAN "A. Fotosintesis pada daun").
-4. PEMBAHASAN MENDALAM:
-   - Atribut "explanation" harus menguraikan analisis bacaan/stimulus dan alasan ilmiah mengapa opsi pada "correctKey" tersebut benar serta mengapa pengecoh lainnya salah.
+4. ATURAN MUTLAK PENULISAN "explanation" (PEMBAHASAN PEMBIMBING MANDIRI — ANTI SPOILER KUNCI):
+   - HINDARI MEMBERIKAN KUNCI JAWABAN SECARA LANGSUNG di dalam "explanation"! DILARANG menulis frasa seperti "Jawaban yang benar adalah...", "Jadi pilihannya adalah A/B/C/D", atau menyebutkan teks opsi kunci secara langsung sebagai kesimpulan akhir. Kunci jawaban hanya disimpan di field "correctKey" untuk Guru.
+   - Berikan penjelasan yang detail mengenai KESALAHAN KONSEP / MENGAPA JAWABAN YANG KELIRU SALAH (jelaskan kekeliruan logika pada pengecoh tanpa membocorkan opsi mana yang benar), serta tunjukkan **ciri-ciri, kata kunci dalam stimulus, cara menganalisis, dan langkah pemecahan masalah** agar siswa mampu menemukan jawaban yang benar secara mandiri.
+   - KHUSUS MATEMATIKA / HITUNGAN: "explanation" DILARANG KERAS menunjukkan hasil akhir perhitungan / angka jawaban akhir! Hanya boleh berisi identifikasi besaran yang diketahui-ditanya, **rumus yang digunakan, dan urutan langkah-langkah menghitungnya** hingga tahap substitusi sebelum hasil akhir.
+   - KHUSUS BAHASA (Indonesia, Inggris, Jawa, Daerah): Jika berkaitan dengan tata bahasa/ejaan/aksara, berikan penjelasan sesuai **aturan tata bahasa yang baku dan terbaru** (misalnya EYD Edisi V, KBBI VI, Tata Bahasa Baku Bahasa Indonesia, Standard English Grammar, atau Paramasastra/Paugeran Aksara Jawa).
+   - KHUSUS IPAS (IPA, IPS, Sains): Gunakan **rujukan ilmiah** (sebutkan hukum, prinsip, teori, atau fakta ilmiah terverifikasi seperti Hukum Newton, proses fotosintesis Kloroplas, siklus hidrologi, dll.) dalam menjelaskan konsepnya secara ringkas dan akurat.
 
 Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
 [
@@ -316,7 +342,7 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
     ],
     "correctKey": "${qType === 'checkbox' ? '["opt_a", "opt_c"]' : 'opt_b'}",
     "points": 20,
-    "explanation": "Pembahasan rinci berdasarkan stimulus dan alasan ilmiah mengapa kunci benar",
+    "explanation": "Panduan analisis mendalam: jelaskan kesalahan pengecoh, ciri-ciri/konsep ilmiah/tata bahasa baku atau rumus & langkah hitung TANPA membocorkan kunci jawaban atau hasil akhir",
     "bloomLevel": "C4 - Menganalisis",
     "soloLevel": "Relational",
     "basicCompetency": "Kompetensi Dasar / Capaian Pembelajaran terkait",
@@ -383,9 +409,9 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
 
         const configuredModel = settings.geminiModel && !settings.geminiModel.includes('1.5') && !settings.geminiModel.includes('2.0')
           ? settings.geminiModel
-          : 'gemini-3.1-flash-lite';
+          : 'gemini-4-hydrogen';
 
-        const modelsToTry = Array.from(new Set(['gemini-3.1-flash-lite', 'gemini-flash-latest', configuredModel, 'gemini-3.8-flash', 'gemini-4-argon']));
+        const modelsToTry = Array.from(new Set(['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-flash-latest', configuredModel]));
 
         for (const modelName of modelsToTry) {
           try {

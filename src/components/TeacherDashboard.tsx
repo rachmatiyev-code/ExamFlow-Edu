@@ -29,6 +29,7 @@ import { OptionRichTextEditor } from './OptionRichTextEditor';
 import { TeacherChatPanel } from './TeacherChatPanel';
 import { ClassroomSyncModal } from './ClassroomSyncModal';
 import { TpMasteryAnalysis } from './TpMasteryAnalysis';
+import { AksaraJawaModal } from './AksaraJawaModal';
 import { chatService } from '../services/chatService';
 import { MathRenderer } from '../services/mathRenderer';
 import { detectMediaType } from '../services/mediaHelper';
@@ -214,6 +215,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [isSyncingQuestionsToSheets, setIsSyncingQuestionsToSheets] = useState(false);
   const [gasUpgradeModalOpen, setGasUpgradeModalOpen] = useState(false);
   const [gasUpgradeModalMsg, setGasUpgradeModalMsg] = useState<string>('');
+  const [isStandaloneJavaneseModalOpen, setIsStandaloneJavaneseModalOpen] = useState(false);
+  const [matchingJavaneseTarget, setMatchingJavaneseTarget] = useState<{ index: number; field: 'premise' | 'match' } | null>(null);
 
   // AI Generator Modal State
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -3209,6 +3212,16 @@ const rekapDistinctGrades = useMemo(() => {
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Tambah Soal Manual</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsStandaloneJavaneseModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 font-semibold text-xs rounded-xl shadow-2xs transition-colors cursor-pointer"
+                title="Buka Panduan & Editor Aksara Jawa (Carakan, Murda, Sandhangan, Pasangan, Pada, Angka)"
+              >
+                <span className="font-javanese text-sm leading-none">ꦲ</span>
+                <span className="hidden xl:inline">Panduan Aksara Jawa</span>
               </button>
 
               <button
@@ -7210,13 +7223,24 @@ const rekapDistinctGrades = useMemo(() => {
                             </span>
 
                             <div className="flex-1">
-                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">
-                                Premis / Pernyataan Kiri #{idx + 1}
-                              </label>
+                              <div className="flex items-center justify-between mb-0.5">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                  Premis / Pernyataan Kiri #{idx + 1}
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => setMatchingJavaneseTarget({ index: idx, field: 'premise' })}
+                                  className="px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                                  title="Sisipkan Aksara Jawa ke Premis ini"
+                                >
+                                  <span className="font-javanese text-xs leading-none">ꦲ</span>
+                                  <span>Jawa</span>
+                                </button>
+                              </div>
                               <input
                                 type="text"
                                 value={p.premise}
-                                placeholder="Misal: Ibukota Indonesia"
+                                placeholder="Misal: Ibukota Indonesia atau ꦲꦏ꧀ꦱꦫ"
                                 onChange={(e) => {
                                   const updated = [...pairs];
                                   updated[idx] = { ...updated[idx], premise: e.target.value };
@@ -7233,13 +7257,24 @@ const rekapDistinctGrades = useMemo(() => {
                             <div className="text-slate-400 font-bold hidden sm:block shrink-0 px-1">➔</div>
 
                             <div className="flex-1">
-                              <label className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block mb-0.5">
-                                Pasangan Benar (Kanan) #{idx + 1}
-                              </label>
+                              <div className="flex items-center justify-between mb-0.5">
+                                <label className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                                  Pasangan Benar (Kanan) #{idx + 1}
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => setMatchingJavaneseTarget({ index: idx, field: 'match' })}
+                                  className="px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                                  title="Sisipkan Aksara Jawa ke Pasangan Benar ini"
+                                >
+                                  <span className="font-javanese text-xs leading-none">ꦲ</span>
+                                  <span>Jawa</span>
+                                </button>
+                              </div>
                               <input
                                 type="text"
                                 value={p.match}
-                                placeholder="Misal: Jakarta / Nusantara"
+                                placeholder="Misal: Jakarta / Nusantara atau ꦗꦮ"
                                 onChange={(e) => {
                                   const updated = [...pairs];
                                   updated[idx] = { ...updated[idx], match: e.target.value };
@@ -7574,17 +7609,14 @@ const rekapDistinctGrades = useMemo(() => {
                 </div>
               </div>
 
-              {/* Explanation */}
+              {/* Explanation with RichTextEditor (supports Aksara Jawa, KaTeX, Symbols) */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Pembahasan Kunci Jawaban
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Penjelasan mengapa jawaban tersebut benar..."
+                <RichTextEditor
                   value={editingQuestion.explanation || ''}
-                  onChange={(e) => setEditingQuestion({ ...editingQuestion, explanation: e.target.value })}
-                  className="w-full p-2.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                  onChange={(val) => setEditingQuestion({ ...editingQuestion, explanation: val })}
+                  placeholder="Penjelasan analisis, ciri-ciri, rumus/langkah penyelesaian tanpa membocorkan kunci jawaban langsung..."
+                  rows={3}
+                  label="Pembahasan & Panduan Analisis Soal (Mendukung Rumus, Simbol & Aksara Jawa)"
                 />
               </div>
 
@@ -9148,6 +9180,43 @@ const rekapDistinctGrades = useMemo(() => {
         submissions={submissions}
         students={students}
         initialExamId={classroomSyncExamId}
+      />
+
+      {/* Standalone Panduan & Editor Aksara Jawa */}
+      <AksaraJawaModal
+        isOpen={isStandaloneJavaneseModalOpen}
+        onClose={() => setIsStandaloneJavaneseModalOpen(false)}
+        initialTab="panduan"
+        title="Panduan & Papan Susun Aksara Jawa"
+      />
+
+      {/* Matching Pairs Aksara Jawa Insert Modal */}
+      <AksaraJawaModal
+        isOpen={Boolean(matchingJavaneseTarget)}
+        onClose={() => setMatchingJavaneseTarget(null)}
+        title={`Sisipkan Aksara Jawa — ${matchingJavaneseTarget?.field === 'premise' ? 'Premis Kiri' : 'Pasangan Benar'} #${(matchingJavaneseTarget?.index ?? 0) + 1}`}
+        onInsert={(jvText) => {
+          if (!matchingJavaneseTarget || !editingQuestion) return;
+          const pairs = Array.isArray(editingQuestion.matchingPairs) && editingQuestion.matchingPairs.length > 0
+            ? [...editingQuestion.matchingPairs]
+            : [
+                { id: 'pair_1', premise: '', match: '' },
+                { id: 'pair_2', premise: '', match: '' },
+                { id: 'pair_3', premise: '', match: '' }
+              ];
+          const targetPair = pairs[matchingJavaneseTarget.index];
+          if (!targetPair) return;
+          const curVal = targetPair[matchingJavaneseTarget.field] || '';
+          pairs[matchingJavaneseTarget.index] = {
+            ...targetPair,
+            [matchingJavaneseTarget.field]: curVal ? `${curVal} ${jvText}` : jvText
+          };
+          setEditingQuestion({
+            ...editingQuestion,
+            matchingPairs: pairs,
+            correctKey: JSON.stringify(pairs.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
+          });
+        }}
       />
     </div>
   );

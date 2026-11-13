@@ -14,6 +14,7 @@ import {
   ShadingType
 } from 'docx';
 import { Exam, Question, SchoolProfile, Submission, Student } from '../types';
+import { AnalysisService } from './analysisService';
 
 /**
  * Helper to download Blob as file in browser
@@ -524,6 +525,8 @@ export async function exportItemAnalysisToDocx(
           const studentKeys = Array.isArray(studentAns) ? studentAns : [];
           const matchCount = correctKeys.filter(k => studentKeys.includes(k)).length;
           score = matchCount > 0 ? Math.round((matchCount / correctKeys.length) * (q.points || 1)) : 0;
+        } else if (q.type === 'matching') {
+          score = AnalysisService.isAnswerCorrect(q, studentAns) ? (q.points || 1) : 0;
         } else {
           // essay
           score = (studentAns && typeof studentAns === 'string' && studentAns.trim().length > 5) ? (q.points || 1) : 0;

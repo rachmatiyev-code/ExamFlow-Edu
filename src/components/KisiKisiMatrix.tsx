@@ -262,7 +262,7 @@ export const KisiKisiMatrix: React.FC<KisiKisiMatrixProps> = ({ profile, exams }
             <tbody>
               {questions.map((q, idx) => {
                 const cogLevel = getCognitiveLevel(q);
-                const bentukStr = q.type === 'multiple_choice' ? 'PG' : q.type === 'checkbox' ? 'PG Kompleks' : 'Uraian';
+                const bentukStr = q.type === 'multiple_choice' ? 'PG' : q.type === 'checkbox' ? 'PG Kompleks' : q.type === 'matching' ? 'Menjodohkan' : 'Uraian';
                 const defaultTp = (selectedExam?.learningObjectives && selectedExam.learningObjectives.length > 0)
                   ? selectedExam.learningObjectives[idx % selectedExam.learningObjectives.length]
                   : 'Peserta didik mampu memahami dan menganalisis konsep materi secara komprehensif';

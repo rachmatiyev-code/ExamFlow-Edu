@@ -233,7 +233,12 @@ export default function App() {
       {/* Top Navigation Bar */}
       <Navbar
         currentTab={currentTab}
-        onSelectTab={setCurrentTab}
+        onSelectTab={(tab) => {
+          if (tab === 'laporan-cetak') {
+            setReportPrintMode('individu');
+          }
+          setCurrentTab(tab);
+        }}
         onOpenSettings={() => setIsSettingsOpen(true)}
         profile={profile}
         settings={settings}

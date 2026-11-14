@@ -294,3 +294,179 @@ export function exportItemAnalysisToExcel(
   const cleanSubject = (exam.subject || 'Mapel').replace(/[^a-zA-Z0-9_-]/g, '_');
   XLSX.writeFile(wb, `ANALISIS_PAS_${cleanSubject}_KELAS_${classGrade || exam.grade}.xlsx`);
 }
+
+import type { StudentRaporSubjectRow } from './exportDocxService';
+
+/**
+ * 4. Export Rapor Hasil Ujian Siswa (1 atau Semua Bidang Studi) ke .xlsx
+ */
+export function exportStudentReportToExcel(
+  student: { nis: string; nisn?: string; name: string; classGrade: string },
+  rows: StudentRaporSubjectRow[],
+  profile: SchoolProfile,
+  options: {
+    subjectFilterLabel: string;
+    classFilterLabel: string;
+    teacherNote?: string;
+  }
+) {
+  const wb = XLSX.utils.book_new();
+
+  const completedRows = rows.filter(r => r.hasSubmitted && r.statusText !== 'Mengulang Ujian');
+  const avgScore = completedRows.length > 0
+    ? Math.round(completedRows.reduce((acc, r) => acc + r.percentage, 0) / completedRows.length)
+    : 0;
+  const passedCount = completedRows.filter(r => r.passed).length;
+
+  const sheet1Rows: any[][] = [
+    [profile.regionalGovName || 'PEMERINTAH KOTA MALANG'],
+    [profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'],
+    [profile.name || 'SD NEGERI PISANGCANDI 1 MALANG'],
+    [`NPSN: ${profile.npsn || '-'} | ${profile.address || ''}`],
+    [''],
+    ['RAPOR HASIL EVALUASI ASESMEN PESERTA DIDIK'],
+    [`Tahun Ajaran: ${profile.academicYear || '2026/2027'}`, `Semester: ${profile.semester || 'Ganjil'}`],
+    [''],
+    ['Nama Peserta Didik', student.name || '-', '', 'Kelas / Rombel', student.classGrade || options.classFilterLabel || '-'],
+    ['Nomor Induk (NIS)', student.nis || '-', '', 'Bidang Studi', options.subjectFilterLabel],
+    ['NISN', student.nisn || '-', '', 'Guru Pengampu', profile.teacherName || '-'],
+    [''],
+    ['NO', 'BIDANG STUDI', 'PAKET / JUDUL ASESMEN', 'KKM', 'SKOR', 'SKOR MAKS', 'NILAI (%)', 'PREDIKAT', 'STATUS', 'PINDAH TAB', 'WAKTU KIRIM']
+  ];
+
+  rows.forEach((row, idx) => {
+    const isVal = row.hasSubmitted && row.statusText !== 'Mengulang Ujian';
+    sheet1Rows.push([
+      idx + 1,
+      row.subject,
+      row.examTitle,
+      row.passingScore,
+      isVal ? row.score : '-',
+      isVal ? row.maxScore : '-',
+      isVal ? row.percentage : '-',
+      isVal ? row.predicate : '-',
+      row.statusText,
+      isVal ? (row.tabSwitchCount || 0) : '-',
+      row.submittedAt ? new Date(row.submittedAt).toLocaleString('id-ID') : '-'
+    ]);
+  });
+
+  sheet1Rows.push(['']);
+  sheet1Rows.push(['RINGKASAN HASIL RAPOR']);
+  sheet1Rows.push(['Total Bidang Studi / Paket Ditampilkan', rows.length]);
+  sheet1Rows.push(['Jumlah Ujian Selesai', completedRows.length]);
+  sheet1Rows.push(['Jumlah Tuntas KKM', passedCount]);
+  sheet1Rows.push(['Rata-Rata Nilai Keseluruhan', completedRows.length > 0 ? avgScore : '-']);
+  if (options.teacherNote) {
+    sheet1Rows.push(['Catatan Evaluasi Guru', options.teacherNote]);
+  }
+  sheet1Rows.push(['']);
+  sheet1Rows.push(['Mengetahui,', '', '', 'Guru Kelas / Pengampu']);
+  sheet1Rows.push(['Kepala Sekolah', '', '', profile.teacherName || '']);
+  sheet1Rows.push([profile.principalName || '', '', '', `NIP. ${profile.teacherNip || '-'}`]);
+  sheet1Rows.push([`NIP. ${profile.principalNip || '-'}`]);
+
+  const wsRapor = XLSX.utils.aoa_to_sheet(sheet1Rows);
+  wsRapor['!cols'] = [
+    { wch: 6 },
+    { wch: 24 },
+    { wch: 36 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 18 },
+    { wch: 18 },
+    { wch: 12 },
+    { wch: 22 }
+  ];
+  XLSX.utils.book_append_sheet(wb, wsRapor, 'Rapor_Siswa');
+
+  // Sheet 2: Capaian Tujuan Pembelajaran (TP)
+  const tpRowsData: any[][] = [
+    [`KETERCAPAIAN TUJUAN PEMBELAJARAN (TP) - ${student.name || ''}`],
+    [`Kelas: ${student.classGrade || '-'} | Bidang Studi: ${options.subjectFilterLabel}`],
+    [''],
+    ['NO', 'BIDANG STUDI', 'DESKRIPSI TUJUAN PEMBELAJARAN (TP)', 'PERSENTASE CAPAIAN (%)', 'STATUS']
+  ];
+
+  let tpIdx = 1;
+  rows.forEach(r => {
+    r.tpDetails.forEach(tp => {
+      tpRowsData.push([tpIdx++, r.subject, tp.objective, tp.masteryRate, tp.status]);
+    });
+  });
+
+  if (tpRowsData.length > 4) {
+    const wsTp = XLSX.utils.aoa_to_sheet(tpRowsData);
+    wsTp['!cols'] = [
+      { wch: 6 },
+      { wch: 24 },
+      { wch: 56 },
+      { wch: 22 },
+      { wch: 20 }
+    ];
+    XLSX.utils.book_append_sheet(wb, wsTp, 'Capaian_TP');
+  }
+
+  const safeName = (student.name || 'Siswa').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeSubj = (options.subjectFilterLabel || 'Semua_Mapel').replace(/[^a-zA-Z0-9_-]/g, '_');
+  XLSX.writeFile(wb, `Rapor_${safeName}_${safeSubj}.xlsx`);
+}
+
+/**
+ * 5. Export Rekap Leger Klasikal (1 atau Semua Bidang Studi per Kelas) ke .xlsx
+ */
+export function exportClassicalAllSubjectsToExcel(
+  studentsList: Array<{ nis: string; name: string; classGrade: string }>,
+  subjects: string[],
+  scoreMatrix: Record<string, Record<string, { percentage: number; passed: boolean; statusText: string }>>,
+  profile: SchoolProfile,
+  options: { classFilterLabel: string; subjectFilterLabel: string }
+) {
+  const wb = XLSX.utils.book_new();
+  const rows: any[][] = [
+    [profile.regionalGovName || 'PEMERINTAH KOTA MALANG'],
+    [profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'],
+    [profile.name || 'SD NEGERI PISANGCANDI 1 MALANG'],
+    ['LEGER & REKAPITULASI NILAI HASIL ASESMEN KELAS'],
+    [`Kelas: ${options.classFilterLabel}`, `Bidang Studi: ${options.subjectFilterLabel}`, `T.A: ${profile.academicYear}`, `Semester: ${profile.semester}`],
+    [''],
+    ['NO', 'NIS', 'NAMA SISWA', 'KELAS', ...subjects.map(s => s.toUpperCase()), 'RATA-RATA']
+  ];
+
+  studentsList.forEach((st, idx) => {
+    const rowScores = scoreMatrix[st.nis.toLowerCase()] || {};
+    const numericVals = subjects
+      .map(subj => rowScores[subj])
+      .filter(v => v && v.statusText !== 'Belum Mengerjakan' && v.statusText !== 'Mengulang Ujian')
+      .map(v => v.percentage);
+    const avg = numericVals.length > 0 ? Math.round(numericVals.reduce((a, b) => a + b, 0) / numericVals.length) : '-';
+
+    rows.push([
+      idx + 1,
+      st.nis,
+      st.name,
+      st.classGrade,
+      ...subjects.map(subj => {
+        const cell = rowScores[subj];
+        return cell && cell.statusText !== 'Belum Mengerjakan' && cell.statusText !== 'Mengulang Ujian' ? cell.percentage : '-';
+      }),
+      avg
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 6 },
+    { wch: 12 },
+    { wch: 30 },
+    { wch: 14 },
+    ...subjects.map(() => ({ wch: 16 })),
+    { wch: 14 }
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'Leger_Klasikal');
+  const safeClass = (options.classFilterLabel || 'Semua_Kelas').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeSubj = (options.subjectFilterLabel || 'Semua_Mapel').replace(/[^a-zA-Z0-9_-]/g, '_');
+  XLSX.writeFile(wb, `Leger_Klasikal_${safeClass}_${safeSubj}.xlsx`);
+}

@@ -45,7 +45,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 w-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors no-print">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         {/* Zone 1: Brand Wordmark with School Logo */}
         <div className="flex items-center gap-3 shrink-0">
           <img
@@ -64,14 +64,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="font-extrabold text-slate-900 dark:text-white text-base tracking-tight leading-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
               ExamFlow <span className="text-indigo-600 dark:text-indigo-400">Edu</span>
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[200px] sm:max-w-[340px]" title={`${schoolName}${teacherName ? ` · ${teacherName}` : ''}`}>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium truncate max-w-[180px] lg:max-w-[260px]" title={`${schoolName}${teacherName ? ` · ${teacherName}` : ''}`}>
               {schoolName} {teacherName ? `· ${teacherName}` : ''}
             </div>
           </button>
         </div>
 
         {/* Zone 2: Navigation Links (Single-Line Typography) */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600 dark:text-slate-300">
+        <nav className="hidden md:flex items-center gap-3 lg:gap-4 text-xs lg:text-sm font-medium text-slate-600 dark:text-slate-300">
           <button
             onClick={() => onSelectTab('student')}
             className={`whitespace-nowrap transition-colors pb-0.5 ${
@@ -92,6 +92,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             Portal Guru & Kelola
+          </button>
+
+          <button
+            onClick={() => onSelectTab('laporan-cetak')}
+            className={`whitespace-nowrap transition-colors pb-0.5 ${
+              currentTab === 'laporan-cetak'
+                ? 'text-indigo-600 dark:text-indigo-400 font-semibold border-b-2 border-indigo-600 dark:border-indigo-400'
+                : 'hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            Rapor Siswa
           </button>
 
           <button

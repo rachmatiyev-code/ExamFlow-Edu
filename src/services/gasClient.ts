@@ -187,9 +187,35 @@ export class GasClient {
           regionalGovDepartment: profile.regionalGovDepartment || local.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'
         });
       }
+      const controlsMap = await this.fetchExamControlsFromServer();
+      const applyServerControl = (rawExam: any): Exam => {
+        const normalized = StorageService.normalizeExamRecord(rawExam);
+        const ctrl = controlsMap[String(normalized.id || '').trim().toLowerCase()];
+        if (!ctrl) return normalized;
+        const ctrlStatus = String(ctrl.status || normalized.status).toLowerCase();
+        const ctrlSession = String(ctrl.sessionStatus || normalized.sessionStatus).toLowerCase();
+        const isStopped = ctrlStatus === 'stopped' || ctrlSession === 'stopped';
+        return StorageService.normalizeExamRecord({
+          ...normalized,
+          status: ctrl.status || normalized.status,
+          sessionStatus: isStopped ? 'stopped' : (ctrl.sessionStatus || normalized.sessionStatus),
+          attemptMode: ctrl.attemptMode || normalized.attemptMode,
+          allowLateSubmission: isStopped ? false : (ctrl.allowLateSubmission ?? normalized.allowLateSubmission),
+          lateExtensionMinutes: ctrl.lateExtensionMinutes ?? normalized.lateExtensionMinutes,
+          startsAt: ctrl.startsAt ?? normalized.startsAt,
+          endsAt: ctrl.endsAt ?? normalized.endsAt,
+          sessionStartedAt: ctrl.sessionStartedAt ?? normalized.sessionStartedAt,
+          sessionEndedAt: ctrl.sessionEndedAt ?? normalized.sessionEndedAt
+        });
+      };
+
       if (Array.isArray(exams) && exams.length > 0) {
-        StorageService.saveExams(exams);
-        count += exams.length;
+        const syncedExams = exams.map(applyServerControl);
+        StorageService.saveExams(syncedExams);
+        count += syncedExams.length;
+      } else if (Object.keys(controlsMap).length > 0) {
+        const syncedLocal = StorageService.getExams().map(applyServerControl);
+        StorageService.saveExams(syncedLocal);
       }
       if (Array.isArray(questions) && questions.length > 0) {
         const normalizedQuestions: Question[] = questions.map((q: any, idx: number) => {
@@ -506,13 +532,119 @@ export class GasClient {
   }
 
   /**
+   * Ambil status kontrol sesi ujian (stop/start/attemptMode) dari server lokal (authoritative)
+   */
+  static async fetchExamControlsFromServer(): Promise<Record<string, any>> {
+    try {
+      const res = await fetch(`/api/exam-controls?_t=${Date.now()}`);
+      if (!res.ok) return {};
+      const json = await res.json();
+      if (json && json.controls && typeof json.controls === 'object') {
+        return json.controls;
+      }
+    } catch {}
+    return {};
+  }
+
+  /**
+   * Sinkronkan status kontrol sesi ujian ke server lokal & WebSocket broadcast
+   */
+  static async pushExamControlToServer(exam: Partial<Exam> & { examId?: string }): Promise<void> {
+    const id = String(exam.id || exam.examId || '').trim();
+    if (!id) return;
+    try {
+      await fetch('/api/exam-controls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          examId: id,
+          status: exam.status,
+          sessionStatus: exam.sessionStatus,
+          attemptMode: exam.attemptMode,
+          allowLateSubmission: exam.allowLateSubmission,
+          lateExtensionMinutes: exam.lateExtensionMinutes,
+          startsAt: exam.startsAt,
+          endsAt: exam.endsAt,
+          sessionStartedAt: exam.sessionStartedAt,
+          sessionEndedAt: exam.sessionEndedAt
+        })
+      });
+    } catch {}
+  }
+
+  /**
+   * Cek apakah siswa sudah menyelesaikan ujian sebelumnya di server (untuk penegakan mode 1x pengerjaan)
+   */
+  static async checkAttemptOnServer(
+    examId: string,
+    studentNo: string,
+    studentName?: string
+  ): Promise<{ success: boolean; hasCompleted: boolean; allowRepeat: boolean }> {
+    try {
+      const params = new URLSearchParams({
+        examId: String(examId || '').trim(),
+        studentNo: String(studentNo || '').trim(),
+        studentName: String(studentName || '').trim()
+      });
+      const res = await fetch(`/api/exam-attempts/check?${params.toString()}&_t=${Date.now()}`);
+      if (!res.ok) return { success: false, hasCompleted: false, allowRepeat: false };
+      const json = await res.json();
+      return {
+        success: Boolean(json?.success),
+        hasCompleted: Boolean(json?.hasCompleted),
+        allowRepeat: Boolean(json?.allowRepeat)
+      };
+    } catch {
+      return { success: false, hasCompleted: false, allowRepeat: false };
+    }
+  }
+
+  /**
+   * Catat bahwa siswa telah menyelesaikan ujian di server (untuk penguncian 1x pengerjaan)
+   */
+  static async recordAttemptOnServer(submission: Submission): Promise<void> {
+    try {
+      await fetch('/api/exam-attempts/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          examId: submission.examId,
+          studentNo: submission.studentNo,
+          studentName: submission.studentName,
+          submissionId: submission.id,
+          submittedAt: submission.submittedAt
+        })
+      });
+    } catch {}
+  }
+
+  /**
+   * Reset catatan pengerjaan siswa di server saat guru menghapus nilai atau memberi izin mengulang
+   */
+  static async resetAttemptOnServer(payload: {
+    submissionId?: string;
+    examId?: string;
+    studentNo?: string;
+    studentName?: string;
+  }): Promise<void> {
+    try {
+      await fetch('/api/exam-attempts/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch {}
+  }
+
+  /**
    * Mengirim jawaban ujian siswa ke Google Sheets
    */
   static async submitAnswer(submission: Submission): Promise<{ success: boolean; message: string }> {
     const url = this.getWebAppUrl();
     
-    // Simpan ke storage lokal terlebih dahulu
+    // Simpan ke storage lokal dan catat di server terlebih dahulu
     StorageService.addSubmission(submission);
+    await this.recordAttemptOnServer(submission);
 
     if (!url) {
       StorageService.addLog('SYNC', `Disimpan secara offline. Jawaban ${submission.studentName} akan dikirim saat Web App terhubung.`, undefined, 'warn');
@@ -559,13 +691,14 @@ export class GasClient {
    * Menyimpan atau memperbarui ujian & soal ke Google Sheets
    */
   static async pushExam(exam: Exam, questions: Question[]): Promise<{ success: boolean; message: string }> {
-    // Simpan ke lokal dulu dengan jumlah soal aktual
-    const updatedExam: Exam = {
+    // Simpan ke lokal dulu dengan jumlah soal aktual dan normalisasi kontrol
+    const updatedExam: Exam = StorageService.normalizeExamRecord({
       ...exam,
       totalQuestions: questions.length
-    };
+    });
     StorageService.upsertExam(updatedExam);
     StorageService.saveQuestionsForExam(updatedExam.id, questions);
+    await this.pushExamControlToServer(updatedExam);
 
     const url = this.getWebAppUrl();
     if (!url) {
@@ -745,17 +878,28 @@ export class GasClient {
    * Menghentikan sesi ujian secara permanen di server & lokal
    */
   static async stopExamSession(examId: string): Promise<{ success: boolean; message: string }> {
+    const endedAt = new Date().toISOString();
     const exam = StorageService.getExamById(examId);
     if (exam) {
       exam.status = 'stopped';
       exam.sessionStatus = 'stopped';
-      exam.sessionEndedAt = new Date().toISOString();
+      exam.allowLateSubmission = false;
+      exam.sessionEndedAt = endedAt;
       StorageService.upsertExam(exam);
+      await this.pushExamControlToServer(exam);
+    } else {
+      await this.pushExamControlToServer({
+        id: examId,
+        status: 'stopped',
+        sessionStatus: 'stopped',
+        allowLateSubmission: false,
+        sessionEndedAt: endedAt
+      });
     }
 
     const url = this.getWebAppUrl();
     if (!url) {
-      return { success: true, message: 'Status henti disimpan di penyimpanan lokal.' };
+      return { success: true, message: 'Status henti disimpan permanen di server & lokal.' };
     }
 
     try {
@@ -765,7 +909,7 @@ export class GasClient {
       });
       return res;
     } catch {
-      return { success: true, message: 'Status henti tersimpan di lokal.' };
+      return { success: true, message: 'Status henti tersimpan di server & lokal.' };
     }
   }
 
@@ -778,11 +922,18 @@ export class GasClient {
       exam.status = 'active';
       exam.sessionStatus = 'active';
       StorageService.upsertExam(exam);
+      await this.pushExamControlToServer(exam);
+    } else {
+      await this.pushExamControlToServer({
+        id: examId,
+        status: 'active',
+        sessionStatus: 'active'
+      });
     }
 
     const url = this.getWebAppUrl();
     if (!url) {
-      return { success: true, message: 'Status aktif disimpan di penyimpanan lokal.' };
+      return { success: true, message: 'Status aktif disimpan di server & lokal.' };
     }
 
     try {
@@ -792,7 +943,7 @@ export class GasClient {
       });
       return res;
     } catch {
-      return { success: true, message: 'Status aktif tersimpan di lokal.' };
+      return { success: true, message: 'Status aktif tersimpan di server & lokal.' };
     }
   }
 
@@ -970,8 +1121,9 @@ export class GasClient {
     if (examId && studentNo) {
       StorageService.grantExamRetake(examId, studentNo);
     }
+    await this.resetAttemptOnServer({ submissionId: subId, examId, studentNo });
     const url = this.getWebAppUrl();
-    if (!url) return { success: true, message: 'Nilai dihapus dari lokal.' };
+    if (!url) return { success: true, message: 'Nilai dihapus dari server & lokal.' };
 
     try {
       const res = await this.postToGas({
@@ -984,7 +1136,7 @@ export class GasClient {
       StorageService.addLog('SYNC', `Rekaman nilai ${subId} dihapus dari Google Sheets`, undefined, 'info');
       return { success: true, message: res.message || 'Nilai berhasil dihapus dari Google Sheets.' };
     } catch {
-      return { success: true, message: 'Nilai dihapus dari penyimpanan lokal.' };
+      return { success: true, message: 'Nilai dihapus dari server & penyimpanan lokal.' };
     }
   }
 
@@ -1003,9 +1155,15 @@ export class GasClient {
     };
     StorageService.updateSubmission(sub.id, updated);
     StorageService.grantExamRetake(sub.examId, sub.studentNo, sub.studentName);
+    await this.resetAttemptOnServer({
+      submissionId: sub.id,
+      examId: sub.examId,
+      studentNo: sub.studentNo,
+      studentName: sub.studentName
+    });
 
     const url = this.getWebAppUrl();
-    if (!url) return { success: true, message: 'Status diubah di lokal (Sheets belum terhubung).' };
+    if (!url) return { success: true, message: 'Status diubah di server & lokal (Sheets belum terhubung).' };
 
     try {
       // 1. Kirim action spesifik allowRetakeSubmission

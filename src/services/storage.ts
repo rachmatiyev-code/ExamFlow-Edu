@@ -82,6 +82,8 @@ const DEFAULT_EXAMS: Exam[] = [
     startsAt: `${getTodayDateStr()} 07:00`,
     endsAt: `${getTodayDateStr()} 23:59`,
     status: 'active',
+    sessionStatus: 'scheduled',
+    attemptMode: 'single',
     totalQuestions: 5,
     token: 'BIO2026',
     instructions: '1. Berdoalah sebelum mengerjakan soal.\n2. Baca setiap instruksi dengan saksama.\n3. Periksa audio, gambar, atau video yang disisipkan.\n4. Sistem dilengkapi deteksi perpindahan tab browser.',
@@ -100,6 +102,8 @@ const DEFAULT_EXAMS: Exam[] = [
     startsAt: `${getTodayDateStr()} 08:30`,
     endsAt: `${getTodayDateStr()} 18:00`,
     status: 'active',
+    sessionStatus: 'scheduled',
+    attemptMode: 'single',
     totalQuestions: 3,
     token: 'FIS11',
     instructions: 'Gunakan kalkulator dasar jika diperlukan. Kerjakan dengan teliti dan jujur.',
@@ -118,6 +122,8 @@ const DEFAULT_EXAMS: Exam[] = [
     startsAt: `${getTodayDateStr()} 00:00`,
     endsAt: `${getTodayDateStr()} 23:59`,
     status: 'active',
+    sessionStatus: 'scheduled',
+    attemptMode: 'single',
     totalQuestions: 2,
     token: '',
     instructions: 'Pahami teks dan audio percakapan dengan cermat sebelum memilih jawaban.',
@@ -365,13 +371,74 @@ export class StorageService {
   }
 
   // Exams
+  static normalizeExamRecord(e: any): Exam {
+    const rawStatus = String(e?.status || 'active').trim().toLowerCase();
+    const status: Exam['status'] =
+      rawStatus === 'stopped' ? 'stopped' :
+      rawStatus === 'archived' ? 'archived' :
+      rawStatus === 'draft' ? 'draft' : 'active';
+
+    const rawSession = String(e?.sessionStatus || '').trim().toLowerCase();
+    const sessionStatus: Exam['sessionStatus'] =
+      status === 'stopped' || rawSession === 'stopped' ? 'stopped' :
+      rawSession === 'active' ? 'active' :
+      rawSession === 'ended' ? 'ended' : 'scheduled';
+
+    const rawAttempt = String(e?.attemptMode || 'single').trim().toLowerCase();
+    const attemptMode: Exam['attemptMode'] =
+      (rawAttempt === 'unlimited' || rawAttempt.includes('berulang') || rawAttempt.includes('ulang'))
+        ? 'unlimited'
+        : 'single';
+
+    const parseBool = (val: any, fallback = false): boolean => {
+      if (typeof val === 'boolean') return val;
+      const s = String(val ?? '').trim().toLowerCase();
+      if (s === 'true' || s === '1' || s === 'ya') return true;
+      if (s === 'false' || s === '0' || s === 'tidak' || s === '') return fallback;
+      return Boolean(val);
+    };
+
+    return {
+      ...e,
+      id: String(e?.id || ''),
+      title: String(e?.title || ''),
+      subject: String(e?.subject || ''),
+      grade: String(e?.grade || ''),
+      durationMinutes: Number(e?.durationMinutes) || 60,
+      passingScore: Number(e?.passingScore) || 75,
+      isStrict: parseBool(e?.isStrict, false),
+      allowReview: parseBool(e?.allowReview, true),
+      status,
+      sessionStatus,
+      attemptMode,
+      allowLateSubmission: status === 'stopped' ? false : parseBool(e?.allowLateSubmission, false),
+      lateExtensionMinutes: Number(e?.lateExtensionMinutes) || 0,
+      totalQuestions: Number(e?.totalQuestions) || 0,
+      learningObjectives: normalizeLearningObjectives(e?.learningObjectives)
+    };
+  }
+
+  static isExamStopped(exam?: Partial<Exam> | null): boolean {
+    if (!exam) return false;
+    const s = String(exam.status || '').trim().toLowerCase();
+    const ss = String(exam.sessionStatus || '').trim().toLowerCase();
+    return s === 'stopped' || ss === 'stopped';
+  }
+
+  static isExamSessionOpen(exam?: Partial<Exam> | null): boolean {
+    if (!exam) return false;
+    if (this.isExamStopped(exam)) return false;
+    const s = String(exam.status || '').trim().toLowerCase();
+    const ss = String(exam.sessionStatus || '').trim().toLowerCase();
+    if (s === 'archived' || s === 'draft') return false;
+    if (ss === 'ended') return false;
+    return ss === 'active' || Boolean(exam.allowLateSubmission);
+  }
+
   static getExams(): Exam[] {
     const list = this.getItem<Exam[]>(STORAGE_KEYS.EXAMS, DEFAULT_EXAMS);
-    if (!Array.isArray(list)) return DEFAULT_EXAMS;
-    return list.map(e => ({
-      ...e,
-      learningObjectives: normalizeLearningObjectives(e.learningObjectives)
-    }));
+    if (!Array.isArray(list)) return DEFAULT_EXAMS.map(e => this.normalizeExamRecord(e));
+    return list.map(e => this.normalizeExamRecord(e));
   }
 
   static saveExams(exams: Exam[]): void {
@@ -592,12 +659,9 @@ export class StorageService {
     localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
   }
 
-  static isDummySubmission(id: string, studentNo?: string, studentName?: string): boolean {
+  static isDummySubmission(id: string, _studentNo?: string, _studentName?: string): boolean {
     const sId = String(id || '').trim().toUpperCase();
-    if (['SUB-9001', 'SUB-9002', 'SUB-9003'].includes(sId) || sId.startsWith('SUB-900') || sId.startsWith('SUB-DUMMY')) return true;
-    const name = String(studentName || '').toLowerCase().trim();
-    if (name === 'ahmad fauzi rahman' || name === 'bunga citra lestari') return true;
-    return false;
+    return ['SUB-9001', 'SUB-9002', 'SUB-9003'].includes(sId) || sId.startsWith('SUB-900') || sId.startsWith('SUB-DUMMY');
   }
 
   static clearDummySubmissions(): void {

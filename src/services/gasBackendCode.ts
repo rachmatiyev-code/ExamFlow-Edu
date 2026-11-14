@@ -825,6 +825,8 @@ function doPost(e) {
       }
       
       ensureMinColumns(shEx, CANONICAL_EX_HEADERS.length);
+      shEx.getRange(1, 1, 1, CANONICAL_EX_HEADERS.length).setValues([CANONICAL_EX_HEADERS]);
+      const isStoppedExam = String(exam.status || '').toLowerCase() === 'stopped' || String(exam.sessionStatus || '').toLowerCase() === 'stopped';
       upsertRow(shEx, 'id', exam.id, [
         exam.id,
         exam.title,
@@ -836,14 +838,14 @@ function doPost(e) {
         exam.allowReview,
         exam.startsAt,
         exam.endsAt,
-        exam.status,
+        isStoppedExam ? 'stopped' : (exam.status || 'active'),
         questions.length,
         exam.token || '',
         exam.instructions || '',
-        exam.sessionStatus || 'scheduled',
+        isStoppedExam ? 'stopped' : (exam.sessionStatus || 'scheduled'),
         exam.sessionStartedAt || '',
         exam.sessionEndedAt || '',
-        exam.allowLateSubmission || false,
+        isStoppedExam ? false : Boolean(exam.allowLateSubmission),
         exam.lateExtensionMinutes || 0,
         typeof exam.learningObjectives === 'string' ? exam.learningObjectives : JSON.stringify(exam.learningObjectives || []),
         exam.attemptMode || 'single',
@@ -903,18 +905,27 @@ function doPost(e) {
       const examId = String(payload.examId || '').trim();
       let shEx = ss.getSheetByName(SHEETS.EXAMS);
       if (shEx && examId) {
+        ensureMinColumns(shEx, CANONICAL_EX_HEADERS.length);
         const exData = shEx.getDataRange().getValues();
-        if (exData.length > 1) {
-          const headers = exData[0];
-          const idCol = headers.indexOf('id');
-          const statusCol = headers.indexOf('status');
-          const sessionStatusCol = headers.indexOf('sessionStatus');
-          const endedAtCol = headers.indexOf('sessionEndedAt');
-          for (let i = 1; i < exData.length; i++) {
-            if (String(exData[i][idCol] || '').trim().toLowerCase() === examId.toLowerCase()) {
+        if (exData.length > 0) {
+          const lowerHeaders = exData[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+          if (lowerHeaders.indexOf('sessionstatus') === -1 || lowerHeaders.indexOf('status') === -1) {
+            shEx.getRange(1, 1, 1, CANONICAL_EX_HEADERS.length).setValues([CANONICAL_EX_HEADERS]);
+            formatHeaderRow(shEx);
+          }
+          const refreshedData = shEx.getDataRange().getValues();
+          const hdrs = refreshedData[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+          const idCol = hdrs.indexOf('id');
+          const statusCol = hdrs.indexOf('status');
+          const sessionStatusCol = hdrs.indexOf('sessionstatus');
+          const endedAtCol = hdrs.indexOf('sessionendedat');
+          const allowLateCol = hdrs.indexOf('allowlatesubmission');
+          for (let i = 1; i < refreshedData.length; i++) {
+            if (idCol !== -1 && String(refreshedData[i][idCol] || '').trim().toLowerCase() === examId.toLowerCase()) {
               if (statusCol !== -1) shEx.getRange(i + 1, statusCol + 1).setValue('stopped');
               if (sessionStatusCol !== -1) shEx.getRange(i + 1, sessionStatusCol + 1).setValue('stopped');
               if (endedAtCol !== -1) shEx.getRange(i + 1, endedAtCol + 1).setValue(new Date().toISOString());
+              if (allowLateCol !== -1) shEx.getRange(i + 1, allowLateCol + 1).setValue(false);
               SpreadsheetApp.flush();
               break;
             }
@@ -929,14 +940,21 @@ function doPost(e) {
       const examId = String(payload.examId || '').trim();
       let shEx = ss.getSheetByName(SHEETS.EXAMS);
       if (shEx && examId) {
+        ensureMinColumns(shEx, CANONICAL_EX_HEADERS.length);
         const exData = shEx.getDataRange().getValues();
-        if (exData.length > 1) {
-          const headers = exData[0];
-          const idCol = headers.indexOf('id');
-          const statusCol = headers.indexOf('status');
-          const sessionStatusCol = headers.indexOf('sessionStatus');
-          for (let i = 1; i < exData.length; i++) {
-            if (String(exData[i][idCol] || '').trim().toLowerCase() === examId.toLowerCase()) {
+        if (exData.length > 0) {
+          const lowerHeaders = exData[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+          if (lowerHeaders.indexOf('sessionstatus') === -1 || lowerHeaders.indexOf('status') === -1) {
+            shEx.getRange(1, 1, 1, CANONICAL_EX_HEADERS.length).setValues([CANONICAL_EX_HEADERS]);
+            formatHeaderRow(shEx);
+          }
+          const refreshedData = shEx.getDataRange().getValues();
+          const hdrs = refreshedData[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+          const idCol = hdrs.indexOf('id');
+          const statusCol = hdrs.indexOf('status');
+          const sessionStatusCol = hdrs.indexOf('sessionstatus');
+          for (let i = 1; i < refreshedData.length; i++) {
+            if (idCol !== -1 && String(refreshedData[i][idCol] || '').trim().toLowerCase() === examId.toLowerCase()) {
               if (statusCol !== -1) shEx.getRange(i + 1, statusCol + 1).setValue('active');
               if (sessionStatusCol !== -1) shEx.getRange(i + 1, sessionStatusCol + 1).setValue('active');
               SpreadsheetApp.flush();

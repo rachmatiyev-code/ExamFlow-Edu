@@ -806,6 +806,236 @@ apiRouter.delete('/chat/messages', (_req, res) => {
   return res.json({ success: true, message: 'Riwayat chat berhasil dibersihkan.' });
 });
 
+/**
+ * -------------------------------------------------------------
+ * AUTHORITATIVE EXAM SESSION CONTROL & SINGLE-ATTEMPT LOCKS
+ * Memastikan perintah "Hentikan Permanen", "Mulai Sesi Guru", dan
+ * "Mode Sekali (1x)" langsung berlaku di seluruh perangkat siswa.
+ * -------------------------------------------------------------
+ */
+interface ServerExamControl {
+  examId: string;
+  status: 'draft' | 'active' | 'archived' | 'stopped';
+  sessionStatus: 'scheduled' | 'active' | 'ended' | 'stopped';
+  attemptMode: 'single' | 'unlimited';
+  allowLateSubmission?: boolean;
+  lateExtensionMinutes?: number;
+  startsAt?: string;
+  endsAt?: string;
+  sessionStartedAt?: string;
+  sessionEndedAt?: string;
+  updatedAt: number;
+}
+
+interface ServerExamAttempt {
+  examId: string;
+  studentNo: string;
+  studentName: string;
+  submissionId: string;
+  submittedAt: string;
+  statusNote: string;
+  allowRepeat: boolean;
+}
+
+const EXAM_CONTROLS_FILE = path.join(__dirname, '.exam_controls_cache.json');
+const EXAM_ATTEMPTS_FILE = path.join(__dirname, '.exam_attempts_cache.json');
+
+function loadExamControls(): Record<string, ServerExamControl> {
+  try {
+    if (fs.existsSync(EXAM_CONTROLS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(EXAM_CONTROLS_FILE, 'utf-8'));
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch (err) {
+    console.warn('Error reading exam controls cache:', err);
+  }
+  return {};
+}
+
+function loadExamAttempts(): ServerExamAttempt[] {
+  try {
+    if (fs.existsSync(EXAM_ATTEMPTS_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(EXAM_ATTEMPTS_FILE, 'utf-8'));
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.warn('Error reading exam attempts cache:', err);
+  }
+  return [];
+}
+
+const examControlsMap: Record<string, ServerExamControl> = loadExamControls();
+let examAttemptsList: ServerExamAttempt[] = loadExamAttempts();
+
+function saveExamControlsToDisk() {
+  try {
+    fs.writeFileSync(EXAM_CONTROLS_FILE, JSON.stringify(examControlsMap, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Error saving exam controls cache:', err);
+  }
+}
+
+function saveExamAttemptsToDisk() {
+  try {
+    fs.writeFileSync(EXAM_ATTEMPTS_FILE, JSON.stringify(examAttemptsList.slice(-2000), null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Error saving exam attempts cache:', err);
+  }
+}
+
+function broadcastExamControl(control: ServerExamControl) {
+  const payload = JSON.stringify({ type: 'exam:control_update', data: control });
+  connectedClients.forEach(c => {
+    if (c.ws.readyState === WebSocket.OPEN) {
+      try { c.ws.send(payload); } catch {}
+    }
+  });
+}
+
+// GET /api/exam-controls
+apiRouter.get('/exam-controls', (_req, res) => {
+  return res.json({ success: true, controls: examControlsMap });
+});
+
+// POST /api/exam-controls
+apiRouter.post('/exam-controls', (req, res) => {
+  try {
+    const body = req.body || {};
+    const rawId = String(body.examId || body.id || '').trim();
+    if (!rawId) {
+      return res.status(400).json({ success: false, message: 'examId wajib diisi.' });
+    }
+    const key = rawId.toLowerCase();
+    const existing = examControlsMap[key];
+
+    const rawStatus = String(body.status || existing?.status || 'active').trim().toLowerCase();
+    const status: ServerExamControl['status'] =
+      rawStatus === 'stopped' ? 'stopped' :
+      rawStatus === 'archived' ? 'archived' :
+      rawStatus === 'draft' ? 'draft' : 'active';
+
+    const rawSession = String(body.sessionStatus || existing?.sessionStatus || 'scheduled').trim().toLowerCase();
+    const sessionStatus: ServerExamControl['sessionStatus'] =
+      status === 'stopped' || rawSession === 'stopped' ? 'stopped' :
+      rawSession === 'active' ? 'active' :
+      rawSession === 'ended' ? 'ended' : 'scheduled';
+
+    const rawMode = String(body.attemptMode || existing?.attemptMode || 'single').trim().toLowerCase();
+    const attemptMode: ServerExamControl['attemptMode'] =
+      rawMode === 'unlimited' || rawMode === 'berulang' ? 'unlimited' : 'single';
+
+    const updated: ServerExamControl = {
+      examId: rawId,
+      status,
+      sessionStatus,
+      attemptMode,
+      allowLateSubmission: status === 'stopped' ? false : Boolean(body.allowLateSubmission ?? existing?.allowLateSubmission ?? false),
+      lateExtensionMinutes: Number(body.lateExtensionMinutes ?? existing?.lateExtensionMinutes ?? 0),
+      startsAt: body.startsAt ?? existing?.startsAt,
+      endsAt: body.endsAt ?? existing?.endsAt,
+      sessionStartedAt: body.sessionStartedAt ?? existing?.sessionStartedAt,
+      sessionEndedAt: body.sessionEndedAt ?? existing?.sessionEndedAt,
+      updatedAt: Date.now()
+    };
+
+    examControlsMap[key] = updated;
+    saveExamControlsToDisk();
+    broadcastExamControl(updated);
+
+    return res.json({ success: true, control: updated });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Gagal memperbarui kontrol ujian.' });
+  }
+});
+
+// GET /api/exam-attempts/check
+apiRouter.get('/exam-attempts/check', (req, res) => {
+  const examId = String(req.query.examId || '').trim().toLowerCase();
+  const studentNo = String(req.query.studentNo || '').trim().toLowerCase();
+  const studentName = String(req.query.studentName || '').trim().toLowerCase();
+
+  if (!examId) {
+    return res.json({ success: true, hasCompleted: false, allowRepeat: false });
+  }
+
+  const matched = examAttemptsList.filter(a => {
+    if (a.examId.toLowerCase() !== examId) return false;
+    const matchNo = Boolean(studentNo && a.studentNo && a.studentNo.toLowerCase() === studentNo);
+    const matchName = Boolean(studentName && a.studentName && a.studentName.toLowerCase() === studentName);
+    return matchNo || matchName;
+  });
+
+  const hasCompleted = matched.some(a => !a.allowRepeat && !String(a.statusNote || '').toLowerCase().includes('ulang'));
+  const hasRepeatPermission = matched.some(a => a.allowRepeat || String(a.statusNote || '').toLowerCase().includes('ulang'));
+
+  return res.json({
+    success: true,
+    hasCompleted: hasCompleted && !hasRepeatPermission,
+    allowRepeat: hasRepeatPermission,
+    attempts: matched
+  });
+});
+
+// POST /api/exam-attempts/record
+apiRouter.post('/exam-attempts/record', (req, res) => {
+  try {
+    const b = req.body || {};
+    const examId = String(b.examId || '').trim();
+    const studentNo = String(b.studentNo || '').trim();
+    const studentName = String(b.studentName || '').trim();
+    if (!examId || (!studentNo && !studentName)) {
+      return res.status(400).json({ success: false, message: 'examId dan identitas siswa wajib diisi.' });
+    }
+
+    // Hapus izin ulang lama untuk kombinasi siswa + ujian ini karena siswa baru saja submit
+    examAttemptsList = examAttemptsList.filter(a => {
+      if (a.examId.toLowerCase() !== examId.toLowerCase()) return true;
+      const matchNo = Boolean(studentNo && a.studentNo && a.studentNo.toLowerCase() === studentNo.toLowerCase());
+      const matchName = Boolean(studentName && a.studentName && a.studentName.toLowerCase() === studentName.toLowerCase());
+      return !(matchNo || matchName);
+    });
+
+    examAttemptsList.push({
+      examId,
+      studentNo,
+      studentName,
+      submissionId: String(b.submissionId || `SUB-${Date.now()}`),
+      submittedAt: String(b.submittedAt || new Date().toISOString()),
+      statusNote: 'Selesai',
+      allowRepeat: false
+    });
+    saveExamAttemptsToDisk();
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Gagal mencatat pengerjaan ujian.' });
+  }
+});
+
+// POST /api/exam-attempts/reset
+apiRouter.post('/exam-attempts/reset', (req, res) => {
+  try {
+    const b = req.body || {};
+    const examId = String(b.examId || '').trim().toLowerCase();
+    const studentNo = String(b.studentNo || '').trim().toLowerCase();
+    const studentName = String(b.studentName || '').trim().toLowerCase();
+    const submissionId = String(b.submissionId || '').trim().toLowerCase();
+
+    examAttemptsList = examAttemptsList.filter(a => {
+      if (submissionId && a.submissionId.toLowerCase() === submissionId) return false;
+      if (examId && a.examId.toLowerCase() === examId) {
+        const matchNo = Boolean(studentNo && a.studentNo && a.studentNo.toLowerCase() === studentNo);
+        const matchName = Boolean(studentName && a.studentName && a.studentName.toLowerCase() === studentName);
+        if (matchNo || matchName) return false;
+      }
+      return true;
+    });
+    saveExamAttemptsToDisk();
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Gagal mereset catatan pengerjaan.' });
+  }
+});
+
 // Mount router on both /api and root /
 app.use('/api', apiRouter);
 app.use('/', apiRouter);
@@ -837,6 +1067,10 @@ async function startServer() {
     ws.send(JSON.stringify({
       type: 'chat:history',
       data: initialHistory
+    }));
+    ws.send(JSON.stringify({
+      type: 'exam:controls_init',
+      data: examControlsMap
     }));
 
     ws.on('message', (raw: string) => {

@@ -423,7 +423,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     if (!editingExam?.title || !editingExam?.subject) return;
 
     const isNew = !editingExam.id;
-    const examToSave: Exam = {
+    const examToSave: Exam = StorageService.normalizeExamRecord({
       id: editingExam.id || `EXAM-${Date.now()}`,
       title: editingExam.title,
       subject: editingExam.subject,
@@ -438,7 +438,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       totalQuestions: editingExam.totalQuestions || 0,
       token: editingExam.token || '',
       instructions: editingExam.instructions || 'Kerjakan dengan teliti dan jujur.',
-      sessionStatus: editingExam.sessionStatus || 'active',
+      sessionStatus: editingExam.sessionStatus || 'scheduled',
       sessionStartedAt: editingExam.sessionStartedAt,
       sessionEndedAt: editingExam.sessionEndedAt,
       allowLateSubmission: Boolean(editingExam.allowLateSubmission),
@@ -447,7 +447,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       createdAt: editingExam.createdAt || new Date().toISOString(),
       redeployCount: editingExam.redeployCount || 0,
       learningObjectives: Array.isArray(editingExam.learningObjectives) ? editingExam.learningObjectives.filter(Boolean).slice(0, 15) : []
-    };
+    });
 
     const qs = isNew ? [] : StorageService.getQuestionsByExamId(examToSave.id);
     await GasClient.pushExam(examToSave, qs);
@@ -466,17 +466,18 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   };
 
   const handleRedeployExam = async (exam: Exam) => {
-    const updated: Exam = {
+    const updated: Exam = StorageService.normalizeExamRecord({
       ...exam,
       status: 'active',
-      sessionStatus: 'active',
+      sessionStatus: 'scheduled',
+      allowLateSubmission: false,
       redeployCount: (exam.redeployCount || 0) + 1,
       startsAt: new Date().toISOString().split('T')[0] + ' 07:00',
       endsAt: new Date().toISOString().split('T')[0] + ' 23:59'
-    };
+    });
     const qs = StorageService.getQuestionsByExamId(exam.id);
     await GasClient.pushExam(updated, qs);
-    alert(`Ujian "${exam.title}" telah dideploy ulang untuk hari ini!`);
+    alert(`Ujian "${exam.title}" telah dideploy ulang dalam status Terjadwal. Tekan tombol "Mulai Sesi Ujian" saat siap dibuka untuk siswa.`);
     onRefreshData();
   };
 
@@ -778,6 +779,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       ...exam,
       status: 'stopped',
       sessionStatus: 'stopped',
+      allowLateSubmission: false,
       sessionEndedAt: new Date().toISOString()
     };
     StorageService.upsertExam(updated);
@@ -912,7 +914,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       ...schedulingExam,
       startsAt: startsFormatted,
       endsAt: endsFormatted,
-      sessionStatus: new Date(startsFormatted).getTime() > Date.now() ? 'scheduled' : 'active'
+      sessionStatus: schedulingExam.sessionStatus === 'active' ? 'active' : 'scheduled'
     };
 
     StorageService.upsertExam(updated);
@@ -3015,7 +3017,9 @@ const rekapDistinctGrades = useMemo(() => {
                     isStrict: true,
                     allowReview: true,
                     token: '',
-                    status: 'active'
+                    status: 'active',
+                    sessionStatus: 'scheduled',
+                    attemptMode: 'single'
                   });
                   setIsExamModalOpen(true);
                 }}
@@ -6842,6 +6846,60 @@ const rekapDistinctGrades = useMemo(() => {
                       </span>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 block leading-tight">
                         Murid dapat mengerjakan sesi ujian berkali-kali untuk latihan atau remedial mandiri.
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Kontrol Mulai Sesi Ujian oleh Guru */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                  Kontrol Pembukaan Sesi Ujian
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
+                    (editingExam.sessionStatus || 'scheduled') !== 'active'
+                      ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/40 shadow-xs'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="sessionStartMode"
+                      value="scheduled"
+                      checked={(editingExam.sessionStatus || 'scheduled') !== 'active'}
+                      onChange={() => setEditingExam({ ...editingExam, status: 'active', sessionStatus: 'scheduled' })}
+                      className="mt-0.5 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                        Tunggu Guru Memulai
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 block leading-tight">
+                        Siswa tidak bisa membuka soal sebelum guru menekan tombol "Mulai Sesi Ujian".
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
+                    editingExam.sessionStatus === 'active'
+                      ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 shadow-xs'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="sessionStartMode"
+                      value="active"
+                      checked={editingExam.sessionStatus === 'active'}
+                      onChange={() => setEditingExam({ ...editingExam, status: 'active', sessionStatus: 'active' })}
+                      className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                        Langsung Aktif
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 block leading-tight">
+                        Sesi langsung dibuka segera setelah paket ujian disimpan.
                       </span>
                     </div>
                   </label>

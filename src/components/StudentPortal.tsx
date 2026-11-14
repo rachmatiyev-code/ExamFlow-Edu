@@ -68,9 +68,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   initialToken
 }) => {
   // State
+  const [liveExams, setLiveExams] = useState<Exam[]>(() =>
+    (exams || []).map(e => StorageService.normalizeExamRecord(e))
+  );
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
   const [examQuestions, setExamQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [serverStoppedNotice, setServerStoppedNotice] = useState<string | null>(null);
   
   // Student Login State
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -92,6 +96,150 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [restoredProgressNotice, setRestoredProgressNotice] = useState<string | null>(null);
   const [lastAutoSavedTime, setLastAutoSavedTime] = useState<number>(Date.now());
+
+  // Sync liveExams whenever prop changes
+  useEffect(() => {
+    setLiveExams((exams || []).map(e => StorageService.normalizeExamRecord(e)));
+  }, [exams]);
+
+  // Refs for real-time listeners without re-subscribing
+  const activeExamRef = useRef<{ active: boolean; examId?: string; isLoginOpen: boolean }>({
+    active: false,
+    examId: undefined,
+    isLoginOpen: false
+  });
+  useEffect(() => {
+    activeExamRef.current = {
+      active: isExamActive,
+      examId: selectedExam?.id,
+      isLoginOpen: isLoginModalOpen
+    };
+  }, [isExamActive, selectedExam?.id, isLoginModalOpen]);
+
+  const applyServerControls = React.useCallback((controlsMap: Record<string, any>) => {
+    if (!controlsMap || typeof controlsMap !== 'object') return;
+    const stored = StorageService.getExams();
+    let changed = false;
+    const updatedList = stored.map(ex => {
+      const ctrl = controlsMap[String(ex.id || '').trim().toLowerCase()];
+      if (!ctrl) return ex;
+      const ctrlStatus = String(ctrl.status || ex.status).toLowerCase();
+      const ctrlSession = String(ctrl.sessionStatus || ex.sessionStatus).toLowerCase();
+      const isStopped = ctrlStatus === 'stopped' || ctrlSession === 'stopped';
+      const merged = StorageService.normalizeExamRecord({
+        ...ex,
+        status: ctrl.status || ex.status,
+        sessionStatus: isStopped ? 'stopped' : (ctrl.sessionStatus || ex.sessionStatus),
+        attemptMode: ctrl.attemptMode || ex.attemptMode,
+        allowLateSubmission: isStopped ? false : (ctrl.allowLateSubmission ?? ex.allowLateSubmission),
+        lateExtensionMinutes: ctrl.lateExtensionMinutes ?? ex.lateExtensionMinutes,
+        startsAt: ctrl.startsAt ?? ex.startsAt,
+        endsAt: ctrl.endsAt ?? ex.endsAt,
+        sessionStartedAt: ctrl.sessionStartedAt ?? ex.sessionStartedAt,
+        sessionEndedAt: ctrl.sessionEndedAt ?? ex.sessionEndedAt
+      });
+      if (
+        merged.status !== ex.status ||
+        merged.sessionStatus !== ex.sessionStatus ||
+        merged.attemptMode !== ex.attemptMode ||
+        merged.allowLateSubmission !== ex.allowLateSubmission
+      ) {
+        changed = true;
+      }
+      return merged;
+    });
+
+    if (changed) {
+      StorageService.saveExams(updatedList);
+      setLiveExams(updatedList);
+    } else {
+      // Ensure liveExams still reflects latest controls even on first load
+      setLiveExams(prev => {
+        const mergedPrev = prev.map(ex => {
+          const found = updatedList.find(u => u.id === ex.id);
+          return found || ex;
+        });
+        return mergedPrev;
+      });
+    }
+
+    const activeState = activeExamRef.current;
+    if (activeState.examId) {
+      const currentTarget = updatedList.find(
+        u => String(u.id).trim().toLowerCase() === String(activeState.examId).trim().toLowerCase()
+      );
+      if (currentTarget) {
+        setSelectedExam(prev => (prev && prev.id === currentTarget.id ? currentTarget : prev));
+        if (StorageService.isExamStopped(currentTarget)) {
+          if (activeState.active) {
+            setIsExamActive(false);
+            setIsLoginModalOpen(false);
+            setServerStoppedNotice(
+              `Sesi ujian "${currentTarget.title}" telah DIHENTIKAN SECARA PERMANEN oleh guru pengawas. Akses soal dan pengerjaan telah ditutup oleh server.`
+            );
+          } else if (activeState.isLoginOpen) {
+            setLoginError(
+              'Sesi ujian ini telah DIHENTIKAN PERMANEN oleh guru pengawas. Akses pengerjaan telah ditutup oleh server.'
+            );
+          }
+        } else if (currentTarget.sessionStatus === 'ended' && activeState.active) {
+          setIsExamActive(false);
+          setIsLoginModalOpen(false);
+          setServerStoppedNotice(
+            `Sesi ujian "${currentTarget.title}" telah ditutup oleh guru pengawas ruangan.`
+          );
+        }
+      }
+    }
+  }, []);
+
+  // Poll /api/exam-controls & listen via WebSocket so stop/start/attemptMode propagate in real-time across tabs/devices
+  useEffect(() => {
+    let isMounted = true;
+    const syncControls = async () => {
+      const controls = await GasClient.fetchExamControlsFromServer();
+      if (isMounted && controls && Object.keys(controls).length > 0) {
+        applyServerControls(controls);
+      }
+    };
+
+    syncControls();
+    const intervalMs = isExamActive || isLoginModalOpen ? 4000 : 8000;
+    const pollTimer = setInterval(syncControls, intervalMs);
+
+    let ws: WebSocket | null = null;
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}/ws/chat`);
+      ws.onopen = () => {
+        try {
+          ws?.send(JSON.stringify({
+            type: 'auth:register',
+            role: 'student',
+            nis: studentNo || undefined,
+            name: studentName || undefined,
+            examId: selectedExam?.id || undefined
+          }));
+        } catch {}
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const parsed = JSON.parse(ev.data);
+          if (parsed?.type === 'exam:controls_init' && parsed.data) {
+            applyServerControls(parsed.data);
+          } else if (parsed?.type === 'exam:control_update' && parsed.data?.examId) {
+            applyServerControls({ [String(parsed.data.examId).toLowerCase()]: parsed.data });
+          }
+        } catch {}
+      };
+    } catch {}
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollTimer);
+      try { ws?.close(); } catch {}
+    };
+  }, [applyServerControls, isExamActive, isLoginModalOpen, selectedExam?.id, studentNo, studentName]);
 
   // Listen to network connection status (online / offline)
   useEffect(() => {
@@ -245,60 +393,75 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
   // Filter exams available today
   const todayStr = new Date().toISOString().split('T')[0];
-  const activeExams = exams.filter(e => e.status !== 'archived');
+  const activeExams = liveExams.filter(e => e.status !== 'archived' && e.status !== 'draft');
 
   // Auto-select exam if directed via shared student link
+  const initialHandledRef = useRef<string | null>(null);
   useEffect(() => {
-    if (initialExamId && !isExamActive) {
+    if (initialExamId && !isExamActive && initialHandledRef.current !== initialExamId) {
+      initialHandledRef.current = initialExamId;
       const cleanTarget = String(initialExamId).trim().toLowerCase();
-      const target = exams.find(e => String(e.id).trim().toLowerCase() === cleanTarget);
-      if (target) {
-        setSelectedExam(target);
-        // Penting: Segera muat soal untuk ujian ini dari penyimpanan lokal
-        const qs = StorageService.getQuestionsByExamId(target.id);
+
+      const openTargetIfAllowed = (candidate: Exam) => {
+        const normalized = StorageService.normalizeExamRecord(candidate);
+        setSelectedExam(normalized);
+        const qs = StorageService.getQuestionsByExamId(normalized.id);
         setExamQuestions(qs);
         if (initialToken) {
           setExamToken(initialToken);
-        } else if (target.token) {
-          setExamToken(target.token);
+        } else if (normalized.token) {
+          setExamToken(normalized.token);
+        }
+
+        if (StorageService.isExamStopped(normalized)) {
+          setServerStoppedNotice(`Sesi ujian "${normalized.title}" telah DIHENTIKAN PERMANEN oleh guru pengawas.`);
+          return;
+        }
+        if (!StorageService.isExamSessionOpen(normalized)) {
+          setServerStoppedNotice(`Ujian "${normalized.title}" belum dimulai oleh guru pengawas. Tunggu hingga guru menekan tombol "Mulai Sesi Ujian".`);
+          return;
         }
         setIsLoginModalOpen(true);
 
-        // Jika soal di lokal masih belum lengkap dibanding target ujian (misal hanya 15 dari 25 soal), unduh sisanya dari Sheets!
-        if (target.totalQuestions && qs.length < target.totalQuestions) {
+        if (normalized.totalQuestions && qs.length < normalized.totalQuestions) {
           setIsDownloadingQuestions(true);
           GasClient.fetchAllFromSheets().then(() => {
             setIsDownloadingQuestions(false);
-            const updated = StorageService.getQuestionsByExamId(target.id);
+            const updated = StorageService.getQuestionsByExamId(normalized.id);
             if (updated.length > 0) setExamQuestions(updated);
           }).catch(() => {
             setIsDownloadingQuestions(false);
           });
         }
+      };
+
+      const target = liveExams.find(e => String(e.id).trim().toLowerCase() === cleanTarget);
+      if (target) {
+        GasClient.fetchExamControlsFromServer().then((controls) => {
+          if (controls && Object.keys(controls).length > 0) {
+            applyServerControls(controls);
+          }
+          const latest = StorageService.getExamById(target.id) || target;
+          openTargetIfAllowed(latest);
+        }).catch(() => {
+          openTargetIfAllowed(target);
+        });
       } else {
-        // Ujian belum ada di memori lokal, unduh langsung dari Sheets
         setIsDownloadingQuestions(true);
         GasClient.fetchAllFromSheets().then(() => {
           setIsDownloadingQuestions(false);
           const freshExams = StorageService.getExams();
+          setLiveExams(freshExams);
           const found = freshExams.find(e => String(e.id).trim().toLowerCase() === cleanTarget);
           if (found) {
-            setSelectedExam(found);
-            const qs = StorageService.getQuestionsByExamId(found.id);
-            setExamQuestions(qs);
-            if (initialToken) {
-              setExamToken(initialToken);
-            } else if (found.token) {
-              setExamToken(found.token);
-            }
-            setIsLoginModalOpen(true);
+            openTargetIfAllowed(found);
           }
         }).catch(() => {
           setIsDownloadingQuestions(false);
         });
       }
     }
-  }, [initialExamId, initialToken, exams, isExamActive]);
+  }, [initialExamId, initialToken, liveExams, isExamActive, applyServerControls]);
 
   // Handle student roster auto-fill
   useEffect(() => {
@@ -319,10 +482,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       // Cek apakah guru menghentikan sesi ujian secara langsung
       if (selectedExam) {
         const latestExam = StorageService.getExamById(selectedExam.id);
-        if (latestExam && (latestExam.status === 'stopped' || latestExam.sessionStatus === 'stopped')) {
+        if (latestExam && StorageService.isExamStopped(latestExam)) {
           clearInterval(timer);
           setIsExamActive(false);
-          alert('Pemberitahuan Pengawas: Sesi ujian ini telah DIHENTIKAN PERMANEN oleh guru pengawas. Pengerjaan telah ditutup.');
+          setServerStoppedNotice(`Pemberitahuan Pengawas: Sesi ujian "${latestExam.title}" telah DIHENTIKAN PERMANEN oleh guru pengawas. Pengerjaan telah ditutup oleh server.`);
           return;
         }
       }
@@ -378,9 +541,32 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  const handleStartExamClick = (exam: Exam) => {
-    setSelectedExam(exam);
-    const qs = StorageService.getQuestionsByExamId(exam.id);
+  const handleStartExamClick = async (exam: Exam) => {
+    // Sinkronkan status kontrol sesi terbaru dari server sebelum membuka modal verifikasi
+    const controls = await GasClient.fetchExamControlsFromServer();
+    if (controls && Object.keys(controls).length > 0) {
+      applyServerControls(controls);
+    }
+
+    const freshExam = StorageService.normalizeExamRecord(StorageService.getExamById(exam.id) || exam);
+
+    if (StorageService.isExamStopped(freshExam)) {
+      setServerStoppedNotice(`Sesi ujian "${freshExam.title}" telah DIHENTIKAN SECARA PERMANEN oleh guru pengawas. Akses soal ditutup hingga guru menekan tombol "Lanjutkan".`);
+      return;
+    }
+
+    if (freshExam.sessionStatus === 'ended') {
+      setServerStoppedNotice(`Sesi ujian "${freshExam.title}" telah ditutup oleh guru pengawas.`);
+      return;
+    }
+
+    if (!StorageService.isExamSessionOpen(freshExam)) {
+      setServerStoppedNotice(`Ujian "${freshExam.title}" belum dimulai oleh guru pengawas. Silakan tunggu hingga guru menekan tombol "Mulai Sesi Ujian".`);
+      return;
+    }
+
+    setSelectedExam(freshExam);
+    const qs = StorageService.getQuestionsByExamId(freshExam.id);
     setExamQuestions(qs);
     setLoginError(null);
     setIsLoginModalOpen(true);
@@ -485,11 +671,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
   const handleConfirmLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!studentNo.trim()) {
+    const cleanNo = studentNo.trim();
+    const cleanName = studentName.trim();
+
+    if (!cleanNo) {
       setLoginError('Nomor Induk Siswa (NIS) wajib diisi.');
       return;
     }
-    if (!studentName.trim()) {
+    if (!cleanName) {
       setLoginError('Nama lengkap siswa wajib diisi.');
       return;
     }
@@ -502,171 +691,135 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
     if (!selectedExam) return;
 
-    const freshExam = StorageService.getExamById(selectedExam.id) || selectedExam;
+    // Tarik status kontrol sesi terbaru dari server lokal (dan Sheets jika terhubung)
+    const controls = await GasClient.fetchExamControlsFromServer();
+    if (controls && Object.keys(controls).length > 0) {
+      applyServerControls(controls);
+    }
 
-    // 1. Verifikasi Status Sesi Ujian (Hentikan Ujian)
-    if (freshExam.sessionStatus === 'stopped' || freshExam.status === 'stopped') {
+    const freshExam = StorageService.normalizeExamRecord(StorageService.getExamById(selectedExam.id) || selectedExam);
+    setSelectedExam(freshExam);
+
+    // 1. Verifikasi Status Henti Permanen (Hentikan Ujian)
+    if (StorageService.isExamStopped(freshExam)) {
       setLoginError('Sesi ujian ini telah DIHENTIKAN PERMANEN oleh guru pengawas. Akses pengerjaan telah ditutup hingga sesi dibuka kembali oleh guru dengan tombol "Lanjutkan".');
       return;
     }
 
-    // 1b. Cek apakah ujian dijadwalkan di masa depan (startsAt)
-    // Jika guru sedang mengaktifkan sesi secara langsung (sessionStatus === 'active'),
-    // guru telah secara sadar membuka sesi ujian sekarang, jadi abaikan jadwal startsAt masa depan jika ada.
-    if (freshExam.sessionStatus !== 'active' && freshExam.startsAt) {
-      const startTime = new Date(freshExam.startsAt.replace(' ', 'T')).getTime();
-      const now = Date.now();
-      if (!isNaN(startTime) && now < startTime) {
-        const formattedStart = new Date(freshExam.startsAt.replace(' ', 'T')).toLocaleString('id-ID', {
-          weekday: 'long',
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-        setLoginError(`Ujian ini TERJADWAL dan belum dibuka. Sesi ujian akan dimulai pada: ${formattedStart}. Silakan tunggu instruksi pengawas.`);
-        return;
-      }
-    }
-
-    // 1c. Cek waktu berakhir dan status selesai
-    const isSessionActive = freshExam.sessionStatus === 'active';
-    const isLateAllowed = Boolean(freshExam.allowLateSubmission) || (Number(freshExam.lateExtensionMinutes) || 0) > 0;
-
-    // Jika guru secara manual menutup sesi ujian (sessionStatus === 'ended')
+    // 1b. Cek apakah guru telah menutup sesi ujian secara manual
     if (freshExam.sessionStatus === 'ended') {
       setLoginError('Sesi ujian ini telah ditutup oleh pengawas ruangan.');
       return;
     }
 
-    // KUNCI: Jika sesi sedang AKTIF (guru telah menekan 'Mulai Sesi Ujian' atau 'Lanjutkan'),
-    // atau toleransi keterlambatan aktif, siswa langsung diizinkan mengerjakan!
-    // Pengecekan batas waktu endsAt HANYA memblokir jika sesi TIDAK sedang aktif secara eksplisit.
-    if (!isSessionActive && !isLateAllowed) {
-      if (freshExam.endsAt) {
-        const endTime = new Date(freshExam.endsAt.replace(' ', 'T')).getTime();
-        if (!isNaN(endTime) && Date.now() > endTime) {
-          setLoginError('Batas waktu pelaksanaan ujian ini telah berakhir. Hubungi pengawas ujian untuk membuka kembali sesi pengerjaan.');
-          return;
-        }
+    // 1c. WAJIB DIMULAI OLEH GURU: Siswa tidak boleh memulai jika guru belum menekan "Mulai Sesi Ujian"
+    // (Kecuali guru secara eksplisit mengaktifkan toleransi terlambat / late submission)
+    if (!StorageService.isExamSessionOpen(freshExam)) {
+      const formattedStart = freshExam.startsAt
+        ? ` (Jadwal: ${freshExam.startsAt})`
+        : '';
+      setLoginError(`Ujian ini BELUM DIMULAI oleh guru pengawas${formattedStart}. Mohon tunggu hingga guru menekan tombol "Mulai Sesi Ujian" di Portal Guru.`);
+      return;
+    }
+
+    // 1d. Cek jadwal mulai di masa depan jika tidak sedang dalam mode toleransi terlambat & tidak dimulai manual
+    const isLateAllowed = Boolean(freshExam.allowLateSubmission) || (Number(freshExam.lateExtensionMinutes) || 0) > 0;
+    if (freshExam.sessionStatus !== 'active' && !isLateAllowed && freshExam.startsAt) {
+      const startTime = new Date(freshExam.startsAt.replace(' ', 'T')).getTime();
+      if (!isNaN(startTime) && Date.now() < startTime) {
+        setLoginError(`Ujian ini TERJADWAL dan belum dibuka. Silakan tunggu instruksi pengawas.`);
+        return;
       }
     }
 
-    // 2. Verifikasi Mode Pengerjaan ("Sekali" vs "Berulang")
-    const isSingleAttempt = (freshExam.attemptMode || 'single') === 'single';
+    // 2. Verifikasi Mode Pengerjaan ("Sekali (1x)" vs "Berulang")
+    const isSingleAttempt = freshExam.attemptMode !== 'unlimited';
     if (!isSingleAttempt) {
-      // Mode "Berulang" (Bisa Mengulang): Siswa dapat mengerjakan ujian berkali-kali!
-      // Bersihkan jawaban dan izin lama agar mulai dengan lembar baru
+      // Mode "Berulang" (Bisa Mengulang): Siswa dapat mengerjakan ujian berkali-kali
       setUserAnswers({});
       setFlaggedQuestions({});
       setLoginError(null);
     } else {
-      // Mode "Sekali Pengerjaan": Cek apakah siswa berhak mengulang ujian
-      const hasDirectPermission = StorageService.hasRetakePermission(freshExam.id, studentNo, studentName);
+      // Mode "Sekali Pengerjaan (1x)": Verifikasi ketat lokal + server + Google Sheets
+      const singleBlockedMessage =
+        `Ujian ini diatur dalam mode "Sekali (1x Pengerjaan)" dan siswa atas nama "${cleanName}" (${cleanNo}) telah tercatat menyelesaikan sesi ujian sebelumnya. Akses telah ditutup oleh server. Hubungi guru pengawas untuk mereset nilai dengan status "Mengulang Ujian" atau menghapus nilai lama jika perlu mengulang.`;
 
-      let allSubmissions = StorageService.getSubmissions();
-      let studentPastSubs = allSubmissions.filter(sub =>
-        String(sub.examId).trim().toLowerCase() === String(freshExam.id).trim().toLowerCase() &&
-        (
-          (studentNo.trim() && sub.studentNo?.trim().toLowerCase() === studentNo.trim().toLowerCase()) ||
-          (studentName.trim() && sub.studentName?.trim().toLowerCase() === studentName.trim().toLowerCase())
-        )
+      const isExplicitRepeatSubmission = (sub: Submission) => {
+        const rawNote = String(sub.statusNote || '').toLowerCase();
+        return (
+          sub.allowRepeat === true ||
+          String(sub.allowRepeat).toLowerCase() === 'true' ||
+          String(sub.allowRepeat) === '1' ||
+          rawNote.includes('ulang') ||
+          rawNote.includes('reset') ||
+          rawNote.includes('retake')
+        );
+      };
+
+      const matchesIdentity = (sub: Submission) => {
+        const subNo = String(sub.studentNo || '').trim().toLowerCase();
+        const subName = String(sub.studentName || '').trim().toLowerCase();
+        return (
+          (cleanNo && subNo === cleanNo.toLowerCase()) ||
+          (cleanName && subName === cleanName.toLowerCase())
+        );
+      };
+
+      const hasDirectPermission = StorageService.hasRetakePermission(freshExam.id, cleanNo, cleanName);
+
+      // Cek rekaman attempt pada server Express (/api/exam-attempts/check)
+      const serverAttempt = await GasClient.checkAttemptOnServer(freshExam.id, cleanNo, cleanName);
+      if (serverAttempt.success && serverAttempt.hasCompleted && !serverAttempt.allowRepeat && !hasDirectPermission) {
+        setLoginError(singleBlockedMessage);
+        return;
+      }
+
+      // Selalu sinkronkan dengan Google Sheets jika GAS Web App aktif (agar cross-browser / device baru tetap terdeteksi!)
+      const gasUrl = StorageService.getSettings().gasWebAppUrl;
+      if (gasUrl && gasUrl.trim().startsWith('http')) {
+        try {
+          await GasClient.fetchAllFromSheets();
+        } catch {}
+      }
+
+      const allSubmissions = StorageService.getSubmissions();
+      const studentPastSubs = allSubmissions.filter(
+        sub =>
+          String(sub.examId).trim().toLowerCase() === String(freshExam.id).trim().toLowerCase() &&
+          matchesIdentity(sub)
       );
 
-      // Cek apakah rekaman lokal telah memiliki status 'Mengulang Ujian'
-      const hasLocalRepeatFlag = studentPastSubs.some(sub => {
-        const rawNote = String(sub.statusNote || '').toLowerCase();
-        return sub.allowRepeat === true ||
-               String(sub.allowRepeat).toLowerCase() === 'true' ||
-               String(sub.allowRepeat) === '1' ||
-               rawNote.includes('ulang') ||
-               rawNote.includes('reset') ||
-               (Number(sub.score) === 0 && Number(sub.percentage) === 0);
-      });
+      const hasRepeatFlag = studentPastSubs.some(isExplicitRepeatSubmission);
+      const hasCompletedLocally = studentPastSubs.some(sub => !isExplicitRepeatSubmission(sub));
 
-      if (hasDirectPermission || hasLocalRepeatFlag) {
-        // GURU TELAH MENGIZINKAN SISWA MENGULANG UJIAN!
+      if (hasDirectPermission || hasRepeatFlag) {
+        // Guru secara eksplisit memberi izin mengulang ujian -> bersihkan placeholder lama dan izinkan masuk 1x lagi
         studentPastSubs.forEach(s => {
           StorageService.deleteSubmission(s.id);
         });
-        StorageService.consumeRetakePermission(freshExam.id, studentNo, studentName);
+        StorageService.consumeRetakePermission(freshExam.id, cleanNo, cleanName);
+        await GasClient.resetAttemptOnServer({
+          examId: freshExam.id,
+          studentNo: cleanNo,
+          studentName: cleanName
+        });
         setUserAnswers({});
         setFlaggedQuestions({});
         setLoginError(null);
-      } else if (studentPastSubs.length > 0) {
-        // Ada submission lama yang selesai. Lakukan verifikasi real-time ke Google Sheets server
-        const gasUrl = StorageService.getSettings().gasWebAppUrl;
-        if (gasUrl && gasUrl.trim().startsWith('http')) {
-          setLoginError('Menghubungkan ke server Google Sheets untuk verifikasi status izin ujian...');
-          try {
-            await GasClient.fetchAllFromSheets();
-            allSubmissions = StorageService.getSubmissions();
-            const serverPastSubs = allSubmissions.filter(sub =>
-              String(sub.examId).trim().toLowerCase() === String(freshExam.id).trim().toLowerCase() &&
-              (
-                (studentNo.trim() && sub.studentNo?.trim().toLowerCase() === studentNo.trim().toLowerCase()) ||
-                (studentName.trim() && sub.studentName?.trim().toLowerCase() === studentName.trim().toLowerCase())
-              )
-            );
-
-            // A. Jika di Google Sheets nilai siswa SUDAH DIHAPUS oleh guru:
-            if (serverPastSubs.length === 0) {
-              // Guru telah menghapus nilai di dasbor / Google Sheets -> izinkan siswa mengerjakan!
-              studentPastSubs.forEach(s => StorageService.deleteSubmission(s.id));
-              setUserAnswers({});
-              setFlaggedQuestions({});
-              setLoginError(null);
-            } else {
-              // B. Jika di server masih ada submission, cek apakah statusnya 'Mengulang Ujian':
-              const serverAllowsRepeat = serverPastSubs.some(sub => {
-                const rawNote = String(sub.statusNote || '').toLowerCase();
-                return sub.allowRepeat === true ||
-                       String(sub.allowRepeat).toLowerCase() === 'true' ||
-                       String(sub.allowRepeat) === '1' ||
-                       rawNote.includes('ulang') ||
-                       rawNote.includes('reset') ||
-                       (Number(sub.score) === 0 && Number(sub.percentage) === 0);
-              });
-
-              if (serverAllowsRepeat) {
-                // Guru telah mereset nilai dengan status Mengulang Ujian!
-                serverPastSubs.forEach(s => StorageService.deleteSubmission(s.id));
-                studentPastSubs.forEach(s => StorageService.deleteSubmission(s.id));
-                StorageService.consumeRetakePermission(freshExam.id, studentNo, studentName);
-                setUserAnswers({});
-                setFlaggedQuestions({});
-                setLoginError(null);
-              } else {
-                setLoginError(
-                  `Ujian ini diatur dalam mode "Sekali Pengerjaan" dan siswa atas nama "${studentName}" (${studentNo}) telah tercatat menyelesaikan sesi ujian sebelumnya. Akses telah ditutup oleh server. Jika ingin mengulang pengerjaan, silakan hubungi guru pengawas untuk mereset status nilai Anda di dasbor dengan keterangan "Mengulang Ujian" atau menghapus nilai sebelumnya.`
-                );
-                return;
-              }
-            }
-          } catch {
-            setLoginError(
-              `Ujian ini diatur dalam mode "Sekali Pengerjaan" dan siswa atas nama "${studentName}" (${studentNo}) telah tercatat menyelesaikan sesi ujian sebelumnya. Akses telah ditutup oleh server. Jika ingin mengulang pengerjaan, silakan hubungi guru pengawas untuk mereset status nilai Anda di dasbor dengan keterangan "Mengulang Ujian" atau menghapus nilai sebelumnya.`
-            );
-            return;
-          }
-        } else {
-          setLoginError(
-            `Ujian ini diatur dalam mode "Sekali Pengerjaan" dan siswa atas nama "${studentName}" (${studentNo}) telah tercatat menyelesaikan sesi ujian sebelumnya. Akses telah ditutup oleh server. Jika ingin mengulang pengerjaan, silakan hubungi guru pengawas untuk mereset status nilai Anda di dasbor dengan keterangan "Mengulang Ujian" atau menghapus nilai sebelumnya.`
-          );
-          return;
-        }
+      } else if (hasCompletedLocally || (serverAttempt.success && serverAttempt.hasCompleted)) {
+        setLoginError(singleBlockedMessage);
+        return;
       }
     }
 
     // Pastikan seluruh butir soal ujian telah termuat sebelum memulai
-    let qs = StorageService.getQuestionsByExamId(selectedExam.id);
+    let qs = StorageService.getQuestionsByExamId(freshExam.id);
     if (qs.length === 0) {
       const allQs = StorageService.getQuestions();
-      qs = allQs.filter(q => String(q.examId).trim().toLowerCase() === String(selectedExam.id).trim().toLowerCase());
+      qs = allQs.filter(q => String(q.examId).trim().toLowerCase() === String(freshExam.id).trim().toLowerCase());
     }
 
-    const expectedCount = selectedExam.totalQuestions || 0;
+    const expectedCount = freshExam.totalQuestions || 0;
     const isUnderloaded = expectedCount > 0 && qs.length < expectedCount;
 
     if (qs.length === 0 || isUnderloaded) {
@@ -675,7 +828,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       try {
         await GasClient.fetchAllFromSheets();
         setIsDownloadingQuestions(false);
-        const downloaded = StorageService.getQuestionsByExamId(selectedExam.id);
+        const downloaded = StorageService.getQuestionsByExamId(freshExam.id);
         if (downloaded.length > 0) {
           setExamQuestions(downloaded);
           setLoginError(null);
@@ -686,7 +839,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       } catch {
         setIsDownloadingQuestions(false);
         if (qs.length > 0) {
-          // Lanjutkan dengan soal lokal yang ada jika offline
           setExamQuestions(qs);
           setLoginError(null);
           startExamSession(qs);
@@ -1962,7 +2114,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                             setExamQuestions(qs);
                             setCurrentQuestionIndex(0);
                           } else {
-                            alert('Soal belum ditemukan di Google Sheets. Hubungi pengawas ujian untuk memastikan ujian sudah disinkronkan.');
+                            setServerStoppedNotice('Soal belum ditemukan di Google Sheets. Hubungi pengawas ujian untuk memastikan ujian sudah disinkronkan.');
                           }
                         }
                       } finally {
@@ -2007,6 +2159,33 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // -------------------------------------------------------------
   return (
     <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8 animate-fadeIn">
+      {/* Notice Banner / Modal untuk Status Henti Permanen atau Belum Dimulai */}
+      {serverStoppedNotice && (
+        <div className="bg-rose-50 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-800 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-md animate-fadeIn">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-rose-100 dark:bg-rose-900 text-rose-600 dark:text-rose-300 flex items-center justify-center shrink-0">
+              <StopCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-rose-900 dark:text-rose-100">
+                Pemberitahuan Kontrol Pengawas Ujian
+              </h3>
+              <p className="text-xs text-rose-800 dark:text-rose-200 mt-1 leading-relaxed">
+                {serverStoppedNotice}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setServerStoppedNotice(null)}
+            className="p-1.5 text-rose-500 hover:text-rose-800 dark:hover:text-rose-200 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors shrink-0 cursor-pointer"
+            title="Tutup pemberitahuan"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* School Kop & Branding Banner */}
       <div className="bg-gradient-to-r from-indigo-700 via-indigo-800 to-indigo-900 rounded-2xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
         <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-center justify-between gap-5 text-center sm:text-left">
@@ -2104,14 +2283,24 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       </span>
 
                       {(() => {
+                        const isStopped = StorageService.isExamStopped(exam);
                         const isLate = Boolean(exam.allowLateSubmission) || (Number(exam.lateExtensionMinutes) || 0) > 0;
-                        const isFuture = exam.startsAt && !isNaN(new Date(exam.startsAt).getTime()) && new Date(exam.startsAt).getTime() > Date.now();
+                        const isSessionActive = exam.sessionStatus === 'active';
 
-                        if (exam.sessionStatus === 'stopped' || exam.status === 'stopped') {
+                        if (isStopped) {
                           return (
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1">
                               <StopCircle className="w-3 h-3 text-rose-500" />
                               <span>Sesi Dihentikan Permanen</span>
+                            </span>
+                          );
+                        }
+
+                        if (exam.sessionStatus === 'ended') {
+                          return (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 flex items-center gap-1">
+                              <StopCircle className="w-3 h-3 text-slate-500" />
+                              <span>Sesi Ditutup</span>
                             </span>
                           );
                         }
@@ -2125,20 +2314,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                           );
                         }
 
-                        if (isFuture) {
+                        if (!isSessionActive) {
                           return (
                             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800 flex items-center gap-1">
-                              <Calendar className="w-3 h-3 text-blue-600" />
-                              <span>Terjadwal: {new Date(exam.startsAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
-                            </span>
-                          );
-                        }
-
-                        if (exam.sessionStatus === 'ended') {
-                          return (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 flex items-center gap-1">
-                              <StopCircle className="w-3 h-3 text-slate-500" />
-                              <span>Sesi Ditutup</span>
+                              <Clock className="w-3 h-3 text-blue-600" />
+                              <span>Menunggu Guru Memulai</span>
                             </span>
                           );
                         }
@@ -2208,10 +2388,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
                 {/* Action button */}
                 {(() => {
+                  const isStopped = StorageService.isExamStopped(exam);
                   const isLate = Boolean(exam.allowLateSubmission) || (Number(exam.lateExtensionMinutes) || 0) > 0;
-                  const isFuture = exam.startsAt && !isNaN(new Date(exam.startsAt).getTime()) && new Date(exam.startsAt).getTime() > Date.now();
+                  const isSessionActive = exam.sessionStatus === 'active';
 
-                  if (exam.sessionStatus === 'stopped' || exam.status === 'stopped') {
+                  if (isStopped) {
                     return (
                       <button
                         type="button"
@@ -2220,6 +2401,19 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       >
                         <StopCircle className="w-3.5 h-3.5 text-rose-600" />
                         <span>Sesi Ujian Dihentikan oleh Pengawas</span>
+                      </button>
+                    );
+                  }
+
+                  if (exam.sessionStatus === 'ended') {
+                    return (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        <StopCircle className="w-3.5 h-3.5" />
+                        <span>Sesi Ujian Telah Ditutup</span>
                       </button>
                     );
                   }
@@ -2238,35 +2432,16 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     );
                   }
 
-                  if (isFuture) {
-                    const startFormatted = new Date(exam.startsAt).toLocaleString('id-ID', {
-                      weekday: 'short',
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    });
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => alert(`Ujian "${exam.title}" dijadwalkan pada ${startFormatted}. Ruang ujian akan dibuka secara otomatis pada waktu tersebut.`)}
-                        className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2"
-                      >
-                        <Clock className="w-3.5 h-3.5 text-blue-500" />
-                        <span>Terjadwal: {startFormatted}</span>
-                      </button>
-                    );
-                  }
-
-                  if (exam.sessionStatus === 'ended') {
+                  if (!isSessionActive) {
                     return (
                       <button
                         type="button"
                         disabled
-                        className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
+                        className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
+                        title="Guru pengawas belum menekan tombol Mulai Sesi Ujian"
                       >
-                        <StopCircle className="w-3.5 h-3.5" />
-                        <span>Sesi Ujian Telah Ditutup</span>
+                        <Clock className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Menunggu Guru Memulai Ujian</span>
                       </button>
                     );
                   }
@@ -2674,9 +2849,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                           <div className="space-y-2.5">
                             {pendingExams.map(exam => {
                               const isLate = Boolean(exam.allowLateSubmission) || (Number(exam.lateExtensionMinutes) || 0) > 0;
-                              const isFuture = exam.startsAt && !isNaN(new Date(exam.startsAt).getTime()) && new Date(exam.startsAt).getTime() > Date.now();
-                              const isStopped = exam.sessionStatus === 'stopped' || exam.status === 'stopped';
+                              const isStopped = StorageService.isExamStopped(exam);
                               const isEnded = exam.sessionStatus === 'ended';
+                              const isSessionActive = exam.sessionStatus === 'active';
                               const needsRetake = resetExamIds.has(String(exam.id).trim().toLowerCase());
 
                               return (
@@ -2710,9 +2885,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                                         <span className="px-2 py-0.5 rounded bg-amber-200/70 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 text-[10px] font-bold">
                                           Toleransi Terlambat
                                         </span>
-                                      ) : isFuture ? (
+                                      ) : !isSessionActive ? (
                                         <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
-                                          Terjadwal
+                                          Menunggu Guru
                                         </span>
                                       ) : (
                                         <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
@@ -2748,23 +2923,15 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                                         <StopCircle className="w-3.5 h-3.5" />
                                         <span>Sesi Ditutup</span>
                                       </button>
-                                    ) : isFuture && !isLate ? (
+                                    ) : !isSessionActive && !isLate ? (
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          const startFormatted = new Date(exam.startsAt!).toLocaleString('id-ID', {
-                                            weekday: 'short',
-                                            day: 'numeric',
-                                            month: 'short',
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                          });
-                                          alert(`Ujian "${exam.title}" dijadwalkan pada ${startFormatted}.`);
-                                        }}
-                                        className="w-full sm:w-auto px-3.5 py-2 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                        disabled
+                                        className="w-full sm:w-auto px-3.5 py-2 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-semibold text-xs cursor-not-allowed flex items-center justify-center gap-1.5"
+                                        title="Menunggu guru pengawas menekan tombol Mulai Sesi Ujian"
                                       >
                                         <Clock className="w-3.5 h-3.5 text-blue-500" />
-                                        <span>Terjadwal</span>
+                                        <span>Menunggu Guru</span>
                                       </button>
                                     ) : (
                                       <button

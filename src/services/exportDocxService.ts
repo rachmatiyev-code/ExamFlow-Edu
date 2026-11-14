@@ -647,3 +647,558 @@ export async function exportItemAnalysisToDocx(
   const cleanSubject = (exam.subject || 'Mapel').replace(/[^a-zA-Z0-9_-]/g, '_');
   downloadBlob(blob, `ANALISIS_PAS_${cleanSubject}_KELAS_${classGrade || exam.grade}.docx`);
 }
+
+export interface StudentRaporSubjectRow {
+  examId: string;
+  subject: string;
+  examTitle: string;
+  grade: string;
+  passingScore: number;
+  score: number;
+  maxScore: number;
+  percentage: number;
+  passed: boolean;
+  predicate: string;
+  statusText: string;
+  hasSubmitted: boolean;
+  submittedAt?: string;
+  timeSpentSeconds?: number;
+  tabSwitchCount?: number;
+  tpDetails: Array<{
+    objective: string;
+    masteryRate: number;
+    status: string;
+  }>;
+}
+
+/**
+ * 4. Export Rapor Hasil Ujian Siswa (1 Bidang Studi atau Semua Bidang Studi) ke .docx
+ */
+export async function exportStudentReportToDocx(
+  student: { nis: string; nisn?: string; name: string; classGrade: string },
+  rows: StudentRaporSubjectRow[],
+  profile: SchoolProfile,
+  options: {
+    subjectFilterLabel: string;
+    classFilterLabel: string;
+    teacherNote?: string;
+  }
+) {
+  const completedRows = rows.filter(r => r.hasSubmitted && r.statusText !== 'Mengulang Ujian');
+  const avgScore = completedRows.length > 0
+    ? Math.round(completedRows.reduce((acc, r) => acc + r.percentage, 0) / completedRows.length)
+    : 0;
+  const passedCount = completedRows.filter(r => r.passed).length;
+  const overallPredicate =
+    avgScore >= 90 ? 'A (Sangat Baik)' :
+    avgScore >= 75 ? 'B (Baik)' :
+    avgScore >= 60 ? 'C (Cukup)' :
+    completedRows.length > 0 ? 'D (Perlu Bimbingan)' : '-';
+
+  const allTpRows = rows.flatMap(r =>
+    r.tpDetails.map(tp => ({
+      subject: r.subject,
+      objective: tp.objective,
+      masteryRate: tp.masteryRate,
+      status: tp.status
+    }))
+  );
+
+  const todayFormatted = new Intl.DateTimeFormat('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }).format(new Date());
+
+  const children: any[] = [
+    // Kop Surat Resmi
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: profile.regionalGovName || 'PEMERINTAH KOTA MALANG',
+          bold: true,
+          size: 22,
+          font: 'Times New Roman'
+        })
+      ]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN',
+          bold: true,
+          size: 22,
+          font: 'Times New Roman'
+        })
+      ]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: profile.name || 'SD NEGERI PISANGCANDI 1 MALANG',
+          bold: true,
+          size: 26,
+          font: 'Times New Roman'
+        })
+      ]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new TextRun({
+          text: `${profile.address || ''} | NPSN: ${profile.npsn || '-'}`,
+          size: 18,
+          font: 'Times New Roman'
+        })
+      ]
+    }),
+    new Paragraph({
+      border: { bottom: { style: BorderStyle.DOUBLE, size: 12, color: '000000', space: 2 } },
+      spacing: { after: 180 },
+      children: []
+    }),
+
+    // Judul Rapor
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 60 },
+      children: [
+        new TextRun({
+          text: 'RAPOR HASIL EVALUASI ASESMEN PESERTA DIDIK',
+          bold: true,
+          underline: {},
+          size: 24,
+          font: 'Arial'
+        })
+      ]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 180 },
+      children: [
+        new TextRun({
+          text: `Tahun Ajaran ${profile.academicYear || '2026/2027'} · Semester ${profile.semester || 'Ganjil'}`,
+          size: 19,
+          font: 'Arial'
+        })
+      ]
+    }),
+
+    // Tabel Identitas Siswa
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: tableBorders,
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: 50, type: WidthType.PERCENTAGE },
+              children: [
+                new Paragraph({ children: [new TextRun({ text: 'Nama Peserta Didik : ', bold: true, size: 19 }), new TextRun({ text: student.name || '-', bold: true, size: 19 })] }),
+                new Paragraph({ children: [new TextRun({ text: 'Nomor Induk (NIS)  : ', bold: true, size: 19 }), new TextRun({ text: student.nis || '-', size: 19 })] }),
+                new Paragraph({ children: [new TextRun({ text: 'NISN               : ', bold: true, size: 19 }), new TextRun({ text: student.nisn || '-', size: 19 })] })
+              ]
+            }),
+            new TableCell({
+              width: { size: 50, type: WidthType.PERCENTAGE },
+              children: [
+                new Paragraph({ children: [new TextRun({ text: 'Kelas / Rombel     : ', bold: true, size: 19 }), new TextRun({ text: student.classGrade || options.classFilterLabel || '-', size: 19 })] }),
+                new Paragraph({ children: [new TextRun({ text: 'Bidang Studi       : ', bold: true, size: 19 }), new TextRun({ text: options.subjectFilterLabel, bold: true, size: 19 })] }),
+                new Paragraph({ children: [new TextRun({ text: 'Guru Pengampu      : ', bold: true, size: 19 }), new TextRun({ text: profile.teacherName || '-', size: 19 })] })
+              ]
+            })
+          ]
+        })
+      ]
+    }),
+
+    new Paragraph({
+      spacing: { before: 180, after: 80 },
+      children: [
+        new TextRun({ text: 'A. DAFTAR PEROLEHAN NILAI HASIL UJIAN', bold: true, size: 20, font: 'Arial' })
+      ]
+    }),
+
+    // Tabel Nilai Per Bidang Studi
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: tableBorders,
+      rows: [
+        new TableRow({
+          tableHeader: true,
+          children: [
+            new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'NO', bold: true, size: 18 })] })] }),
+            new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ children: [new TextRun({ text: 'BIDANG STUDI', bold: true, size: 18 })] })] }),
+            new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ children: [new TextRun({ text: 'PAKET / JUDUL ASESMEN', bold: true, size: 18 })] })] }),
+            new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'KKM', bold: true, size: 18 })] })] }),
+            new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'NILAI', bold: true, size: 18 })] })] }),
+            new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'PREDIKAT', bold: true, size: 18 })] })] }),
+            new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'STATUS', bold: true, size: 18 })] })] })
+          ]
+        }),
+        ...(rows.length > 0
+          ? rows.map((row, idx) =>
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${idx + 1}`, size: 18 })] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: row.subject, bold: true, size: 18 })] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: row.examTitle, size: 17 })] })] }),
+                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${row.passingScore}`, size: 18 })] })] }),
+                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: row.hasSubmitted && row.statusText !== 'Mengulang Ujian' ? `${row.percentage}` : '-', bold: true, size: 18 })] })] }),
+                  new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: row.hasSubmitted && row.statusText !== 'Mengulang Ujian' ? row.predicate : '-', bold: true, size: 18 })] })] }),
+                  new TableCell({
+                    children: [
+                      new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        children: [
+                          new TextRun({
+                            text: row.statusText,
+                            bold: true,
+                            size: 17,
+                            color: row.statusText === 'Tuntas' ? '047857' : row.statusText === 'Remedial' ? 'B91C1C' : '92400E'
+                          })
+                        ]
+                      })
+                    ]
+                  })
+                ]
+              })
+            )
+          : [
+              new TableRow({
+                children: [
+                  new TableCell({
+                    columnSpan: 7,
+                    children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Belum ada data ujian untuk pilihan ini.', size: 18, italics: true })] })]
+                  })
+                ]
+              })
+            ]),
+        // Baris Rata-rata
+        new TableRow({
+          children: [
+            new TableCell({
+              columnSpan: 4,
+              shading: { fill: 'F1F5F9', type: ShadingType.CLEAR },
+              children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ text: `RATA-RATA KESELURUHAN (${completedRows.length} Ujian Selesai · ${passedCount} Tuntas)`, bold: true, size: 18 })] })]
+            }),
+            new TableCell({
+              shading: { fill: 'F1F5F9', type: ShadingType.CLEAR },
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: completedRows.length > 0 ? `${avgScore}` : '-', bold: true, size: 19 })] })]
+            }),
+            new TableCell({
+              shading: { fill: 'F1F5F9', type: ShadingType.CLEAR },
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: overallPredicate, bold: true, size: 17 })] })]
+            }),
+            new TableCell({
+              shading: { fill: 'F1F5F9', type: ShadingType.CLEAR },
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: completedRows.length > 0 ? `${passedCount}/${completedRows.length} Tuntas` : '-', bold: true, size: 17 })] })]
+            })
+          ]
+        })
+      ]
+    })
+  ];
+
+  // Bagian B: Capaian Tujuan Pembelajaran (TP)
+  if (allTpRows.length > 0) {
+    children.push(
+      new Paragraph({
+        spacing: { before: 200, after: 80 },
+        children: [
+          new TextRun({ text: 'B. KETERCAPAIAN TUJUAN PEMBELAJARAN (TP) KURIKULUM MERDEKA', bold: true, size: 20, font: 'Arial' })
+        ]
+      }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: tableBorders,
+        rows: [
+          new TableRow({
+            tableHeader: true,
+            children: [
+              new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'NO', bold: true, size: 17 })] })] }),
+              new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ children: [new TextRun({ text: 'BIDANG STUDI', bold: true, size: 17 })] })] }),
+              new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ children: [new TextRun({ text: 'DESKRIPSI TUJUAN PEMBELAJARAN (TP)', bold: true, size: 17 })] })] }),
+              new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'CAPAIAN', bold: true, size: 17 })] })] }),
+              new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'STATUS', bold: true, size: 17 })] })] })
+            ]
+          }),
+          ...allTpRows.map((tp, idx) =>
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${idx + 1}`, size: 17 })] })] }),
+                new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: tp.subject, bold: true, size: 17 })] })] }),
+                new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: tp.objective, size: 17 })] })] }),
+                new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${tp.masteryRate}%`, bold: true, size: 17 })] })] }),
+                new TableCell({
+                  children: [
+                    new Paragraph({
+                      alignment: AlignmentType.CENTER,
+                      children: [
+                        new TextRun({
+                          text: tp.status,
+                          bold: true,
+                          size: 17,
+                          color: tp.status === 'Tercapai' ? '047857' : 'B91C1C'
+                        })
+                      ]
+                    })
+                  ]
+                })
+              ]
+            })
+          )
+        ]
+      })
+    );
+  }
+
+  // Catatan Guru
+  const defaultNote = completedRows.length === 0
+    ? 'Peserta didik belum memiliki rekaman hasil asesmen yang selesai untuk filter yang dipilih.'
+    : passedCount === completedRows.length
+      ? `Selamat! ${student.name} menunjukkan penguasaan kompetensi yang sangat baik dan telah tuntas pada seluruh bidang studi yang diujikan (Rata-rata ${avgScore}). Pertahankan semangat belajarnya.`
+      : `${student.name} telah menyelesaikan ${completedRows.length} ujian dengan ${passedCount} bidang studi tuntas. Bidang studi yang berstatus Remedial disarankan mengikuti pendampingan dan latihan ulang bersama guru pengampu.`;
+
+  children.push(
+    new Paragraph({
+      spacing: { before: 180, after: 60 },
+      children: [
+        new TextRun({ text: 'C. CATATAN EVALUASI & TINDAK LANJUT GURU:', bold: true, size: 19, font: 'Arial' })
+      ]
+    }),
+    new Paragraph({
+      spacing: { after: 200 },
+      children: [
+        new TextRun({ text: options.teacherNote || defaultNote, size: 18 })
+      ]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.RIGHT,
+      spacing: { before: 140, after: 80 },
+      children: [
+        new TextRun({ text: `Kota Malang, ${todayFormatted}`, size: 19 })
+      ]
+    }),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: {
+        top: { style: BorderStyle.NONE },
+        bottom: { style: BorderStyle.NONE },
+        left: { style: BorderStyle.NONE },
+        right: { style: BorderStyle.NONE },
+        insideHorizontal: { style: BorderStyle.NONE },
+        insideVertical: { style: BorderStyle.NONE }
+      },
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: 33, type: WidthType.PERCENTAGE },
+              children: [
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Orang Tua / Wali Murid', size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 650 }, children: [new TextRun({ text: '( ...................................... )', size: 18 })] })
+              ]
+            }),
+            new TableCell({
+              width: { size: 33, type: WidthType.PERCENTAGE },
+              children: [
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Guru Kelas / Pengampu', size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 650 }, children: [new TextRun({ text: profile.teacherName || 'Siti Rahmawati, S.Pd.', bold: true, underline: {}, size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `NIP. ${profile.teacherNip || '-'}`, size: 16 })] })
+              ]
+            }),
+            new TableCell({
+              width: { size: 34, type: WidthType.PERCENTAGE },
+              children: [
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Mengetahui,\nKepala Sekolah', size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 550 }, children: [new TextRun({ text: profile.principalName || 'Dr. H. Sulaiman, M.Pd.', bold: true, underline: {}, size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `NIP. ${profile.principalNip || '-'}`, size: 16 })] })
+              ]
+            })
+          ]
+        })
+      ]
+    })
+  );
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          page: {
+            size: { orientation: PageOrientation.PORTRAIT },
+            margin: { top: 720, bottom: 720, left: 900, right: 900 }
+          }
+        },
+        children
+      }
+    ]
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const safeName = (student.name || 'Siswa').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeSubj = (options.subjectFilterLabel || 'Semua_Mapel').replace(/[^a-zA-Z0-9_-]/g, '_');
+  downloadBlob(blob, `Rapor_${safeName}_${safeSubj}.docx`);
+}
+
+/**
+ * 5. Export Rekap Leger Klasikal (1 atau Semua Bidang Studi per Kelas) ke .docx
+ */
+export async function exportClassicalAllSubjectsToDocx(
+  studentsList: Array<{ nis: string; name: string; classGrade: string }>,
+  subjects: string[],
+  scoreMatrix: Record<string, Record<string, { percentage: number; passed: boolean; statusText: string }>>,
+  profile: SchoolProfile,
+  options: { classFilterLabel: string; subjectFilterLabel: string }
+) {
+  const isLandscape = subjects.length > 3;
+  const todayFormatted = new Intl.DateTimeFormat('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }).format(new Date());
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {
+          page: {
+            size: { orientation: isLandscape ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT },
+            margin: { top: 650, bottom: 650, left: 720, right: 720 }
+          }
+        },
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: profile.regionalGovName || 'PEMERINTAH KOTA MALANG', bold: true, size: 22, font: 'Times New Roman' })]
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN', bold: true, size: 22, font: 'Times New Roman' })]
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: profile.name || 'SD NEGERI PISANGCANDI 1 MALANG', bold: true, size: 26, font: 'Times New Roman' })]
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({ text: `${profile.address || ''} | NPSN: ${profile.npsn || '-'}`, size: 17, font: 'Times New Roman' })]
+          }),
+          new Paragraph({
+            border: { bottom: { style: BorderStyle.DOUBLE, size: 12, color: '000000', space: 2 } },
+            spacing: { after: 160 },
+            children: []
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 80 },
+            children: [new TextRun({ text: 'LEGER & REKAPITULASI NILAI HASIL ASESMEN KELAS', bold: true, underline: {}, size: 22, font: 'Arial' })]
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 160 },
+            children: [new TextRun({ text: `Kelas: ${options.classFilterLabel}  |  Bidang Studi: ${options.subjectFilterLabel}  |  T.A: ${profile.academicYear} (${profile.semester})`, bold: true, size: 18 })]
+          }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            borders: tableBorders,
+            rows: [
+              new TableRow({
+                tableHeader: true,
+                children: [
+                  new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'NO', bold: true, size: 17 })] })] }),
+                  new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'NIS', bold: true, size: 17 })] })] }),
+                  new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ children: [new TextRun({ text: 'NAMA SISWA', bold: true, size: 17 })] })] }),
+                  new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'KELAS', bold: true, size: 17 })] })] }),
+                  ...subjects.map(subj =>
+                    new TableCell({
+                      shading: { fill: 'E2E8F0', type: ShadingType.CLEAR },
+                      children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: subj.toUpperCase(), bold: true, size: 16 })] })]
+                    })
+                  ),
+                  new TableCell({ shading: { fill: 'E2E8F0', type: ShadingType.CLEAR }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'RATA-RATA', bold: true, size: 17 })] })] })
+                ]
+              }),
+              ...studentsList.map((st, idx) => {
+                const rowScores = scoreMatrix[st.nis.toLowerCase()] || {};
+                const numericVals = subjects
+                  .map(subj => rowScores[subj])
+                  .filter(v => v && v.statusText !== 'Belum Mengerjakan' && v.statusText !== 'Mengulang Ujian')
+                  .map(v => v.percentage);
+                const avg = numericVals.length > 0 ? Math.round(numericVals.reduce((a, b) => a + b, 0) / numericVals.length) : null;
+
+                return new TableRow({
+                  children: [
+                    new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${idx + 1}`, size: 17 })] })] }),
+                    new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: st.nis, size: 17 })] })] }),
+                    new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: st.name, size: 17 })] })] }),
+                    new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: st.classGrade, size: 17 })] })] }),
+                    ...subjects.map(subj => {
+                      const cell = rowScores[subj];
+                      const val = cell && cell.statusText !== 'Belum Mengerjakan' && cell.statusText !== 'Mengulang Ujian' ? `${cell.percentage}` : '-';
+                      return new TableCell({
+                        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: val, bold: val !== '-', size: 17 })] })]
+                      });
+                    }),
+                    new TableCell({
+                      shading: { fill: 'F8FAFC', type: ShadingType.CLEAR },
+                      children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: avg !== null ? `${avg}` : '-', bold: true, size: 17 })] })]
+                    })
+                  ]
+                });
+              })
+            ]
+          }),
+          new Paragraph({
+            alignment: AlignmentType.RIGHT,
+            spacing: { before: 220, after: 80 },
+            children: [new TextRun({ text: `Kota Malang, ${todayFormatted}`, size: 18 })]
+          }),
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            borders: {
+              top: { style: BorderStyle.NONE },
+              bottom: { style: BorderStyle.NONE },
+              left: { style: BorderStyle.NONE },
+              right: { style: BorderStyle.NONE },
+              insideHorizontal: { style: BorderStyle.NONE },
+              insideVertical: { style: BorderStyle.NONE }
+            },
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({
+                    width: { size: 50, type: WidthType.PERCENTAGE },
+                    children: [
+                      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Mengetahui,\nKepala Sekolah', size: 18 })] }),
+                      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 550 }, children: [new TextRun({ text: profile.principalName || 'Dr. H. Sulaiman, M.Pd.', bold: true, underline: {}, size: 18 })] }),
+                      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `NIP. ${profile.principalNip || '-'}`, size: 16 })] })
+                    ]
+                  }),
+                  new TableCell({
+                    width: { size: 50, type: WidthType.PERCENTAGE },
+                    children: [
+                      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Pendidik / Guru Kelas,', size: 18 })] }),
+                      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 650 }, children: [new TextRun({ text: profile.teacherName || 'Siti Rahmawati, S.Pd.', bold: true, underline: {}, size: 18 })] }),
+                      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `NIP. ${profile.teacherNip || '-'}`, size: 16 })] })
+                    ]
+                  })
+                ]
+              })
+            ]
+          })
+        ]
+      }
+    ]
+  });
+
+  const blob = await Packer.toBlob(doc);
+  const safeClass = (options.classFilterLabel || 'Semua_Kelas').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeSubj = (options.subjectFilterLabel || 'Semua_Mapel').replace(/[^a-zA-Z0-9_-]/g, '_');
+  downloadBlob(blob, `Leger_Klasikal_${safeClass}_${safeSubj}.docx`);
+}
+

@@ -1,6 +1,7 @@
 import { StorageService } from './storage';
 import { Exam, Question, SchoolProfile, Submission, Student, UserAccount, CurriculumItem, ChatMessage } from '../types';
 import { detectMediaType } from './mediaHelper';
+import { parseFlexibleTimestamp, toLocalIsoString } from './dateTimeHelper';
 
 export interface PingResult {
   success: boolean;
@@ -336,7 +337,7 @@ export class GasClient {
             maxScore: Number(s.maxScore) || 100,
             percentage: Number(s.percentage) || 0,
             passed: s.passed === true || s.passed === 'true' || s.passed === 'TRUE' || (Number(s.percentage) >= 75),
-            submittedAt: String(s.submittedAt || new Date().toISOString()),
+            submittedAt: String(s.submittedAt || toLocalIsoString()),
             tabSwitchCount: Number(s.tabSwitchCount) || 0,
             timeSpentSeconds: Number(s.timeSpentSeconds) || 0,
             syncStatus: 'synced',
@@ -454,7 +455,7 @@ export class GasClient {
             element: rawElement,
             learningOutcome: rawOutcome,
             learningObjectives: Array.isArray(tps) ? tps.filter(Boolean) : [],
-            updatedAt: String(c.updatedAt || new Date().toISOString())
+            updatedAt: String(c.updatedAt || toLocalIsoString())
           };
         }).filter(item => item.subject || item.element || item.learningOutcome);
 
@@ -885,7 +886,7 @@ export class GasClient {
    * Menghentikan sesi ujian secara permanen di server & lokal
    */
   static async stopExamSession(examId: string): Promise<{ success: boolean; message: string }> {
-    const endedAt = new Date().toISOString();
+    const endedAt = toLocalIsoString();
     const exam = StorageService.getExamById(examId);
     if (exam) {
       exam.status = 'stopped';
@@ -1092,14 +1093,7 @@ export class GasClient {
           ? 'system'
           : 'student';
 
-      const rawTs = row.timestamp;
-      let ts = Date.now();
-      if (typeof rawTs === 'number' && !Number.isNaN(rawTs)) {
-        ts = rawTs;
-      } else if (rawTs) {
-        const parsed = Date.parse(String(rawTs));
-        if (!Number.isNaN(parsed)) ts = parsed;
-      }
+      const ts = parseFlexibleTimestamp(row.timestamp);
 
       const rawTarget = String(row.targetNis ?? '').trim();
       const targetNis = !rawTarget || rawTarget.toLowerCase() === 'all' ? 'all' : rawTarget;
@@ -1160,7 +1154,7 @@ export class GasClient {
         quickActionJson: message.quickAction ? JSON.stringify(message.quickAction) : '',
         message: message.message || message.text || '',
         text: message.text || message.message || '',
-        timestamp: message.timestamp ? new Date(message.timestamp).toISOString() : new Date().toISOString(),
+        timestamp: toLocalIsoString(message.timestamp || Date.now()),
         examId: message.examId || '',
         status: 'success'
       }

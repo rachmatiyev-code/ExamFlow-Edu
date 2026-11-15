@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, Exam } from '../types';
 import { chatService } from '../services/chatService';
+import {
+  formatChatDateTime,
+  formatChatDayDivider,
+  getLocalDayKey,
+  getLocalTimezoneLabel,
+} from '../services/dateTimeHelper';
 
 interface StudentChatWidgetProps {
   currentExam?: Exam | null;
@@ -409,7 +415,7 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
                   />
                 </h3>
                 <p className="text-[10px] text-emerald-200 leading-tight">
-                  {presence.teachers > 0 ? `${presence.teachers} Guru Siaga • Respon Cepat` : 'Live Chat & Sinkronisasi Google Sheets'}
+                  {presence.teachers > 0 ? `${presence.teachers} Guru Siaga • ${getLocalTimezoneLabel()}` : `Waktu Lokal • ${getLocalTimezoneLabel()}`}
                 </p>
               </div>
             </div>
@@ -548,30 +554,40 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
                 </p>
               </div>
             ) : (
-              messages.map((msg) => {
+              messages.map((msg, idx) => {
                 const msgSender = String(msg.senderNis || '').trim().toLowerCase();
                 const isMe =
                   msg.senderRole === 'student' &&
                   ((myIdentifier && msgSender === myIdentifier.trim().toLowerCase()) ||
                     (myGuestIdentifier && msgSender === myGuestIdentifier.trim().toLowerCase()));
                 const isBroadcast = (msg.senderRole === 'teacher' || msg.senderType === 'system') && (!msg.targetNis || msg.targetNis === 'all');
+                const currentDayKey = getLocalDayKey(msg.timestamp);
+                const prevDayKey = idx > 0 ? getLocalDayKey(messages[idx - 1].timestamp) : null;
+                const showDayDivider = currentDayKey !== prevDayKey;
 
                 return (
-                  <div
-                    key={msg.id}
-                    className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
-                  >
-                    <div className="text-[10px] text-slate-400 px-1 mb-0.5 flex items-center gap-1">
-                      <span className="font-semibold text-slate-600">{isMe ? 'Saya' : msg.senderName}</span>
-                      {isBroadcast && (
-                        <span className="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.2 rounded font-bold">
-                          Pengumuman
+                  <React.Fragment key={msg.id}>
+                    {showDayDivider && (
+                      <div className="flex justify-center my-1.5">
+                        <span className="text-[10px] font-semibold bg-slate-200/80 text-slate-600 px-2.5 py-0.5 rounded-full">
+                          {formatChatDayDivider(msg.timestamp)}
                         </span>
-                      )}
-                      <span>
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
+                      </div>
+                    )}
+                    <div
+                      className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                    >
+                      <div className="text-[10px] text-slate-400 px-1 mb-0.5 flex flex-wrap items-center gap-1">
+                        <span className="font-semibold text-slate-600">{isMe ? 'Saya' : msg.senderName}</span>
+                        {isBroadcast && (
+                          <span className="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.2 rounded font-bold">
+                            Pengumuman
+                          </span>
+                        )}
+                        <span>
+                          {formatChatDateTime(msg.timestamp, true)}
+                        </span>
+                      </div>
 
                     <div
                       className={`max-w-[85%] rounded-2xl px-3 py-2 text-xs shadow-xs ${
@@ -634,7 +650,8 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
                         </div>
                       )}
                     </div>
-                  </div>
+                    </div>
+                  </React.Fragment>
                 );
               })
             )}

@@ -5,6 +5,13 @@ import { StorageService } from '../services/storage';
 
 import { OnlineStudentInfo } from '../services/chatService';
 import { Student } from '../types';
+import {
+  formatChatDateTime,
+  formatChatShortDateTime,
+  formatChatDayDivider,
+  getLocalDayKey,
+  getLocalTimezoneLabel,
+} from '../services/dateTimeHelper';
 
 interface TeacherChatPanelProps {
   exams: Exam[];
@@ -405,12 +412,16 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
                 </span>
               )}
             </h2>
-            <p className="text-xs text-emerald-200 flex items-center gap-2 mt-0.5">
+            <p className="text-xs text-emerald-200 flex flex-wrap items-center gap-2 mt-0.5">
               <span>Siswa dapat menghubungi Anda bahkan sebelum login ujian</span>
               <span>•</span>
               <span className="flex items-center gap-1 font-semibold text-emerald-300">
                 <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-amber-300'}`} />
                 <span>Sinkronisasi Live + Google Sheets</span>
+              </span>
+              <span>•</span>
+              <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] text-emerald-100 font-medium">
+                Waktu Lokal: {getLocalTimezoneLabel()}
               </span>
             </p>
           </div>
@@ -520,8 +531,8 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
                         )}
                       </div>
                       {conv.lastTimestamp > 0 && (
-                        <span className="text-[10px] text-slate-400 flex-shrink-0">
-                          {new Date(conv.lastTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <span className="text-[10px] text-slate-500 flex-shrink-0" title={formatChatDateTime(conv.lastTimestamp, true)}>
+                          {formatChatShortDateTime(conv.lastTimestamp)}
                         </span>
                       )}
                     </div>
@@ -662,27 +673,37 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
                 </p>
               </div>
             ) : (
-              threadMessages.map((msg) => {
+              threadMessages.map((msg, idx) => {
                 const isTeacher = msg.senderRole === 'teacher';
+                const currentDayKey = getLocalDayKey(msg.timestamp);
+                const prevDayKey = idx > 0 ? getLocalDayKey(threadMessages[idx - 1].timestamp) : null;
+                const showDayDivider = currentDayKey !== prevDayKey;
 
                 return (
-                  <div
-                    key={msg.id}
-                    className={`flex flex-col ${isTeacher ? 'items-end' : 'items-start'}`}
-                  >
-                    <div className="text-[10px] text-slate-400 px-1 mb-0.5 flex items-center gap-1.5">
-                      <span className="font-semibold text-slate-700">
-                        {isTeacher ? 'Anda (Guru/Pengawas)' : msg.senderName}
-                      </span>
-                      {!isTeacher && msg.senderNis && (
-                        <span className="text-[9px] bg-slate-200 text-slate-600 px-1.5 py-0.2 rounded font-mono">
-                          NIS: {msg.senderNis}
+                  <React.Fragment key={msg.id}>
+                    {showDayDivider && (
+                      <div className="flex justify-center my-2">
+                        <span className="text-[10px] font-semibold bg-slate-200/80 text-slate-600 px-3 py-0.5 rounded-full">
+                          {formatChatDayDivider(msg.timestamp)}
                         </span>
-                      )}
-                      <span>
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
-                    </div>
+                      </div>
+                    )}
+                    <div
+                      className={`flex flex-col ${isTeacher ? 'items-end' : 'items-start'}`}
+                    >
+                      <div className="text-[10px] text-slate-500 px-1 mb-0.5 flex flex-wrap items-center gap-1.5">
+                        <span className="font-semibold text-slate-700">
+                          {isTeacher ? 'Anda (Guru/Pengawas)' : msg.senderName}
+                        </span>
+                        {!isTeacher && msg.senderNis && (
+                          <span className="text-[9px] bg-slate-200 text-slate-600 px-1.5 py-0.2 rounded font-mono">
+                            NIS: {msg.senderNis}
+                          </span>
+                        )}
+                        <span className="text-slate-400">
+                          {formatChatDateTime(msg.timestamp, true)}
+                        </span>
+                      </div>
 
                     <div
                       className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-xs shadow-xs ${
@@ -725,7 +746,8 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
                         </div>
                       )}
                     </div>
-                  </div>
+                    </div>
+                  </React.Fragment>
                 );
               })
             )}

@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore';
 import { ChatMessage } from '../types';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { parseFlexibleTimestamp } from './dateTimeHelper';
 
 // Inisialisasi Firebase App
 let firestoreDb: Firestore | null = null;
@@ -76,10 +77,7 @@ export class FirebaseChatService {
       const parseTs = (rawTs: any, createdAt: any): number => {
         if (typeof rawTs === 'number' && !Number.isNaN(rawTs)) return rawTs;
         if (rawTs && typeof rawTs.toMillis === 'function') return rawTs.toMillis();
-        if (typeof rawTs === 'string') {
-          const parsed = Date.parse(rawTs);
-          if (!Number.isNaN(parsed)) return parsed;
-        }
+        if (typeof rawTs === 'string' && rawTs.trim()) return parseFlexibleTimestamp(rawTs);
         if (createdAt && typeof createdAt.toMillis === 'function') return createdAt.toMillis();
         return Date.now();
       };
@@ -136,7 +134,7 @@ export class FirebaseChatService {
         const data = doc.data();
         const ts = typeof data.timestamp === 'number'
           ? data.timestamp
-          : (data.createdAt && typeof data.createdAt.toMillis === 'function' ? data.createdAt.toMillis() : (Date.parse(String(data.timestamp || '')) || Date.now()));
+          : (data.createdAt && typeof data.createdAt.toMillis === 'function' ? data.createdAt.toMillis() : parseFlexibleTimestamp(data.timestamp));
         const text = String(data.text || data.message || '').trim();
         if (!text) return;
         msgs.push({

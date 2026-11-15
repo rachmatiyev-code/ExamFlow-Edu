@@ -118,6 +118,17 @@ function normalize2DArray(rows, targetCols) {
   });
 }
 
+function formatLocalIso(dateVal) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const tz = (ss && ss.getSpreadsheetTimeZone()) || Session.getScriptTimeZone() || 'Asia/Jakarta';
+    const d = dateVal ? new Date(dateVal) : new Date();
+    return Utilities.formatDate(isNaN(d.getTime()) ? new Date() : d, tz, "yyyy-MM-dd'T'HH:mm:ssXXX");
+  } catch (e) {
+    return new Date().toString();
+  }
+}
+
 /**
  * Inisialisasi struktur sheet dan header kolom otomatis
  * Jalankan fungsi ini sekali setelah menempelkan script.
@@ -147,7 +158,7 @@ function initDatabase() {
       'Pendidikan Pancasila & Tematik',
       'siti.rahmawati@sdnpisangcandi1.sch.id',
       'Guru Kelas & Koordinator Asesmen',
-      new Date().toISOString()
+      formatLocalIso()
     ]);
   } else {
     ensureMinColumns(shProfile, CANONICAL_PROFILE_HEADERS.length);
@@ -302,7 +313,7 @@ function initDatabase() {
         'Menganalisis interaksi antar komponen biotik dan abiotik dalam suatu ekosistem',
         'Mengevaluasi dampak aktivitas manusia terhadap perubahan lingkungan dan upaya pelestariannya'
       ]),
-      new Date().toISOString()
+      formatLocalIso()
     ]);
     formatHeaderRow(shCurriculum);
   }
@@ -341,7 +352,7 @@ function doGet(e) {
       return jsonResponse({
         status: 'success',
         message: 'Koneksi ke Google Sheets berhasil!',
-        timestamp: new Date().toISOString(),
+        timestamp: formatLocalIso(),
         spreadsheetName: ss.getName()
       });
     }
@@ -456,7 +467,7 @@ function doPost(e) {
         Number(sub.maxScore || 100),
         Number(sub.percentage || 0),
         Boolean(sub.passed),
-        String(sub.submittedAt || new Date().toISOString()),
+        String(sub.submittedAt || formatLocalIso()),
         Number(sub.tabSwitchCount || 0),
         Number(sub.timeSpentSeconds || 0),
         String(sub.feedback || ''),
@@ -477,7 +488,7 @@ function doPost(e) {
           Number(sub.tabSwitchCount || 0),
           Number(sub.timeSpentSeconds || 0),
           String(sub.statusNote || 'Selesai'),
-          String(sub.submittedAt || new Date().toISOString())
+          String(sub.submittedAt || formatLocalIso())
         ]);
       }
       
@@ -521,7 +532,7 @@ function doPost(e) {
             Number(s.maxScore || 100),
             Number(s.percentage || 0),
             Boolean(s.passed),
-            String(s.submittedAt || new Date().toISOString()),
+            String(s.submittedAt || formatLocalIso()),
             Number(s.tabSwitchCount || 0),
             Number(s.timeSpentSeconds || 0),
             String(s.feedback || ''),
@@ -552,7 +563,7 @@ function doPost(e) {
               Number(s.tabSwitchCount || 0),
               Number(s.timeSpentSeconds || 0),
               String(s.statusNote || 'Selesai'),
-              String(s.submittedAt || new Date().toISOString())
+              String(s.submittedAt || formatLocalIso())
             ];
           });
           shDataMentah.getRange(2, 1, dmRows.length, dmRows[0].length).setValues(dmRows);
@@ -591,8 +602,8 @@ function doPost(e) {
           r.passed ? 'Tuntas' : 'Belum Tuntas',
           String(r.statusNote || 'Selesai'),
           Number(r.timeSpentSeconds || 0),
-          String(r.submittedAt || new Date().toISOString()),
-          new Date().toISOString()
+          String(r.submittedAt || formatLocalIso()),
+          formatLocalIso()
         ];
       });
 
@@ -850,7 +861,7 @@ function doPost(e) {
         exam.lateExtensionMinutes || 0,
         typeof exam.learningObjectives === 'string' ? exam.learningObjectives : JSON.stringify(exam.learningObjectives || []),
         exam.attemptMode || 'single',
-        exam.createdAt || new Date().toISOString(),
+        exam.createdAt || formatLocalIso(),
         exam.redeployCount || 0
       ]);
 
@@ -925,7 +936,7 @@ function doPost(e) {
             if (idCol !== -1 && String(refreshedData[i][idCol] || '').trim().toLowerCase() === examId.toLowerCase()) {
               if (statusCol !== -1) shEx.getRange(i + 1, statusCol + 1).setValue('stopped');
               if (sessionStatusCol !== -1) shEx.getRange(i + 1, sessionStatusCol + 1).setValue('stopped');
-              if (endedAtCol !== -1) shEx.getRange(i + 1, endedAtCol + 1).setValue(new Date().toISOString());
+              if (endedAtCol !== -1) shEx.getRange(i + 1, endedAtCol + 1).setValue(formatLocalIso());
               if (allowLateCol !== -1) shEx.getRange(i + 1, allowLateCol + 1).setValue(false);
               SpreadsheetApp.flush();
               break;
@@ -1081,7 +1092,7 @@ function doPost(e) {
         p.teacherSubject || '',
         p.teacherEmail || '',
         p.teacherTitle || '',
-        new Date().toISOString()
+        formatLocalIso()
       ]);
       logAction('SYNC', 'Profil sekolah diperbarui: ' + (p.name || ''));
       return jsonResponse({ status: 'success', message: 'Profil sekolah berhasil disimpan' });
@@ -1110,7 +1121,7 @@ function doPost(e) {
             String(c.element || ''),
             String(c.learningOutcome || ''),
             typeof c.learningObjectives === 'string' ? c.learningObjectives : JSON.stringify(c.learningObjectives || []),
-            String(c.updatedAt || new Date().toISOString())
+            String(c.updatedAt || formatLocalIso())
           ];
         });
         shCur.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
@@ -1139,7 +1150,7 @@ function doPost(e) {
         String(msg.senderRole || 'student'),
         String(msg.targetNis || 'all'),
         String(msg.message || msg.text || ''),
-        String(msg.timestamp || new Date().toISOString()),
+        String(msg.timestamp || formatLocalIso()),
         String(msg.examId || ''),
         String(msg.status || 'success'),
         String(msg.targetName || ''),
@@ -1181,7 +1192,7 @@ function doPost(e) {
             String(m.senderRole || 'student'),
             String(m.targetNis || 'all'),
             String(m.message || m.text || ''),
-            String(m.timestamp || new Date().toISOString()),
+            String(m.timestamp || formatLocalIso()),
             String(m.examId || ''),
             String(m.status || 'success'),
             String(m.targetName || ''),
@@ -1235,7 +1246,7 @@ function doPost(e) {
           payload.profile.teacherSubject || '',
           payload.profile.teacherEmail || '',
           payload.profile.teacherTitle || '',
-          new Date().toISOString()
+          formatLocalIso()
         ]);
       }
       if (Array.isArray(payload.students)) {
@@ -1409,6 +1420,9 @@ function getSheetDataAsObjects(sheet) {
     const obj = {};
     for (let h = 0; h < headers.length; h++) {
       let val = row[h];
+      if (val instanceof Date) {
+        val = formatLocalIso(val);
+      }
       const origHeader = String(headers[h] || '').trim();
       const normHeader = normalizeGasHeader(origHeader);
       
@@ -1502,7 +1516,7 @@ function logAction(category, message) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sh = ss.getSheetByName(SHEETS.LOGS);
     if (sh) {
-      sh.appendRow(['LOG-' + Date.now(), new Date().toISOString(), 'INFO', category, message, '']);
+      sh.appendRow(['LOG-' + Date.now(), formatLocalIso(), 'INFO', category, message, '']);
     }
   } catch(e) {}
 }

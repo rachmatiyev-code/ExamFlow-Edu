@@ -7,6 +7,7 @@ import { MediaViewer } from './MediaViewer';
 import { QuestionMedia, QuestionPromptRenderer } from './QuestionMedia';
 import { StudentChatWidget } from './StudentChatWidget';
 import { MathRenderer } from '../services/mathRenderer';
+import { getLocalDateInputValue, toLocalIsoString } from '../services/dateTimeHelper';
 import confetti from 'canvas-confetti';
 import { sanitizeLogoUrl, PEMKOT_MALANG_LOGO_SVG, SDN_PISANGCANDI_1_LOGO_SVG } from '../services/logoAssets';
 import { 
@@ -392,7 +393,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [scoreLookupMatchedStudent, setScoreLookupMatchedStudent] = useState<Student | null>(null);
 
   // Filter exams available today
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateInputValue();
   const activeExams = liveExams.filter(e => e.status !== 'archived' && e.status !== 'draft');
 
   // Auto-select exam if directed via shared student link
@@ -1012,7 +1013,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       passed,
       statusNote: 'Selesai',
       allowRepeat: false,
-      submittedAt: new Date().toISOString(),
+      submittedAt: toLocalIsoString(),
       tabSwitchCount,
       timeSpentSeconds: timeSpent,
       syncStatus: 'pending',

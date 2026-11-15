@@ -1,6 +1,7 @@
 import { ChatMessage } from '../types';
 import { GasClient } from './gasClient';
 import { FirebaseChatService } from './firebaseChatService';
+import { parseFlexibleTimestamp, toLocalIsoString } from './dateTimeHelper';
 
 type MessageListener = (message: ChatMessage) => void;
 type ReadChangeListener = () => void;
@@ -313,11 +314,7 @@ class ChatService {
         ? 'system'
         : 'student';
 
-    const rawTs = raw.timestamp;
-    const timestamp =
-      typeof rawTs === 'number' && !Number.isNaN(rawTs)
-        ? rawTs
-        : (Date.parse(String(rawTs || '')) || Date.now());
+    const timestamp = parseFlexibleTimestamp(raw.timestamp);
 
     const rawTarget = String(raw.targetNis ?? '').trim();
     const targetNis = !rawTarget || rawTarget.toLowerCase() === 'all' ? 'all' : rawTarget;
@@ -542,7 +539,7 @@ class ChatService {
       examTitle: fullMessage.examTitle || '',
       quickAction: fullMessage.quickAction,
       message: fullMessage.text,
-      timestamp: new Date(fullMessage.timestamp).toISOString(),
+      timestamp: toLocalIsoString(fullMessage.timestamp),
       examId: fullMessage.examId || ''
     }).catch(() => {});
 

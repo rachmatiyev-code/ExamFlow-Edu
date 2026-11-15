@@ -35,6 +35,7 @@ import { MathRenderer } from '../services/mathRenderer';
 import { detectMediaType } from '../services/mediaHelper';
 import { exportGradeRecapToDocx, exportItemAnalysisToDocx } from '../services/exportDocxService';
 import { exportGradeRecapToExcel, exportItemAnalysisToExcel } from '../services/exportExcelService';
+import { getLocalDateInputValue, toLocalIsoString } from '../services/dateTimeHelper';
 import * as XLSX from 'xlsx';
 import { 
   Plus, 
@@ -459,8 +460,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       passingScore: Number(editingExam.passingScore) || 75,
       isStrict: Boolean(editingExam.isStrict),
       allowReview: Boolean(editingExam.allowReview),
-      startsAt: editingExam.startsAt || new Date().toISOString().split('T')[0] + ' 07:00',
-      endsAt: editingExam.endsAt || new Date().toISOString().split('T')[0] + ' 23:59',
+      startsAt: editingExam.startsAt || getLocalDateInputValue() + ' 07:00',
+      endsAt: editingExam.endsAt || getLocalDateInputValue() + ' 23:59',
       status: editingExam.status || 'active',
       totalQuestions: editingExam.totalQuestions || 0,
       token: editingExam.token || '',
@@ -471,7 +472,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       allowLateSubmission: Boolean(editingExam.allowLateSubmission),
       lateExtensionMinutes: editingExam.lateExtensionMinutes || 30,
       attemptMode: editingExam.attemptMode || 'single',
-      createdAt: editingExam.createdAt || new Date().toISOString(),
+      createdAt: editingExam.createdAt || toLocalIsoString(),
       redeployCount: editingExam.redeployCount || 0,
       learningObjectives: Array.isArray(editingExam.learningObjectives) ? editingExam.learningObjectives.filter(Boolean).slice(0, 15) : []
     });
@@ -499,8 +500,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       sessionStatus: 'scheduled',
       allowLateSubmission: false,
       redeployCount: (exam.redeployCount || 0) + 1,
-      startsAt: new Date().toISOString().split('T')[0] + ' 07:00',
-      endsAt: new Date().toISOString().split('T')[0] + ' 23:59'
+      startsAt: getLocalDateInputValue() + ' 07:00',
+      endsAt: getLocalDateInputValue() + ' 23:59'
     });
     const qs = StorageService.getQuestionsByExamId(exam.id);
     await GasClient.pushExam(updated, qs);
@@ -766,7 +767,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     const updated: Exam = {
       ...exam,
       sessionStatus: 'active',
-      sessionStartedAt: now.toISOString(),
+      sessionStartedAt: toLocalIsoString(now),
       status: 'active',
       startsAt: exam.startsAt ? exam.startsAt : startsFormatted,
       endsAt: shouldExtendEndsAt ? endsFormatted : exam.endsAt
@@ -787,7 +788,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     const updated: Exam = {
       ...exam,
       sessionStatus: 'ended',
-      sessionEndedAt: new Date().toISOString()
+      sessionEndedAt: toLocalIsoString()
     };
     StorageService.upsertExam(updated);
     const qs = StorageService.getQuestionsByExamId(exam.id);
@@ -807,7 +808,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       status: 'stopped',
       sessionStatus: 'stopped',
       allowLateSubmission: false,
-      sessionEndedAt: new Date().toISOString()
+      sessionEndedAt: toLocalIsoString()
     };
     StorageService.upsertExam(updated);
     const qs = StorageService.getQuestionsByExamId(exam.id);

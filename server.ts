@@ -616,9 +616,15 @@ interface ConnectedClient {
 const connectedClients = new Set<ConnectedClient>();
 
 function sanitizeTimestamp(ts: any): number {
-  if (typeof ts === 'number') return ts;
-  const parsed = Date.parse(ts);
-  return isNaN(parsed) ? Date.now() : parsed;
+  if (typeof ts === 'number' && !Number.isNaN(ts)) return ts;
+  const str = String(ts || '').trim();
+  if (!str) return Date.now();
+  if (/^\d{10,13}$/.test(str)) {
+    const num = Number(str);
+    return str.length === 10 ? num * 1000 : num;
+  }
+  const parsed = Date.parse(str);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
 }
 
 function broadcastChatMessage(msg: ServerChatMessage) {

@@ -3,25 +3,42 @@ import { GasClient } from './gasClient';
 import { FirebaseChatService } from './firebaseChatService';
 
 type MessageListener = (message: ChatMessage) => void;
+type ReadChangeListener = () => void;
+type ClearListener = () => void;
+
 export interface OnlineStudentInfo {
   nis: string;
   name: string;
   classGrade?: string;
   examId?: string;
 }
+
 type PresenceListener = (onlineUsers: { teachers: number; students: number; onlineStudents?: OnlineStudentInfo[] }) => void;
 type StatusListener = (connected: boolean) => void;
+
+const READ_IDS_STORAGE_KEY = 'examflow_chat_read_ids_v1';
 
 class ChatService {
   private ws: WebSocket | null = null;
   private messageListeners: Set<MessageListener> = new Set();
   private presenceListeners: Set<PresenceListener> = new Set();
   private statusListeners: Set<StatusListener> = new Set();
+  private readChangeListeners: Set<ReadChangeListener> = new Set();
+  private clearListeners: Set<ClearListener> = new Set();
+
   private isConnected = false;
   private reconnectTimeout: any = null;
   private pollInterval: any = null;
   private knownMessageIds: Set<string> = new Set();
+  private messagesById: Map<string, ChatMessage> = new Map();
+  private readIds: Set<string> = new Set();
   private channel: BroadcastChannel | null = null;
+  private firebaseUnsubscribe: (() => void) | null = null;
+
+  private lastSheetsFetchAt = 0;
+  private sheetsFetchPromise: Promise<ChatMessage[]> | null = null;
+  private hasInitialSyncCompleted = false;
+
   private currentUser: {
     role: 'teacher' | 'student';
     name: string;
@@ -30,8 +47,43 @@ class ChatService {
   } | null = null;
 
   constructor() {
+    this.loadReadIds();
     this.setupBroadcastChannel();
+    this.setupGasEventBridge();
     this.startBackgroundSync();
+  }
+
+  private loadReadIds() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const raw = window.localStorage.getItem(READ_IDS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((id) => {
+            if (typeof id === 'string' && id) this.readIds.add(id);
+          });
+        }
+      }
+    } catch {}
+  }
+
+  private saveReadIds() {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const list = Array.from(this.readIds).slice(-600);
+      window.localStorage.setItem(READ_IDS_STORAGE_KEY, JSON.stringify(list));
+    } catch {}
+  }
+
+  private setupGasEventBridge() {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('examflow:gas-chat-synced', (e: any) => {
+      const msgs = e?.detail;
+      if (Array.isArray(msgs) && msgs.length > 0) {
+        this.ingestExternalMessages(msgs, this.hasInitialSyncCompleted);
+      }
+    });
   }
 
   private setupBroadcastChannel() {
@@ -40,7 +92,7 @@ class ChatService {
         this.channel = new BroadcastChannel('examflow_live_chat_channel');
         this.channel.onmessage = (event) => {
           if (event.data?.type === 'chat:message' && event.data.data) {
-            this.notifyMessage(event.data.data, false);
+            this.notifyMessage(event.data.data, false, true);
           }
         };
       } catch (err) {
@@ -54,7 +106,7 @@ class ChatService {
           try {
             const parsed = JSON.parse(e.newValue);
             if (parsed && parsed.data) {
-              this.notifyMessage(parsed.data, false);
+              this.notifyMessage(parsed.data, false, true);
             }
           } catch {}
         }
@@ -81,22 +133,41 @@ class ChatService {
     nis?: string;
     classGrade?: string;
   }) {
+    const roleChanged = this.currentUser?.role !== user.role;
+    const identityChanged =
+      roleChanged ||
+      this.currentUser?.nis !== user.nis ||
+      this.currentUser?.name !== user.name;
+
     this.currentUser = user;
+
+    if (roleChanged) {
+      this.knownMessageIds.clear();
+      this.hasInitialSyncCompleted = false;
+    }
+
     this.connect();
 
-    // Berlangganan real-time Google Cloud & Firebase Firestore untuk Fitur Chat Bantuan
-    try {
-      FirebaseChatService.subscribeMessages((msg) => {
-        this.notifyMessage(msg, false);
-      });
-    } catch (e) {
-      console.warn('[ChatService] Firebase subscription error:', e);
+    if (identityChanged && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.sendWsRegister();
+    }
+
+    // Berlangganan real-time Firebase Firestore sekali saja (singleton)
+    if (!this.firebaseUnsubscribe) {
+      try {
+        this.firebaseUnsubscribe = FirebaseChatService.subscribeMessages((msg) => {
+          this.notifyMessage(msg, false, this.hasInitialSyncCompleted);
+        });
+      } catch (e) {
+        console.warn('[ChatService] Firebase subscription error:', e);
+      }
     }
 
     const guestNis = typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') || undefined : undefined;
-    // Trigger immediate history fetch
-    this.getHistory({ nis: user.nis, role: user.role, guestNis }).then((msgs) => {
-      msgs.forEach((m) => this.notifyMessage(m, false));
+    // Muat riwayat gabungan (REST + Firestore + Google Sheets Chat_Bantuan)
+    this.getHistory({ nis: user.nis, role: user.role, guestNis, forceSheets: true }).then((msgs) => {
+      msgs.forEach((m) => this.notifyMessage(m, false, false));
+      this.hasInitialSyncCompleted = true;
     });
   }
 
@@ -106,8 +177,23 @@ class ChatService {
     nis?: string;
     classGrade?: string;
   }) {
+    const prev = this.currentUser;
     this.currentUser = { ...this.currentUser, ...user };
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    const changed =
+      !prev ||
+      prev.role !== this.currentUser.role ||
+      prev.nis !== this.currentUser.nis ||
+      prev.name !== this.currentUser.name ||
+      prev.classGrade !== this.currentUser.classGrade;
+
+    if (changed) {
+      this.sendWsRegister();
+    }
+  }
+
+  private sendWsRegister() {
+    if (!this.currentUser || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    try {
       this.ws.send(
         JSON.stringify({
           type: 'auth:register',
@@ -118,7 +204,7 @@ class ChatService {
           data: this.currentUser,
         })
       );
-    }
+    } catch {}
   }
 
   private connect() {
@@ -134,18 +220,7 @@ class ChatService {
       this.ws.onopen = () => {
         this.isConnected = true;
         this.notifyStatus(true);
-        if (this.currentUser) {
-          this.ws?.send(
-            JSON.stringify({
-              type: 'auth:register',
-              role: this.currentUser.role,
-              name: this.currentUser.name,
-              nis: this.currentUser.nis,
-              classGrade: this.currentUser.classGrade,
-              data: this.currentUser,
-            })
-          );
-        }
+        this.sendWsRegister();
       };
 
       this.ws.onmessage = (event) => {
@@ -153,11 +228,10 @@ class ChatService {
           const payload = JSON.parse(event.data);
 
           if (payload.type === 'chat:message' && payload.data) {
-            this.playNotificationSound();
-            this.notifyMessage(payload.data, true);
+            this.notifyMessage(payload.data, true, true);
           } else if ((payload.type === 'chat:history' || payload.type === 'chat:init') && payload.data) {
             const list = Array.isArray(payload.data) ? payload.data : (payload.data.messages || []);
-            list.forEach((msg: ChatMessage) => this.notifyMessage(msg, false));
+            list.forEach((msg: ChatMessage) => this.notifyMessage(msg, false, false));
           } else if (payload.type === 'chat:presence' && payload.data) {
             const d = payload.data;
             this.notifyPresence({
@@ -195,7 +269,7 @@ class ChatService {
 
   private startBackgroundSync() {
     if (this.pollInterval) clearInterval(this.pollInterval);
-    // Poll every 2 seconds to guarantee 100% sync reliability across all devices
+    // Poll setiap 2.5 detik (REST lokal cepat; Google Sheets di-throttle setiap ~4 detik)
     this.pollInterval = setInterval(async () => {
       if (!this.currentUser) return;
       try {
@@ -206,65 +280,189 @@ class ChatService {
           guestNis
         });
         if (Array.isArray(msgs) && msgs.length > 0) {
-          msgs.forEach((m) => this.notifyMessage(m, false));
+          msgs.forEach((m) => this.notifyMessage(m, false, this.hasInitialSyncCompleted));
         }
+        this.hasInitialSyncCompleted = true;
       } catch {
-        // Silently ignore background poll errors
+        // Abaikan error sementara pada polling latar belakang
       }
-    }, 2000);
+    }, 2500);
   }
 
-  public async getHistory(params?: { nis?: string; role?: string; guestNis?: string }): Promise<ChatMessage[]> {
-    let combinedMsgs: ChatMessage[] = [];
+  public isMessageRead(msg: ChatMessage, viewerRole?: 'teacher' | 'student'): boolean {
+    if (!msg) return true;
+    if (msg.id === 'MSG-INIT-001' || msg.id.startsWith('MSG-RESET-')) return true;
+    const role = viewerRole || this.currentUser?.role;
+    if (role && msg.senderRole === role) return true;
+    if (this.readIds.has(msg.id)) return true;
+    // Untuk pesan lama sebelum patch isRead, hanya hormati msg.isRead jika dilihat oleh guru untuk pesan siswa
+    if (role === 'teacher' && msg.senderRole === 'student' && msg.isRead) return true;
+    return false;
+  }
 
-    // 1. Ambil dari server REST (low latency & local cache)
-    try {
-      const query = new URLSearchParams();
-      if (params?.nis) query.append('nis', params.nis);
-      if (params?.guestNis) query.append('guestNis', params.guestNis);
-      if (params?.role) query.append('role', params.role);
+  private normalizeMessage(raw: any): ChatMessage | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const text = String(raw.text ?? raw.message ?? '').trim();
+    if (!text) return null;
 
-      const res = await fetch(`/api/chat/messages?${query.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        const rawMsgs = data.messages || [];
-        combinedMsgs = rawMsgs.map((m: any) => ({
-          ...m,
-          timestamp: typeof m.timestamp === 'number' ? m.timestamp : (Date.parse(m.timestamp) || Date.now()),
-        }));
-      }
-    } catch (e) {
-      console.warn('[ChatService] Failed to fetch chat history via REST:', e);
+    const rawRole = String(raw.senderRole || raw.senderType || 'student').trim().toLowerCase();
+    const senderRole: 'student' | 'teacher' | 'system' =
+      rawRole === 'teacher' || rawRole === 'guru' || rawRole === 'admin'
+        ? 'teacher'
+        : rawRole === 'system' || rawRole === 'sistem'
+        ? 'system'
+        : 'student';
+
+    const rawTs = raw.timestamp;
+    const timestamp =
+      typeof rawTs === 'number' && !Number.isNaN(rawTs)
+        ? rawTs
+        : (Date.parse(String(rawTs || '')) || Date.now());
+
+    const rawTarget = String(raw.targetNis ?? '').trim();
+    const targetNis = !rawTarget || rawTarget.toLowerCase() === 'all' ? 'all' : rawTarget;
+
+    const quickAction =
+      raw.quickAction && typeof raw.quickAction === 'object' && raw.quickAction.type
+        ? raw.quickAction
+        : undefined;
+
+    const id = String(raw.id || `MSG-${timestamp}-${raw.senderNis || 'anon'}`).trim();
+
+    return {
+      id,
+      senderRole,
+      senderType: senderRole,
+      senderName: String(raw.senderName || (senderRole === 'teacher' ? 'Guru Pengawas' : 'Siswa')).trim(),
+      senderNis: raw.senderNis ? String(raw.senderNis).trim() : '',
+      classGrade: raw.classGrade ? String(raw.classGrade).trim() : '',
+      examId: raw.examId ? String(raw.examId).trim() : '',
+      examTitle: raw.examTitle ? String(raw.examTitle).trim() : '',
+      targetNis,
+      targetName: raw.targetName ? String(raw.targetName).trim() : undefined,
+      text,
+      timestamp,
+      quickAction,
+      isRead: this.readIds.has(id) || Boolean(raw.isRead && !(senderRole === 'teacher' && this.currentUser?.role === 'student')),
+    };
+  }
+
+  private matchesStudentFilter(msg: ChatMessage, nis?: string, guestNis?: string): boolean {
+    const cleanTarget = String(msg.targetNis || '').trim().toLowerCase();
+    const cleanSender = String(msg.senderNis || '').trim().toLowerCase();
+    const myNis = String(nis || '').trim().toLowerCase();
+    const myGuest = String(guestNis || '').trim().toLowerCase();
+
+    if (!cleanTarget || cleanTarget === 'all') return true;
+    if (myNis && (cleanTarget === myNis || cleanSender === myNis)) return true;
+    if (myGuest && (cleanTarget === myGuest || cleanSender === myGuest)) return true;
+    return false;
+  }
+
+  private async fetchSheetsChatThrottled(force?: boolean): Promise<ChatMessage[]> {
+    const now = Date.now();
+    if (!force && now - this.lastSheetsFetchAt < 4000) {
+      return [];
+    }
+    if (this.sheetsFetchPromise) {
+      return this.sheetsFetchPromise;
     }
 
-    // 2. Sinkronkan dengan Google Cloud / Firebase Firestore
-    try {
-      const fbMsgs = await FirebaseChatService.getRecentMessages();
-      if (Array.isArray(fbMsgs) && fbMsgs.length > 0) {
-        const isTeacher = params?.role === 'teacher';
-        const myNis = String(params?.nis || '').trim().toLowerCase();
-        const myGuestNis = String(params?.guestNis || '').trim().toLowerCase();
+    this.lastSheetsFetchAt = now;
+    this.sheetsFetchPromise = GasClient.getChatMessages()
+      .catch(() => [])
+      .finally(() => {
+        this.sheetsFetchPromise = null;
+      });
 
-        const existingIds = new Set(combinedMsgs.map((m) => m.id));
-        fbMsgs.forEach((fm) => {
-          if (!existingIds.has(fm.id)) {
-            const target = String(fm.targetNis || '').trim().toLowerCase();
-            const sender = String(fm.senderNis || '').trim().toLowerCase();
-            const isBroadcast = !target || target === 'all';
-            const isForStudent = isBroadcast || (myNis && (target === myNis || sender === myNis)) || (myGuestNis && (target === myGuestNis || sender === myGuestNis));
+    return this.sheetsFetchPromise;
+  }
 
-            if (isTeacher || isForStudent) {
-              combinedMsgs.push(fm);
-              existingIds.add(fm.id);
-            }
-          }
-        });
+  public ingestExternalMessages(rawMsgs: any[], playSoundForNew = false) {
+    if (!Array.isArray(rawMsgs)) return;
+    rawMsgs.forEach((raw) => {
+      const normalized = this.normalizeMessage(raw);
+      if (normalized) {
+        this.messagesById.set(normalized.id, normalized);
+        this.notifyMessage(normalized, false, playSoundForNew);
       }
-    } catch {}
+    });
+  }
 
-    // Urutkan berdasarkan timestamp asc
-    combinedMsgs.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
-    return combinedMsgs;
+  public async getHistory(params?: {
+    nis?: string;
+    role?: string;
+    guestNis?: string;
+    forceSheets?: boolean;
+  }): Promise<ChatMessage[]> {
+    const isTeacher = (params?.role || this.currentUser?.role) === 'teacher';
+    const queryNis = params?.nis ?? this.currentUser?.nis;
+    const queryGuestNis =
+      params?.guestNis ??
+      (typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') || undefined : undefined);
+
+    // Jalankan fetch paralel dari Server REST, Firebase Firestore, dan Google Sheets (Chat_Bantuan)
+    const restPromise = (async (): Promise<ChatMessage[]> => {
+      try {
+        const query = new URLSearchParams();
+        if (queryNis) query.append('nis', queryNis);
+        if (queryGuestNis) query.append('guestNis', queryGuestNis);
+        if (isTeacher) query.append('role', 'teacher');
+        query.append('_t', String(Date.now()));
+
+        const res = await fetch(`/api/chat/messages?${query.toString()}`);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data.messages) ? data.messages : [];
+      } catch {
+        return [];
+      }
+    })();
+
+    const firestorePromise = FirebaseChatService.getRecentMessages().catch(() => []);
+    const sheetsPromise = this.fetchSheetsChatThrottled(params?.forceSheets);
+
+    const [restMsgs, fbMsgs, sheetMsgs] = await Promise.all([
+      restPromise,
+      firestorePromise,
+      sheetsPromise,
+    ]);
+
+    const mergeIntoCache = (list: any[]) => {
+      list.forEach((item) => {
+        const norm = this.normalizeMessage(item);
+        if (!norm) return;
+        const existing = this.messagesById.get(norm.id);
+        if (!existing) {
+          this.messagesById.set(norm.id, norm);
+        } else {
+          // Gabungkan metadata tambahan (misal quickAction atau targetName dari WS/Firestore jika di Sheets tidak ada)
+          this.messagesById.set(norm.id, {
+            ...norm,
+            targetName: existing.targetName || norm.targetName,
+            classGrade: existing.classGrade || norm.classGrade,
+            examTitle: existing.examTitle || norm.examTitle,
+            quickAction: existing.quickAction || norm.quickAction,
+            isRead: this.readIds.has(norm.id) || existing.isRead || norm.isRead,
+          });
+        }
+      });
+    };
+
+    mergeIntoCache(restMsgs);
+    mergeIntoCache(fbMsgs);
+    mergeIntoCache(sheetMsgs);
+
+    const roleForRead = isTeacher ? 'teacher' : 'student';
+    const combined = Array.from(this.messagesById.values())
+      .filter((m) => isTeacher || this.matchesStudentFilter(m, queryNis, queryGuestNis))
+      .map((m) => ({
+        ...m,
+        isRead: this.isMessageRead(m, roleForRead),
+      }));
+
+    combined.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+    return combined;
   }
 
   public async sendMessage(messageData: Partial<ChatMessage>): Promise<ChatMessage | null> {
@@ -282,18 +480,25 @@ class ChatService {
       classGrade: messageData.classGrade || this.currentUser?.classGrade || '',
       examId: messageData.examId,
       examTitle: messageData.examTitle,
-      targetNis: messageData.targetNis || (senderRole === 'student' ? 'all' : undefined),
+      targetNis: messageData.targetNis || 'all',
       targetName: messageData.targetName,
       text: String(messageData.text || '').trim(),
       timestamp: messageData.timestamp ? Number(messageData.timestamp) : Date.now(),
       quickAction: messageData.quickAction,
-      isRead: senderRole === 'teacher',
+      isRead: false, // Pesan baru selalu belum dibaca oleh penerima
     };
 
-    // 1. Optimistically notify local listeners and cross-tab BroadcastChannel immediately
-    this.notifyMessage(fullMessage, true);
+    if (!fullMessage.text) return null;
 
-    // 2. Try sending via WebSocket (low latency)
+    // Tandai sudah dibaca oleh pengirim di browser pengirim agar pengirim tidak mendapat badge unread sendiri
+    this.readIds.add(fullMessage.id);
+    this.saveReadIds();
+    this.messagesById.set(fullMessage.id, { ...fullMessage, isRead: true });
+
+    // 1. Optimistically notify local listeners & tab browser lain
+    this.notifyMessage({ ...fullMessage, isRead: true }, true, false);
+
+    // 2. WebSocket (low latency)
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(
@@ -307,7 +512,7 @@ class ChatService {
       }
     }
 
-    // 3. ALWAYS backup / persist with REST API to guarantee delivery even if WebSocket is blocked or disconnected
+    // 3. Server REST persistence
     try {
       fetch('/api/chat/messages', {
         method: 'POST',
@@ -318,20 +523,24 @@ class ChatService {
       });
     } catch {}
 
-    // 4. Kirim ke Google Cloud / Firebase Firestore khusus fitur Chat Bantuan
+    // 4. Firebase Firestore
     try {
       FirebaseChatService.sendMessage(fullMessage).catch((e) => {
         console.warn('[ChatService] Firestore send backup error:', e);
       });
     } catch {}
 
-    // 5. Mirror to Google Sheets (Chat_Bantuan sheet) in background
+    // 5. Google Sheets (Chat_Bantuan)
     GasClient.pushChatMessage({
       id: fullMessage.id,
       senderNis: fullMessage.senderNis || '',
       senderName: fullMessage.senderName,
       senderRole: fullMessage.senderRole,
       targetNis: fullMessage.targetNis || 'all',
+      targetName: fullMessage.targetName || '',
+      classGrade: fullMessage.classGrade || '',
+      examTitle: fullMessage.examTitle || '',
+      quickAction: fullMessage.quickAction,
       message: fullMessage.text,
       timestamp: new Date(fullMessage.timestamp).toISOString(),
       examId: fullMessage.examId || ''
@@ -341,9 +550,28 @@ class ChatService {
   }
 
   public async markAsRead(messageIds: string[]) {
-    if (messageIds.length === 0) return;
+    if (!Array.isArray(messageIds) || messageIds.length === 0) return;
+
+    let changed = false;
+    messageIds.forEach((id) => {
+      if (id && !this.readIds.has(id)) {
+        this.readIds.add(id);
+        changed = true;
+      }
+      const cached = this.messagesById.get(id);
+      if (cached && !cached.isRead) {
+        this.messagesById.set(id, { ...cached, isRead: true });
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      this.saveReadIds();
+      this.notifyReadChange();
+    }
+
     try {
-      await fetch('/api/chat/messages/mark-read', {
+      await fetch('/api/chat/mark-read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messageIds }),
@@ -351,6 +579,19 @@ class ChatService {
     } catch (e) {
       console.warn('[ChatService] Failed to mark messages as read:', e);
     }
+  }
+
+  public async clearAllHistory(): Promise<void> {
+    this.messagesById.clear();
+    this.knownMessageIds.clear();
+    try {
+      await fetch('/api/chat/messages', { method: 'DELETE' });
+    } catch {}
+    await GasClient.clearChatMessages();
+    this.clearListeners.forEach((fn) => {
+      try { fn(); } catch {}
+    });
+    this.notifyReadChange();
   }
 
   public subscribeMessages(listener: MessageListener) {
@@ -375,16 +616,59 @@ class ChatService {
     };
   }
 
-  private notifyMessage(msg: ChatMessage, broadcastToLocal: boolean = true) {
-    const normalized: ChatMessage = {
-      ...msg,
-      timestamp: typeof msg.timestamp === 'number' ? msg.timestamp : (Date.parse(String(msg.timestamp)) || Date.now()),
+  public subscribeReadChange(listener: ReadChangeListener) {
+    this.readChangeListeners.add(listener);
+    return () => {
+      this.readChangeListeners.delete(listener);
     };
+  }
+
+  public subscribeClear(listener: ClearListener) {
+    this.clearListeners.add(listener);
+    return () => {
+      this.clearListeners.delete(listener);
+    };
+  }
+
+  private notifyReadChange() {
+    this.readChangeListeners.forEach((fn) => {
+      try { fn(); } catch {}
+    });
+  }
+
+  private notifyMessage(
+    msg: ChatMessage,
+    broadcastToLocal: boolean = true,
+    allowNotificationSound: boolean = false
+  ) {
+    const normalized = this.normalizeMessage(msg);
+    if (!normalized) return;
+
+    // Pastikan pesan untuk siswa di sisi client siswa tetap terfilter jika datang dari Firestore/BroadcastChannel
+    if (this.currentUser?.role === 'student') {
+      const guestNis = typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') || undefined : undefined;
+      if (!this.matchesStudentFilter(normalized, this.currentUser.nis, guestNis)) {
+        return;
+      }
+    }
+
+    this.messagesById.set(normalized.id, normalized);
 
     if (this.knownMessageIds.has(normalized.id)) {
       return;
     }
     this.knownMessageIds.add(normalized.id);
+
+    // Putar suara notifikasi jika pesan masuk baru berasal dari peran lawan dan belum dibaca
+    const myRole = this.currentUser?.role;
+    const isIncomingFromOtherRole =
+      myRole === 'teacher'
+        ? normalized.senderRole === 'student'
+        : normalized.senderRole === 'teacher' || (normalized.senderRole === 'system' && normalized.id !== 'MSG-INIT-001');
+
+    if (allowNotificationSound && isIncomingFromOtherRole && !this.isMessageRead(normalized)) {
+      this.playNotificationSound();
+    }
 
     if (broadcastToLocal) {
       this.broadcastLocal(normalized);

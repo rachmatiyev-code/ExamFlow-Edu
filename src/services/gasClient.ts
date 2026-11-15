@@ -1,5 +1,5 @@
 import { StorageService } from './storage';
-import { Exam, Question, SchoolProfile, Submission, Student, UserAccount, CurriculumItem } from '../types';
+import { Exam, Question, SchoolProfile, Submission, Student, UserAccount, CurriculumItem, ChatMessage } from '../types';
 import { detectMediaType } from './mediaHelper';
 
 export interface PingResult {
@@ -175,8 +175,15 @@ export class GasClient {
         throw new Error(data.message || 'Data tidak ditemukan dalam respons Google Sheets');
       }
 
-      const { profile, exams, questions, students, submissions, users, curriculum } = data.data;
+      const { profile, exams, questions, students, submissions, users, curriculum, chat } = data.data;
       let count = 0;
+
+      if (Array.isArray(chat) && chat.length > 0 && typeof window !== 'undefined') {
+        const normalizedChat = this.normalizeSheetChatMessages(chat);
+        if (normalizedChat.length > 0) {
+          window.dispatchEvent(new CustomEvent('examflow:gas-chat-synced', { detail: normalizedChat }));
+        }
+      }
 
       if (profile && profile.name) {
         const local = StorageService.getProfile();
@@ -1067,6 +1074,73 @@ export class GasClient {
   }
 
   /**
+   * Menormalkan baris pesan dari sheet Chat_Bantuan menjadi objek ChatMessage standar
+   */
+  static normalizeSheetChatMessages(rawRows: any[]): ChatMessage[] {
+    if (!Array.isArray(rawRows)) return [];
+    const results: ChatMessage[] = [];
+    rawRows.forEach((row: any, idx: number) => {
+      if (!row || typeof row !== 'object') return;
+      const text = String(row.text ?? row.message ?? row['Pesan'] ?? row['pesan'] ?? '').trim();
+      if (!text) return;
+
+      const rawRole = String(row.senderRole || row.senderType || 'student').trim().toLowerCase();
+      const senderRole: 'student' | 'teacher' | 'system' =
+        rawRole === 'teacher' || rawRole === 'guru' || rawRole === 'admin'
+          ? 'teacher'
+          : rawRole === 'system' || rawRole === 'sistem'
+          ? 'system'
+          : 'student';
+
+      const rawTs = row.timestamp;
+      let ts = Date.now();
+      if (typeof rawTs === 'number' && !Number.isNaN(rawTs)) {
+        ts = rawTs;
+      } else if (rawTs) {
+        const parsed = Date.parse(String(rawTs));
+        if (!Number.isNaN(parsed)) ts = parsed;
+      }
+
+      const rawTarget = String(row.targetNis ?? '').trim();
+      const targetNis = !rawTarget || rawTarget.toLowerCase() === 'all' ? 'all' : rawTarget;
+
+      let quickAction = row.quickAction;
+      if (!quickAction && row.quickActionJson) {
+        try {
+          quickAction = typeof row.quickActionJson === 'string' ? JSON.parse(row.quickActionJson) : row.quickActionJson;
+        } catch {
+          quickAction = undefined;
+        }
+      }
+      if (typeof quickAction !== 'object' || quickAction === null || !quickAction.type) {
+        quickAction = undefined;
+      }
+
+      const senderNis = String(row.senderNis ?? row['NIS'] ?? '').trim();
+      const id = String(row.id || `GS-MSG-${ts}-${senderNis || idx}`).trim();
+
+      results.push({
+        id,
+        senderRole,
+        senderType: senderRole,
+        senderName: String(row.senderName || (senderRole === 'teacher' ? 'Guru Pengawas' : 'Siswa')).trim(),
+        senderNis,
+        classGrade: row.classGrade ? String(row.classGrade).trim() : '',
+        examId: row.examId ? String(row.examId).trim() : '',
+        examTitle: row.examTitle ? String(row.examTitle).trim() : '',
+        targetNis,
+        targetName: row.targetName ? String(row.targetName).trim() : undefined,
+        text,
+        timestamp: ts,
+        quickAction,
+        isRead: false
+      });
+    });
+
+    return results.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+  }
+
+  /**
    * Menyimpan pesan bantuan / chat ke tab Chat_Bantuan di Google Sheets dengan status 'success'
    */
   static async pushChatMessage(message: any): Promise<{ success: boolean; message: string }> {
@@ -1079,6 +1153,11 @@ export class GasClient {
         senderName: message.senderName || '',
         senderRole: message.senderRole || 'student',
         targetNis: message.targetNis || 'all',
+        targetName: message.targetName || '',
+        classGrade: message.classGrade || '',
+        examTitle: message.examTitle || '',
+        quickAction: message.quickAction || undefined,
+        quickActionJson: message.quickAction ? JSON.stringify(message.quickAction) : '',
         message: message.message || message.text || '',
         text: message.text || message.message || '',
         timestamp: message.timestamp ? new Date(message.timestamp).toISOString() : new Date().toISOString(),
@@ -1099,18 +1178,58 @@ export class GasClient {
   }
 
   /**
-   * Mengambil pesan live chat dari sheet Chat_Bantuan
+   * Mengambil pesan live chat dari sheet Chat_Bantuan via proxy server + fallback direct fetch
    */
-  static async getChatMessages(): Promise<any[]> {
+  static async getChatMessages(): Promise<ChatMessage[]> {
     const url = this.getWebAppUrl();
     if (!url) return [];
+
+    // 1. Coba via backend proxy /api/gas-proxy agar bebas CORS & redirect 302 Google
+    try {
+      const proxyRes = await fetch('/api/gas-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: `${url}${url.includes('?') ? '&' : '?'}action=getChatMessages&_t=${Date.now()}`,
+          payload: { action: 'getChatMessages' }
+        })
+      });
+      if (proxyRes.ok) {
+        const proxyJson = await proxyRes.json();
+        const rows = Array.isArray(proxyJson?.data)
+          ? proxyJson.data
+          : (Array.isArray(proxyJson?.messages) ? proxyJson.messages : null);
+        if (rows) {
+          return this.normalizeSheetChatMessages(rows);
+        }
+      }
+    } catch {
+      // Fallback ke direct browser fetch
+    }
+
+    // 2. Fallback direct GET ke GAS
     try {
       const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}action=getChatMessages&_t=${Date.now()}`);
-      const data = await res.json();
-      return Array.isArray(data?.data) ? data.data : [];
+      const parsed = await this.safeParseGasResponse(res);
+      if (parsed.isJson && parsed.data) {
+        const rows = Array.isArray(parsed.data?.data) ? parsed.data.data : [];
+        return this.normalizeSheetChatMessages(rows);
+      }
+      return [];
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Membersihkan riwayat chat di sheet Chat_Bantuan Google Sheets
+   */
+  static async clearChatMessages(): Promise<void> {
+    const url = this.getWebAppUrl();
+    if (!url) return;
+    try {
+      await this.postToGas({ action: 'clearChatMessages' });
+    } catch {}
   }
 
   /**

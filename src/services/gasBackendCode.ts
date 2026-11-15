@@ -75,7 +75,8 @@ const CANONICAL_SUBMISSION_HEADERS = [
 ];
 
 const CANONICAL_CHAT_HEADERS = [
-  'id', 'senderNis', 'senderName', 'senderRole', 'targetNis', 'message', 'timestamp', 'examId', 'status'
+  'id', 'senderNis', 'senderName', 'senderRole', 'targetNis', 'message', 'timestamp', 'examId', 'status',
+  'targetName', 'classGrade', 'examTitle', 'quickActionJson'
 ];
 
 /**
@@ -1127,6 +1128,10 @@ function doPost(e) {
         shChat = ss.getSheetByName(SHEETS.CHAT);
       }
       ensureMinColumns(shChat, CANONICAL_CHAT_HEADERS.length);
+      shChat.getRange(1, 1, 1, CANONICAL_CHAT_HEADERS.length).setValues([CANONICAL_CHAT_HEADERS]);
+      const quickActionStr = msg.quickActionJson
+        ? String(msg.quickActionJson)
+        : (msg.quickAction && typeof msg.quickAction === 'object' ? JSON.stringify(msg.quickAction) : '');
       shChat.appendRow([
         String(msg.id || ('MSG-' + Date.now())),
         String(msg.senderNis || ''),
@@ -1136,7 +1141,11 @@ function doPost(e) {
         String(msg.message || msg.text || ''),
         String(msg.timestamp || new Date().toISOString()),
         String(msg.examId || ''),
-        String(msg.status || 'success')
+        String(msg.status || 'success'),
+        String(msg.targetName || ''),
+        String(msg.classGrade || ''),
+        String(msg.examTitle || ''),
+        quickActionStr
       ]);
       return jsonResponse({ status: 'success', message: 'Pesan chat disimpan di Google Sheets dengan status success' });
     }
@@ -1160,7 +1169,11 @@ function doPost(e) {
       }
       if (msgs.length > 0) {
         ensureMinColumns(shChat, CANONICAL_CHAT_HEADERS.length);
+        shChat.getRange(1, 1, 1, CANONICAL_CHAT_HEADERS.length).setValues([CANONICAL_CHAT_HEADERS]);
         const rows = msgs.map(function(m) {
+          const quickActionStr = m.quickActionJson
+            ? String(m.quickActionJson)
+            : (m.quickAction && typeof m.quickAction === 'object' ? JSON.stringify(m.quickAction) : '');
           return [
             String(m.id || ('MSG-' + Utilities.getUuid().slice(0, 8))),
             String(m.senderNis || ''),
@@ -1170,7 +1183,11 @@ function doPost(e) {
             String(m.message || m.text || ''),
             String(m.timestamp || new Date().toISOString()),
             String(m.examId || ''),
-            String(m.status || 'success')
+            String(m.status || 'success'),
+            String(m.targetName || ''),
+            String(m.classGrade || ''),
+            String(m.examTitle || ''),
+            quickActionStr
           ];
         });
         const lastRow = shChat.getLastRow();

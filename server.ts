@@ -731,6 +731,11 @@ apiRouter.post('/chat/messages', (req, res) => {
       return res.status(400).json({ success: false, message: 'Isi pesan tidak boleh kosong.' });
     }
 
+    const normalizedTarget = (!d.targetNis || String(d.targetNis).trim().toLowerCase() === 'all')
+      ? 'all'
+      : String(d.targetNis).trim();
+    const parsedQuickAction = d.quickAction && typeof d.quickAction === 'object' ? d.quickAction : undefined;
+
     const msgId = d.id || `MSG-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const newMsg: ServerChatMessage = {
       id: msgId,
@@ -741,12 +746,12 @@ apiRouter.post('/chat/messages', (req, res) => {
       classGrade: d.classGrade ? String(d.classGrade).trim() : '',
       examId: d.examId ? String(d.examId).trim() : '',
       examTitle: d.examTitle ? String(d.examTitle).trim() : '',
-      targetNis: (!d.targetNis || d.targetNis === 'all') ? 'all' : String(d.targetNis).trim(),
+      targetNis: normalizedTarget,
       targetName: d.targetName ? String(d.targetName).trim() : undefined,
       text: text,
       timestamp: d.timestamp ? sanitizeTimestamp(d.timestamp) : Date.now(),
-      isRead: sRole === 'teacher',
-      quickAction: d.quickAction || 'general'
+      isRead: Boolean(d.isRead),
+      quickAction: parsedQuickAction
     };
 
     const existingIndex = chatMessages.findIndex(m => m.id === newMsg.id);
@@ -769,9 +774,9 @@ apiRouter.post('/chat/messages', (req, res) => {
   }
 });
 
-// 3. POST /api/chat/mark-read
-apiRouter.post('/chat/mark-read', (req, res) => {
-  const { nis, messageIds } = req.body;
+// 3. POST /api/chat/mark-read & /api/chat/messages/mark-read
+const handleMarkRead = (req: express.Request, res: express.Response) => {
+  const { nis, messageIds } = req.body || {};
   if (Array.isArray(messageIds) && messageIds.length > 0) {
     const idSet = new Set(messageIds);
     chatMessages.forEach(m => {
@@ -786,7 +791,9 @@ apiRouter.post('/chat/mark-read', (req, res) => {
     saveChatMessagesToDisk();
   }
   return res.json({ success: true });
-});
+};
+apiRouter.post('/chat/mark-read', handleMarkRead);
+apiRouter.post('/chat/messages/mark-read', handleMarkRead);
 
 // 4. DELETE /api/chat/messages
 apiRouter.delete('/chat/messages', (_req, res) => {
@@ -1114,17 +1121,22 @@ async function startServer() {
             classGrade: d.classGrade || '',
             examId: d.examId || '',
             examTitle: d.examTitle || '',
-            targetNis: (!d.targetNis || d.targetNis === 'all') ? 'all' : String(d.targetNis).trim(),
+            targetNis: (!d.targetNis || String(d.targetNis).trim().toLowerCase() === 'all') ? 'all' : String(d.targetNis).trim(),
             targetName: d.targetName ? String(d.targetName).trim() : undefined,
             text: String(d.text || '').trim(),
-            timestamp: Date.now(),
-            isRead: sRole === 'teacher',
-            quickAction: d.quickAction || 'general'
+            timestamp: d.timestamp ? sanitizeTimestamp(d.timestamp) : Date.now(),
+            isRead: Boolean(d.isRead),
+            quickAction: d.quickAction && typeof d.quickAction === 'object' ? d.quickAction : undefined
           };
 
           if (newMsg.text.length > 0) {
-            chatMessages.push(newMsg);
-            if (chatMessages.length > 500) chatMessages.shift();
+            const existingIdx = chatMessages.findIndex(m => m.id === newMsg.id);
+            if (existingIdx >= 0) {
+              chatMessages[existingIdx] = newMsg;
+            } else {
+              chatMessages.push(newMsg);
+              if (chatMessages.length > 500) chatMessages.shift();
+            }
             broadcastChatMessage(newMsg);
             saveChatMessagesToDisk();
           }

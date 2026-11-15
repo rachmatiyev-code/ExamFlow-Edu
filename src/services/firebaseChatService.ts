@@ -71,9 +71,21 @@ export class FirebaseChatService {
 
     try {
       const colRef = collection(firestoreDb, this.COLLECTION_NAME);
-      const q = query(colRef, orderBy('timestamp', 'asc'), limit(150));
+      const q = query(colRef, orderBy('timestamp', 'desc'), limit(150));
+
+      const parseTs = (rawTs: any, createdAt: any): number => {
+        if (typeof rawTs === 'number' && !Number.isNaN(rawTs)) return rawTs;
+        if (rawTs && typeof rawTs.toMillis === 'function') return rawTs.toMillis();
+        if (typeof rawTs === 'string') {
+          const parsed = Date.parse(rawTs);
+          if (!Number.isNaN(parsed)) return parsed;
+        }
+        if (createdAt && typeof createdAt.toMillis === 'function') return createdAt.toMillis();
+        return Date.now();
+      };
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
+        const addedMsgs: ChatMessage[] = [];
         snapshot.docChanges().forEach((change) => {
           if (change.type === 'added') {
             const data = change.doc.data();
@@ -82,22 +94,25 @@ export class FirebaseChatService {
               senderRole: data.senderRole || 'student',
               senderType: data.senderType || data.senderRole || 'student',
               senderName: data.senderName || 'Siswa',
-              senderNis: data.senderNis || '',
+              senderNis: data.senderNis ? String(data.senderNis) : '',
               classGrade: data.classGrade || '',
               examId: data.examId || '',
               examTitle: data.examTitle || '',
-              targetNis: data.targetNis || 'all',
+              targetNis: data.targetNis ? String(data.targetNis) : 'all',
               targetName: data.targetName || '',
-              text: data.text || '',
-              timestamp: typeof data.timestamp === 'number' ? data.timestamp : Date.now(),
+              text: data.text || data.message || '',
+              timestamp: parseTs(data.timestamp, data.createdAt),
               quickAction: data.quickAction || undefined,
               isRead: Boolean(data.isRead)
             };
-            onNewMessage(message);
+            if (message.text) addedMsgs.push(message);
           }
         });
+        addedMsgs
+          .sort((a, b) => Number(a.timestamp) - Number(b.timestamp))
+          .forEach((m) => onNewMessage(m));
       }, (error) => {
-        console.warn('[FirebaseChat] Snapshot listener error (akan fallback ke WebSocket/GAS):', error);
+        console.warn('[FirebaseChat] Snapshot listener error (akan fallback ke Google Sheets/WebSocket):', error);
       });
 
       return unsubscribe;
@@ -114,29 +129,34 @@ export class FirebaseChatService {
     if (!firestoreDb) return [];
     try {
       const colRef = collection(firestoreDb, this.COLLECTION_NAME);
-      const q = query(colRef, orderBy('timestamp', 'asc'), limit(150));
+      const q = query(colRef, orderBy('timestamp', 'desc'), limit(150));
       const snapshot = await getDocs(q);
       const msgs: ChatMessage[] = [];
       snapshot.forEach(doc => {
         const data = doc.data();
+        const ts = typeof data.timestamp === 'number'
+          ? data.timestamp
+          : (data.createdAt && typeof data.createdAt.toMillis === 'function' ? data.createdAt.toMillis() : (Date.parse(String(data.timestamp || '')) || Date.now()));
+        const text = String(data.text || data.message || '').trim();
+        if (!text) return;
         msgs.push({
           id: data.id || doc.id,
           senderRole: data.senderRole || 'student',
           senderType: data.senderType || data.senderRole || 'student',
           senderName: data.senderName || 'Siswa',
-          senderNis: data.senderNis || '',
+          senderNis: data.senderNis ? String(data.senderNis) : '',
           classGrade: data.classGrade || '',
           examId: data.examId || '',
           examTitle: data.examTitle || '',
-          targetNis: data.targetNis || 'all',
+          targetNis: data.targetNis ? String(data.targetNis) : 'all',
           targetName: data.targetName || '',
-          text: data.text || '',
-          timestamp: typeof data.timestamp === 'number' ? data.timestamp : Date.now(),
+          text,
+          timestamp: ts,
           quickAction: data.quickAction || undefined,
           isRead: Boolean(data.isRead)
         });
       });
-      return msgs;
+      return msgs.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
     } catch (e) {
       console.warn('[FirebaseChat] Failed to get recent messages from Firestore:', e);
       return [];

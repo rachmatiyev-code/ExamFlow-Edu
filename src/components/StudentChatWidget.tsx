@@ -22,14 +22,23 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
-  const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [presence, setPresence] = useState({ teachers: 0, students: 0 });
+  const [incomingToast, setIncomingToast] = useState<{ sender: string; text: string } | null>(null);
 
   // Guest / Identified user state
-  const [nis, setNis] = useState(
-    initialStudentNo || (typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') || '' : '')
-  );
+  const [nis, setNis] = useState(() => {
+    if (initialStudentNo) return initialStudentNo;
+    if (typeof window !== 'undefined') {
+      const existing = localStorage.getItem('guest_student_nis');
+      if (existing) return existing;
+      const generated = `guest_${Math.floor(1000 + Math.random() * 9000)}`;
+      localStorage.setItem('guest_student_nis', generated);
+      return generated;
+    }
+    return 'guest_1000';
+  });
   const [name, setName] = useState(
     initialStudentName || (typeof window !== 'undefined' ? localStorage.getItem('guest_student_name') || '' : '')
   );
@@ -37,14 +46,64 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
   const [isEditingIdentity, setIsEditingIdentity] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isOpenRef = useRef(isOpen);
+  isOpenRef.current = isOpen;
+  const toastTimeoutRef = useRef<any>(null);
+  const nisRef = useRef(nis);
+  nisRef.current = nis;
+  const nameRef = useRef(name);
+  nameRef.current = name;
 
-  // Sync props if parent changes them (e.g. user typed in login modal)
+  const isMessageForStudent = (msg: ChatMessage): boolean => {
+    const currentGuestNis =
+      typeof window !== 'undefined' ? (localStorage.getItem('guest_student_nis') || '').trim().toLowerCase() : '';
+    const currentMyNis = String(nisRef.current || currentGuestNis).trim().toLowerCase();
+    const currentMyName = String(nameRef.current || (typeof window !== 'undefined' ? localStorage.getItem('guest_student_name') : '') || '')
+      .trim()
+      .toLowerCase();
+
+    const targetNis = String(msg.targetNis || '').trim().toLowerCase();
+    const senderNis = String(msg.senderNis || '').trim().toLowerCase();
+    const targetName = String(msg.targetName || '').trim().toLowerCase();
+
+    const isBroadcast = !targetNis || targetNis === 'all';
+    const isTargetedToMe =
+      Boolean(currentMyNis && targetNis === currentMyNis) ||
+      Boolean(currentGuestNis && targetNis === currentGuestNis) ||
+      Boolean(currentMyName && targetNis === currentMyName) ||
+      Boolean(currentMyName && targetName && targetName === currentMyName);
+    const isSentByMe =
+      Boolean(currentMyNis && senderNis === currentMyNis) ||
+      Boolean(currentGuestNis && senderNis === currentGuestNis) ||
+      Boolean(currentMyName && !senderNis && String(msg.senderName || '').trim().toLowerCase() === currentMyName);
+
+    return isBroadcast || isTargetedToMe || isSentByMe;
+  };
+
+  const showToastNotification = (msg: ChatMessage) => {
+    setIncomingToast({
+      sender: msg.senderName || 'Pengawas Ujian',
+      text: msg.text,
+    });
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    toastTimeoutRef.current = setTimeout(() => {
+      setIncomingToast(null);
+    }, 8000);
+  };
+
+  // Sync props if parent changes them (e.g. user logged in)
   useEffect(() => {
-    if (initialStudentNo) setNis(initialStudentNo);
-    if (initialStudentName) setName(initialStudentName);
-    if (initialClassGrade) setGrade(initialClassGrade);
+    if (initialStudentNo && initialStudentNo !== nis) {
+      setNis(initialStudentNo);
+    }
+    if (initialStudentName && initialStudentName !== name) {
+      setName(initialStudentName);
+    }
+    if (initialClassGrade && initialClassGrade !== grade) {
+      setGrade(initialClassGrade);
+    }
 
-    if (initialStudentNo || initialStudentName) {
+    if (initialStudentNo || initialStudentName || initialClassGrade) {
       chatService.updateUserInfo({
         role: 'student',
         name: initialStudentName || name || 'Siswa',
@@ -52,16 +111,19 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
         classGrade: initialClassGrade || grade || currentExam?.grade || '',
       });
     }
-  }, [initialStudentNo, initialStudentName, initialClassGrade, currentExam]);
+  }, [initialStudentNo, initialStudentName, initialClassGrade, currentExam?.grade]);
 
-  // Initialize ChatService
+  // Initialize ChatService & fetch history (REST + Firestore + Google Sheets)
   useEffect(() => {
-    const studentIdentifier = nis || localStorage.getItem('guest_student_nis') || `guest_${Math.floor(1000 + Math.random() * 9000)}`;
-    if (!nis) {
+    const storedGuestNis =
+      typeof window !== 'undefined' ? (localStorage.getItem('guest_student_nis') || '').trim() : '';
+    const studentIdentifier = (nis || storedGuestNis || `guest_${Math.floor(1000 + Math.random() * 9000)}`).trim();
+    if (typeof window !== 'undefined' && !storedGuestNis) {
       localStorage.setItem('guest_student_nis', studentIdentifier);
     }
 
-    const studentDisplayName = name || localStorage.getItem('guest_student_name') || 'Siswa (Tamu)';
+    const studentDisplayName =
+      name || (typeof window !== 'undefined' ? localStorage.getItem('guest_student_name') : '') || 'Siswa (Tamu)';
 
     chatService.initialize({
       role: 'student',
@@ -70,52 +132,67 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
       classGrade: grade || currentExam?.grade || '',
     });
 
-    const storedGuestNis = (localStorage.getItem('guest_student_nis') || '').trim().toLowerCase();
+    const loadHistory = async (forceSheets = false) => {
+      const history = await chatService.getHistory({
+        role: 'student',
+        nis: studentIdentifier,
+        guestNis: storedGuestNis,
+        forceSheets,
+      });
+      const filtered = history
+        .filter(isMessageForStudent)
+        .sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+      setMessages(filtered);
 
-    // Fetch message history with both nis and guestNis
-    chatService.getHistory({ nis: studentIdentifier, guestNis: storedGuestNis }).then((history) => {
-      setMessages(history);
-    });
+      const unreadIncoming = filtered.filter(
+        (m) =>
+          (m.senderRole === 'teacher' || (m.senderRole === 'system' && m.id !== 'MSG-INIT-001')) &&
+          !chatService.isMessageRead(m, 'student')
+      );
+      if (unreadIncoming.length > 0 && !isOpenRef.current) {
+        showToastNotification(unreadIncoming[unreadIncoming.length - 1]);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      loadHistory(true);
+    }, 250);
 
     const unsubscribeMsg = chatService.subscribeMessages((msg) => {
-      // Check if message is for this student or is a broadcast or sent by this student
-      const currentGuestNis = (localStorage.getItem('guest_student_nis') || '').trim().toLowerCase();
-      const currentMyNis = String(nis || currentGuestNis).trim().toLowerCase();
-      const currentMyName = String(name || localStorage.getItem('guest_student_name') || '').trim().toLowerCase();
-      
-      const targetNis = String(msg.targetNis || '').trim().toLowerCase();
-      const senderNis = String(msg.senderNis || '').trim().toLowerCase();
-      const targetName = String(msg.targetName || '').trim().toLowerCase();
+      if (!isMessageForStudent(msg)) return;
 
-      const isBroadcast = !targetNis || targetNis === 'all';
-      const isTargetedToMe = 
-        Boolean(currentMyNis && (targetNis === currentMyNis || currentMyNis.includes(targetNis) || targetNis.includes(currentMyNis))) ||
-        Boolean(currentGuestNis && (targetNis === currentGuestNis || currentGuestNis.includes(targetNis) || targetNis.includes(currentGuestNis))) ||
-        Boolean(currentMyName && targetName && targetName === currentMyName);
-      const isSentByMe = 
-        Boolean(currentMyNis && (senderNis === currentMyNis || currentMyNis.includes(senderNis) || senderNis.includes(currentMyNis))) ||
-        Boolean(currentGuestNis && (senderNis === currentGuestNis || currentGuestNis.includes(senderNis) || senderNis.includes(currentGuestNis)));
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === msg.id)) return prev;
+        return [...prev, msg].sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+      });
 
-      const isForMe = isBroadcast || isTargetedToMe || isSentByMe;
+      const isFromTeacher =
+        msg.senderRole === 'teacher' || (msg.senderRole === 'system' && msg.id !== 'MSG-INIT-001');
 
-      if (isForMe) {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === msg.id)) return prev;
-          return [...prev, msg];
-        });
-
-        if (!isOpen && msg.senderRole === 'teacher') {
-          setUnreadCount((c) => c + 1);
-        }
-
-        // Trigger action callbacks if teacher sent quick actions
-        if (msg.quickAction?.type === 'send_token' && msg.quickAction.token && onApplyToken) {
-          onApplyToken(msg.quickAction.token);
-        }
-        if (msg.quickAction?.type === 'grant_retake' && onRetakeGranted) {
-          onRetakeGranted();
-        }
+      if (!isOpenRef.current && isFromTeacher && !chatService.isMessageRead(msg, 'student')) {
+        showToastNotification(msg);
       }
+
+      // Trigger action callbacks if teacher sent quick actions
+      if (msg.quickAction?.type === 'send_token' && msg.quickAction.token && onApplyToken) {
+        onApplyToken(msg.quickAction.token);
+      }
+      if (msg.quickAction?.type === 'grant_retake' && onRetakeGranted) {
+        onRetakeGranted();
+      }
+    });
+
+    const unsubscribeRead = chatService.subscribeReadChange(() => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          chatService.isMessageRead(m, 'student') ? { ...m, isRead: true } : m
+        )
+      );
+    });
+
+    const unsubscribeClear = chatService.subscribeClear(() => {
+      setMessages([]);
+      setIncomingToast(null);
     });
 
     const unsubscribePresence = chatService.subscribePresence((p) => {
@@ -127,18 +204,33 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
     });
 
     return () => {
+      clearTimeout(timer);
       unsubscribeMsg();
+      unsubscribeRead();
+      unsubscribeClear();
       unsubscribePresence();
       unsubscribeStatus();
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     };
-  }, [nis, name, grade, currentExam]);
+  }, [nis]);
+
+  const unreadCount = messages.filter(
+    (m) =>
+      (m.senderRole === 'teacher' || (m.senderRole === 'system' && m.id !== 'MSG-INIT-001')) &&
+      !chatService.isMessageRead(m, 'student')
+  ).length;
 
   useEffect(() => {
     if (isOpen) {
-      setUnreadCount(0);
+      setIncomingToast(null);
       scrollToBottom();
-      // Mark messages as read
-      const unreadIds = messages.filter((m) => !m.isRead && m.senderRole === 'teacher').map((m) => m.id);
+      const unreadIds = messages
+        .filter(
+          (m) =>
+            (m.senderRole === 'teacher' || (m.senderRole === 'system' && m.id !== 'MSG-INIT-001')) &&
+            !chatService.isMessageRead(m, 'student')
+        )
+        .map((m) => m.id);
       if (unreadIds.length > 0) {
         chatService.markAsRead(unreadIds);
       }
@@ -149,6 +241,27 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const storedGuestNis =
+        typeof window !== 'undefined' ? (localStorage.getItem('guest_student_nis') || '').trim() : '';
+      const history = await chatService.getHistory({
+        role: 'student',
+        nis: nis || storedGuestNis,
+        guestNis: storedGuestNis,
+        forceSheets: true,
+      });
+      setMessages(
+        history
+          .filter(isMessageForStudent)
+          .sort((a, b) => Number(a.timestamp) - Number(b.timestamp))
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const handleSendMessage = async (customText?: string, quickActionType?: string) => {
     const textToSend = (customText !== undefined ? customText : inputText).trim();
     if (!textToSend) return;
@@ -156,7 +269,6 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
     const currentNis = nis || localStorage.getItem('guest_student_nis') || 'Tamu';
     const currentName = name || 'Siswa';
 
-    // Update ChatService current user
     chatService.updateUserInfo({
       role: 'student',
       name: currentName,
@@ -200,15 +312,47 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
     setIsEditingIdentity(false);
   };
 
-  const myIdentifier = nis || localStorage.getItem('guest_student_nis');
+  const myIdentifier = nis || (typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') : '') || '';
+  const myGuestIdentifier = typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') || '' : '';
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 font-sans print:hidden">
+    <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-2 font-sans print:hidden">
+      {/* Toast Notifikasi Pesan Masuk dari Guru */}
+      {!isOpen && incomingToast && (
+        <div
+          onClick={() => setIsOpen(true)}
+          className="max-w-xs bg-slate-900 text-white p-3 rounded-2xl shadow-2xl border border-emerald-400/50 text-xs animate-in slide-in-from-bottom-3 duration-200 cursor-pointer hover:bg-slate-800 transition-all"
+        >
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-emerald-400 font-bold flex items-center gap-1">
+              💬 Pesan dari {incomingToast.sender}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIncomingToast(null);
+              }}
+              className="text-slate-400 hover:text-white px-1"
+              aria-label="Tutup notifikasi"
+            >
+              ×
+            </button>
+          </div>
+          <p className="text-slate-100 line-clamp-2 leading-relaxed text-[11px]">
+            {incomingToast.text}
+          </p>
+          <span className="text-[10px] text-emerald-300 font-semibold mt-1 inline-block">
+            Klik untuk membaca pesan &rarr;
+          </span>
+        </div>
+      )}
+
       {/* Floating Action Trigger Button */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="relative flex items-center gap-2.5 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-full shadow-2xl hover:from-emerald-700 hover:to-teal-800 transition-all transform hover:scale-105 active:scale-95 border-2 border-emerald-400/40"
+          className="relative flex items-center gap-2.5 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-full shadow-2xl hover:from-emerald-700 hover:to-teal-800 transition-all transform hover:scale-105 active:scale-95 border-2 border-emerald-400/40 cursor-pointer"
           title="Bantuan & Chat Pengawas Ujian"
         >
           <div className="relative">
@@ -217,7 +361,7 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
             </svg>
             <span
               className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${
-                isConnected ? (presence.teachers > 0 ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-red-400'
+                unreadCount > 0 ? 'bg-red-500 animate-ping' : isConnected ? (presence.teachers > 0 ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-red-400'
               }`}
             />
           </div>
@@ -225,7 +369,13 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
           <div className="text-left">
             <div className="text-xs font-bold leading-tight">Bantuan Pengawas</div>
             <div className="text-[10px] text-emerald-100 flex items-center gap-1">
-              <span>{presence.teachers > 0 ? `${presence.teachers} Guru Online` : 'Kirim Pesan'}</span>
+              <span>
+                {unreadCount > 0
+                  ? `${unreadCount} pesan baru`
+                  : presence.teachers > 0
+                  ? `${presence.teachers} Guru Online`
+                  : 'Kirim Pesan'}
+              </span>
             </div>
           </div>
 
@@ -255,19 +405,29 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
                     className={`w-2 h-2 rounded-full ${
                       isConnected ? (presence.teachers > 0 ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-red-400'
                     }`}
-                    title={presence.teachers > 0 ? 'Guru sedang aktif' : 'Belum ada guru yang membuka dashboard chat'}
+                    title={presence.teachers > 0 ? 'Guru sedang aktif' : 'Sinkronisasi melalui Google Sheets & Server'}
                   />
                 </h3>
                 <p className="text-[10px] text-emerald-200 leading-tight">
-                  {presence.teachers > 0 ? `${presence.teachers} Guru Siaga • Respon Cepat` : 'Google Cloud & Firebase Real-Time'}
+                  {presence.teachers > 0 ? `${presence.teachers} Guru Siaga • Respon Cepat` : 'Live Chat & Sinkronisasi Google Sheets'}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-1">
               <button
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className="p-1.5 hover:bg-white/10 rounded-lg text-emerald-100 hover:text-white transition-colors cursor-pointer"
+                title="Muat Ulang Pesan Terbaru"
+              >
+                <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+              <button
                 onClick={() => setIsEditingIdentity(!isEditingIdentity)}
-                className="p-1.5 hover:bg-white/10 rounded-lg text-emerald-100 hover:text-white transition-colors"
+                className="p-1.5 hover:bg-white/10 rounded-lg text-emerald-100 hover:text-white transition-colors cursor-pointer"
                 title="Ubah Identitas / NIS"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -276,7 +436,7 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
               </button>
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-1.5 hover:bg-white/10 rounded-lg text-emerald-100 hover:text-white transition-colors"
+                className="p-1.5 hover:bg-white/10 rounded-lg text-emerald-100 hover:text-white transition-colors cursor-pointer"
                 title="Tutup Chat"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -345,7 +505,7 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
             </div>
           )}
 
-          {/* Quick Request Chips (Crucial for students who haven't logged in yet!) */}
+          {/* Quick Request Chips */}
           <div className="bg-slate-100/80 px-2.5 py-2 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             <button
               onClick={() => handleSendMessage('Halo Bapak/Ibu Guru, saya minta Token Ujian untuk masuk sesi.', 'request_token')}
@@ -389,7 +549,11 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
               </div>
             ) : (
               messages.map((msg) => {
-                const isMe = msg.senderRole === 'student' && (!myIdentifier || msg.senderNis === myIdentifier);
+                const msgSender = String(msg.senderNis || '').trim().toLowerCase();
+                const isMe =
+                  msg.senderRole === 'student' &&
+                  ((myIdentifier && msgSender === myIdentifier.trim().toLowerCase()) ||
+                    (myGuestIdentifier && msgSender === myGuestIdentifier.trim().toLowerCase()));
                 const isBroadcast = (msg.senderRole === 'teacher' || msg.senderType === 'system') && (!msg.targetNis || msg.targetNis === 'all');
 
                 return (

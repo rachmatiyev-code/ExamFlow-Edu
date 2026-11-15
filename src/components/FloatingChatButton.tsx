@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { MessageSquare, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { MessageSquare, Sparkles, X } from 'lucide-react';
 import { chatService } from '../services/chatService';
+import { StorageService } from '../services/storage';
+import { ChatMessage } from '../types';
 
 interface FloatingChatButtonProps {
   currentTab: string;
@@ -11,42 +13,92 @@ export const FloatingChatButton: React.FC<FloatingChatButtonProps> = ({
   currentTab,
   onOpenTeacherChat,
 }) => {
-  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [unreadMessages, setUnreadMessages] = useState<ChatMessage[]>([]);
   const [lastIncomingMessage, setLastIncomingMessage] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
-  const [toastTimeout, setToastTimeout] = useState<any>(null);
+  const toastTimeoutRef = useRef<any>(null);
+  const currentTabRef = useRef(currentTab);
+  currentTabRef.current = currentTab;
+
+  const triggerToast = (msg: ChatMessage) => {
+    const preview = `${msg.senderName}${msg.senderNis ? ` (${msg.senderNis})` : ''}: "${
+      msg.text.length > 55 ? msg.text.slice(0, 55) + '...' : msg.text
+    }"`;
+    setLastIncomingMessage(preview);
+    setShowToast(true);
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    toastTimeoutRef.current = setTimeout(() => {
+      setShowToast(false);
+    }, 7000);
+  };
 
   useEffect(() => {
-    const unsub = chatService.subscribeMessages((msg) => {
-      // Notifikasi bila pesan berasal dari siswa (untuk guru/pengawas)
-      if (msg.senderRole === 'student') {
-        setUnreadCount((c) => c + 1);
-        const preview = `${msg.senderName}: "${msg.text.length > 40 ? msg.text.slice(0, 40) + '...' : msg.text}"`;
-        setLastIncomingMessage(preview);
-        setShowToast(true);
+    if (currentTab === 'student') return;
 
-        if (toastTimeout) clearTimeout(toastTimeout);
-        const t = setTimeout(() => {
-          setShowToast(false);
-        }, 6000);
-        setToastTimeout(t);
+    const profile = StorageService.getProfile();
+    chatService.initialize({
+      role: 'teacher',
+      name: profile.teacherName || 'Pengawas Ujian (Guru)',
+    });
+
+    const syncUnreadFromHistory = async () => {
+      const history = await chatService.getHistory({ role: 'teacher' });
+      const unread = history.filter(
+        (m) => m.senderRole === 'student' && !chatService.isMessageRead(m, 'teacher')
+      );
+      setUnreadMessages(unread);
+      if (unread.length > 0) {
+        const latest = unread[unread.length - 1];
+        setLastIncomingMessage(
+          `${latest.senderName}${latest.senderNis ? ` (${latest.senderNis})` : ''}: "${
+            latest.text.length > 55 ? latest.text.slice(0, 55) + '...' : latest.text
+          }"`
+        );
+        setShowToast(true);
+      }
+    };
+
+    syncUnreadFromHistory();
+
+    const unsubMsg = chatService.subscribeMessages((msg) => {
+      if (currentTabRef.current === 'student') return;
+      if (msg.senderRole === 'student' && !chatService.isMessageRead(msg, 'teacher')) {
+        setUnreadMessages((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+        triggerToast(msg);
       }
     });
 
+    const unsubRead = chatService.subscribeReadChange(() => {
+      setUnreadMessages((prev) =>
+        prev.filter((m) => !chatService.isMessageRead(m, 'teacher'))
+      );
+    });
+
+    const unsubClear = chatService.subscribeClear(() => {
+      setUnreadMessages([]);
+      setShowToast(false);
+      setLastIncomingMessage(null);
+    });
+
     return () => {
-      unsub();
-      if (toastTimeout) clearTimeout(toastTimeout);
+      unsubMsg();
+      unsubRead();
+      unsubClear();
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     };
-  }, [toastTimeout]);
+  }, [currentTab]);
 
   // Sembunyikan floating button jika pengguna sedang aktif di portal siswa (karena sudah ada StudentChatWidget)
-  // atau saat berada di dalam tab 'chat' guru
   if (currentTab === 'student') {
     return null;
   }
 
+  const unreadCount = unreadMessages.length;
+
   const handleClick = () => {
-    setUnreadCount(0);
     setShowToast(false);
     onOpenTeacherChat();
   };
@@ -55,13 +107,26 @@ export const FloatingChatButton: React.FC<FloatingChatButtonProps> = ({
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2 no-print font-sans">
       {/* Toast Notifikasi Pesan Masuk Melayang */}
       {showToast && lastIncomingMessage && (
-        <div 
+        <div
           onClick={handleClick}
           className="max-w-xs bg-slate-900 text-white p-3 rounded-2xl shadow-2xl border border-emerald-500/40 text-xs animate-in slide-in-from-bottom-3 duration-200 cursor-pointer hover:bg-slate-800 transition-all"
         >
-          <div className="flex items-center gap-1.5 text-emerald-400 font-bold mb-1">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Pesan Masuk dari Siswa</span>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Pesan Masuk dari Siswa</span>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowToast(false);
+              }}
+              className="text-slate-400 hover:text-white p-0.5 rounded"
+              aria-label="Tutup notifikasi"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
           <p className="text-slate-200 line-clamp-2 leading-relaxed text-[11px]">
             {lastIncomingMessage}
@@ -80,7 +145,11 @@ export const FloatingChatButton: React.FC<FloatingChatButtonProps> = ({
       >
         <div className="relative">
           <MessageSquare className="w-5 h-5 text-white" />
-          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-300 animate-ping" />
+          <span
+            className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ${
+              unreadCount > 0 ? 'bg-red-400 animate-ping' : 'bg-emerald-300 animate-pulse'
+            }`}
+          />
         </div>
 
         <div className="text-left hidden sm:block">

@@ -147,15 +147,42 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     }
   }, [initialSubTab]);
 
-  // Subscribe to live incoming student messages to update unread badge
+  // Initialize teacher chat & subscribe to live incoming student messages for unread badge
   useEffect(() => {
-    const unsub = chatService.subscribeMessages((msg) => {
-      if (msg.senderRole === 'student' && !msg.isRead) {
-        setChatUnreadCount((c) => c + 1);
+    const teacherName = profile.teacherName || 'Pengawas Ujian (Guru)';
+    chatService.initialize({
+      role: 'teacher',
+      name: teacherName,
+    });
+
+    const refreshUnreadCount = async () => {
+      const history = await chatService.getHistory({ role: 'teacher' });
+      const unread = history.filter(
+        (m) => m.senderRole === 'student' && !chatService.isMessageRead(m, 'teacher')
+      );
+      setChatUnreadCount(unread.length);
+    };
+
+    refreshUnreadCount();
+
+    const unsubMsg = chatService.subscribeMessages((msg) => {
+      if (msg.senderRole === 'student' && !chatService.isMessageRead(msg, 'teacher')) {
+        refreshUnreadCount();
       }
     });
-    return unsub;
-  }, []);
+    const unsubRead = chatService.subscribeReadChange(() => {
+      refreshUnreadCount();
+    });
+    const unsubClear = chatService.subscribeClear(() => {
+      setChatUnreadCount(0);
+    });
+
+    return () => {
+      unsubMsg();
+      unsubRead();
+      unsubClear();
+    };
+  }, [profile.teacherName]);
 
   // Curriculum State (Capaian Pembelajaran, Elemen & Tujuan Pembelajaran Kurikulum Merdeka)
   const [curriculumList, setCurriculumList] = useState<CurriculumItem[]>(() => StorageService.getCurriculum());

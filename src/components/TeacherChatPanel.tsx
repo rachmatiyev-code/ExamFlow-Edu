@@ -37,6 +37,13 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const loadFullHistory = async (forceSheets = false) => {
+    const history = await chatService.getHistory({ role: 'teacher', forceSheets });
+    setMessages(history);
+  };
+
   // Initialize teacher chat session
   useEffect(() => {
     const profile = StorageService.getProfile();
@@ -47,15 +54,26 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
       name: teacherName,
     });
 
-    chatService.getHistory({ role: 'teacher' }).then((history) => {
-      setMessages(history);
-    });
+    loadFullHistory(true);
 
     const unsubscribeMsg = chatService.subscribeMessages((msg) => {
       setMessages((prev) => {
-        if (prev.some((m) => m.id === msg.id)) return prev;
-        return [...prev, msg];
+        const existingIdx = prev.findIndex((m) => m.id === msg.id);
+        if (existingIdx >= 0) return prev;
+        return [...prev, msg].sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
       });
+    });
+
+    const unsubscribeRead = chatService.subscribeReadChange(() => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          chatService.isMessageRead(m, 'teacher') ? { ...m, isRead: true } : m
+        )
+      );
+    });
+
+    const unsubscribeClear = chatService.subscribeClear(() => {
+      setMessages([]);
     });
 
     const unsubscribePresence = chatService.subscribePresence((p) => {
@@ -68,6 +86,8 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
 
     return () => {
       unsubscribeMsg();
+      unsubscribeRead();
+      unsubscribeClear();
       unsubscribePresence();
       unsubscribeStatus();
     };
@@ -148,7 +168,6 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
     // 3. Masukkan riwayat pesan dan perbarui status percakapan
     messages.forEach((msg) => {
       const cleanTarget = String(msg.targetNis || '').trim().toLowerCase();
-      const isTeacherBroadcast = (msg.senderRole === 'teacher' || msg.senderType === 'system') && (!cleanTarget || cleanTarget === 'all');
       const isStudentSender = msg.senderRole === 'student' || msg.senderType === 'student';
 
       // Update Live Feed item timestamp and preview
@@ -157,30 +176,34 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
         liveFeedItem.lastMessage = `${msg.senderName}: ${msg.text}`;
         liveFeedItem.lastTimestamp = Number(msg.timestamp);
       }
-      if (isStudentSender && !msg.isRead) {
+      const isUnreadMsg = isStudentSender && !chatService.isMessageRead(msg, 'teacher');
+      if (isUnreadMsg) {
         liveFeedItem.unreadCount += 1;
       }
 
       // Student thread key: NIS or Guest ID
-      const studentNis = isStudentSender ? (msg.senderNis || 'Tamu') : (msg.targetNis || '');
-      if (!studentNis || studentNis === 'all') return;
+      const studentNis = isStudentSender ? (msg.senderNis || msg.senderName || 'Tamu') : (msg.targetNis || '');
+      if (!studentNis || studentNis.toLowerCase() === 'all') return;
 
-      const studentName = isStudentSender ? (msg.senderName || 'Siswa') : (msg.targetName || 'Siswa');
+      const matchedStudent = students.find(
+        (st) => String(st.studentNo || '').trim().toLowerCase() === String(studentNis).trim().toLowerCase()
+      );
+      const studentName = isStudentSender
+        ? (msg.senderName || matchedStudent?.fullName || 'Siswa')
+        : (msg.targetName || matchedStudent?.fullName || 'Siswa');
       const existing = map.get(studentNis);
-
-      const isUnread = !msg.isRead && isStudentSender;
 
       if (!existing) {
         map.set(studentNis, {
           id: studentNis,
           nis: studentNis,
           name: studentName,
-          classGrade: msg.classGrade,
+          classGrade: msg.classGrade || matchedStudent?.classGrade,
           examTitle: msg.examTitle,
           examId: msg.examId,
           lastMessage: msg.text,
           lastTimestamp: Number(msg.timestamp) || Date.now(),
-          unreadCount: isUnread ? 1 : 0,
+          unreadCount: isUnreadMsg ? 1 : 0,
           isOnline: false
         });
       } else {
@@ -191,9 +214,9 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
           if (msg.examTitle) existing.examTitle = msg.examTitle;
           if (msg.examId) existing.examId = msg.examId;
           if (msg.classGrade) existing.classGrade = msg.classGrade;
-          if (isStudentSender) existing.name = msg.senderName;
+          if (isStudentSender && msg.senderName) existing.name = msg.senderName;
         }
-        if (isUnread) {
+        if (isUnreadMsg) {
           existing.unreadCount += 1;
         }
       }
@@ -262,7 +285,7 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
     // Mark active conversation unread student messages as read
     if (selectedThreadId !== 'broadcast') {
       const unreadIds = threadMessages
-        .filter((m) => !m.isRead && m.senderRole === 'student')
+        .filter((m) => m.senderRole === 'student' && !chatService.isMessageRead(m, 'teacher'))
         .map((m) => m.id);
       if (unreadIds.length > 0) {
         chatService.markAsRead(unreadIds);
@@ -333,7 +356,7 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
 
   const handleClearHistory = async () => {
     try {
-      await fetch('/api/chat/messages', { method: 'DELETE' });
+      await chatService.clearAllHistory();
       setMessages([]);
       setShowClearConfirm(false);
     } catch (e) {
@@ -341,7 +364,27 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
     }
   };
 
-  const totalUnreadCount = conversations.reduce((acc, c) => acc + c.unreadCount, 0);
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await loadFullHistory(true);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleMarkAllRead = () => {
+    const unreadIds = messages
+      .filter((m) => m.senderRole === 'student' && !chatService.isMessageRead(m, 'teacher'))
+      .map((m) => m.id);
+    if (unreadIds.length > 0) {
+      chatService.markAsRead(unreadIds);
+    }
+  };
+
+  const totalUnreadCount = conversations
+    .filter((c) => c.id !== 'broadcast')
+    .reduce((acc, c) => acc + c.unreadCount, 0) || (conversations[0]?.unreadCount || 0);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-[700px] max-h-[85vh]">
@@ -366,22 +409,42 @@ export const TeacherChatPanel: React.FC<TeacherChatPanelProps> = ({ exams, stude
               <span>Siswa dapat menghubungi Anda bahkan sebelum login ujian</span>
               <span>•</span>
               <span className="flex items-center gap-1 font-semibold text-emerald-300">
-                <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-emerald-300'}`} />
-                <span>Google Cloud & Firebase Firestore Real-Time</span>
+                <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-amber-300'}`} />
+                <span>Sinkronisasi Live + Google Sheets</span>
               </span>
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="bg-white/10 px-3 py-1.5 rounded-lg border border-white/15 text-xs flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
             <span><strong>{presence.students}</strong> Siswa Aktif Terhubung</span>
           </div>
 
+          {totalUnreadCount > 0 && (
+            <button
+              onClick={handleMarkAllRead}
+              className="text-xs bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-100 hover:text-white px-3 py-1.5 rounded-lg border border-emerald-400/30 transition-colors cursor-pointer"
+              title="Tandai semua pesan siswa sudah dibaca"
+            >
+              Tandai Dibaca
+            </button>
+          )}
+
+          <button
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg border border-white/20 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+            title="Muat ulang pesan terbaru dari Google Sheets & Server"
+          >
+            <span className={isRefreshing ? 'animate-spin inline-block' : ''}>🔄</span>
+            <span>{isRefreshing ? 'Memuat...' : 'Segarkan'}</span>
+          </button>
+
           <button
             onClick={() => setShowClearConfirm(true)}
-            className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-200 hover:text-white px-3 py-1.5 rounded-lg border border-red-400/30 transition-colors"
+            className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-200 hover:text-white px-3 py-1.5 rounded-lg border border-red-400/30 transition-colors cursor-pointer"
             title="Hapus riwayat pesan chat"
           >
             Bersihkan Riwayat

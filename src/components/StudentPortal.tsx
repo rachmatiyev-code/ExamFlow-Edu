@@ -1090,12 +1090,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         if (isMatch) {
           totalScore += points;
         }
-      } else if (q.type === 'matching') {
+      } else if (q.type === 'matching' || q.type === 'short_answer') {
         if (AnalysisService.isAnswerCorrect(q, ans)) {
           totalScore += points;
         }
       } else if (q.type === 'essay') {
-        // Essay defaults to 70% or teacher review
+        // Essay defaults to 80% if meaningful answer or teacher review
         if (ans && typeof ans === 'string' && ans.trim().length > 10) {
           totalScore += Math.round(points * 0.8);
         }
@@ -1324,6 +1324,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     } else {
                       studentAnswerText = 'Tidak dijawab';
                     }
+                  } else if (q.type === 'short_answer') {
+                    studentAnswerText = typeof studentAns === 'string' && studentAns.trim() ? studentAns : 'Tidak dijawab';
+                    isCorrect = AnalysisService.isAnswerCorrect(q, studentAns);
                   } else if (q.type === 'essay') {
                     studentAnswerText = typeof studentAns === 'string' && studentAns.trim() ? studentAns : 'Tidak dijawab';
                     isCorrect = Boolean(studentAns && String(studentAns).trim().length > 5);
@@ -1347,7 +1350,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                             {idx + 1}
                           </span>
                           <span className="font-semibold text-slate-700 dark:text-slate-300">
-                            {q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'Pilihan Ganda Kompleks' : q.type === 'matching' ? 'Menjodohkan / Mencocokkan' : 'Uraian / Esai'}
+                            {q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'Pilihan Ganda Kompleks' : q.type === 'matching' ? 'Menjodohkan / Mencocokkan' : q.type === 'short_answer' ? 'Isian Pendek / Singkat' : 'Uraian / Esai'}
                           </span>
                           <span className="text-[11px] text-slate-400 font-mono">
                             ({q.points || 10} Poin)
@@ -1888,19 +1891,44 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   );
                 })()}
 
+                {currentQ.type === 'short_answer' && (() => {
+                  const canModify = canModifyQuestion(currentQ.id);
+                  return (
+                    <div className="space-y-2 p-4 rounded-xl bg-cyan-50/40 dark:bg-cyan-950/20 border border-cyan-200/80 dark:border-cyan-900/50">
+                      <label className="text-xs font-semibold text-cyan-900 dark:text-cyan-200 block">
+                        Ketik Jawaban Singkat Anda (1 kata, istilah, atau angka hasil akhir):
+                      </label>
+                      <input
+                        type="text"
+                        readOnly={!canModify.allowed}
+                        value={(userAnswers[currentQ.id] as string) || ''}
+                        onChange={(e) => handleEssayChange(currentQ.id, e.target.value)}
+                        placeholder={canModify.allowed ? "Tulis jawaban singkat Anda di sini..." : "Jawaban terkunci sesuai aturan ujian."}
+                        className={`w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white text-sm font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors ${
+                          !canModify.allowed ? 'opacity-80 cursor-not-allowed' : ''
+                        }`}
+                      />
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                        <span>Bentuk soal Isian Pendek (koreksi otomatis tidak peka huruf besar/kecil).</span>
+                        <span className="font-mono">{((userAnswers[currentQ.id] as string) || '').length} karakter</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {currentQ.type === 'essay' && (() => {
                   const canModify = canModifyQuestion(currentQ.id);
                   return (
                     <div className="space-y-2">
                       <label className="text-xs font-medium text-slate-500 dark:text-slate-400 block">
-                        Tuliskan jawaban uraian Anda pada kotak di bawah ini:
+                        Tuliskan jawaban uraian lengkap Anda pada kotak di bawah ini:
                       </label>
                       <textarea
                         rows={6}
                         readOnly={!canModify.allowed}
                         value={(userAnswers[currentQ.id] as string) || ''}
                         onChange={(e) => handleEssayChange(currentQ.id, e.target.value)}
-                        placeholder={canModify.allowed ? "Ketik jawaban lengkap di sini..." : "Jawaban terkunci sesuai aturan ujian."}
+                        placeholder={canModify.allowed ? "Ketik penjelasan atau uraian lengkap di sini..." : "Jawaban terkunci sesuai aturan ujian."}
                         className={`w-full p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors ${
                           !canModify.allowed ? 'opacity-80 cursor-not-allowed' : ''
                         }`}
@@ -1989,7 +2017,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     const corrKeys = Array.isArray(currentQ.correctKey) ? currentQ.correctKey : [currentQ.correctKey];
                     const selectedList = Array.isArray(currentAns) ? currentAns : [];
                     isCorrect = corrKeys.length === selectedList.length && corrKeys.every(k => selectedList.includes(k));
-                  } else if (currentQ.type === 'matching') {
+                  } else if (currentQ.type === 'matching' || currentQ.type === 'short_answer') {
                     isCorrect = AnalysisService.isAnswerCorrect(currentQ, currentAns);
                   }
 

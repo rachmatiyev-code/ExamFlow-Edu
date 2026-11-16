@@ -1,10 +1,12 @@
 import { StorageService } from './storage';
 import { Question } from '../types';
+import { GoogleDriveService } from './googleDriveService';
 
 export interface QuestionTypeBreakdown {
   multipleChoice: number;
   checkbox: number;
   trueFalse: number;
+  shortAnswer: number;
   essay: number;
 }
 
@@ -13,12 +15,14 @@ export interface GenerateParams {
   count: number;
   difficulty: 'Mudah' | 'Sedang' | 'Sukar';
   taxonomy: 'bloom' | 'solo';
-  questionType?: 'multiple_choice' | 'checkbox' | 'true_false' | 'essay' | 'mixed';
+  questionType?: 'multiple_choice' | 'checkbox' | 'true_false' | 'short_answer' | 'essay' | 'mixed';
   typeBreakdown?: QuestionTypeBreakdown;
   subject: string;
   grade: string;
   learningObjectives?: string[]; // Hingga 15 Tujuan Pembelajaran (TP)
   customPrompt?: string; // Prompt / instruksi khusus dari guru
+  includeMedia?: boolean;
+  mediaPreference?: 'auto' | 'illustration' | 'chart';
 }
 
 export class AiGeneratorService {
@@ -237,20 +241,22 @@ export class AiGeneratorService {
       const batchCount = batchSizes[bIdx];
       const qType = params.questionType || 'multiple_choice';
       let typeInstruction = '';
-      if (params.typeBreakdown && (params.typeBreakdown.multipleChoice > 0 || params.typeBreakdown.checkbox > 0 || params.typeBreakdown.trueFalse > 0 || params.typeBreakdown.essay > 0)) {
+      if (params.typeBreakdown && (params.typeBreakdown.multipleChoice > 0 || params.typeBreakdown.checkbox > 0 || params.typeBreakdown.trueFalse > 0 || (params.typeBreakdown.shortAnswer || 0) > 0 || params.typeBreakdown.essay > 0)) {
         const tb = params.typeBreakdown;
         typeInstruction = `Distribusi Kuantitas per Bentuk Soal (Wajib Ditaati Persis Total ${batchCount} butir):\n` +
           (tb.multipleChoice > 0 ? `- Buat persis ${tb.multipleChoice} butir Pilihan Ganda Tunggal ("type": "multiple_choice", 4 pilihan opsi opt_a..opt_d, 1 kunci benar)\n` : '') +
           (tb.checkbox > 0 ? `- Buat persis ${tb.checkbox} butir Pilihan Ganda Kompleks ("type": "checkbox", 4 pilihan opsi opt_a..opt_d, 2 atau lebih kunci benar)\n` : '') +
           (tb.trueFalse > 0 ? `- Buat persis ${tb.trueFalse} butir Benar/Salah ("type": "multiple_choice", 2 pilihan: Benar & Salah, 1 kunci benar)\n` : '') +
-          (tb.essay > 0 ? `- Buat persis ${tb.essay} butir Uraian / Isian Singkat ("type": "essay", "options": [], kunci berupa teks acuan)\n` : '');
+          ((tb.shortAnswer || 0) > 0 ? `- Buat persis ${tb.shortAnswer} butir Isian Pendek / Singkat ("type": "short_answer", "options": [], kunci berupa 1 kata/frasa/angka eksak, pisahkan variasi sah dengan " | ")\n` : '') +
+          (tb.essay > 0 ? `- Buat persis ${tb.essay} butir Uraian / Esai ("type": "essay", "options": [], kunci berupa rubrik / poin jawaban panjang)\n` : '');
       } else {
         typeInstruction = 
           qType === 'multiple_choice' ? 'Semua butir soal berbentuk Pilihan Ganda Tunggal ("type": "multiple_choice") dengan 4 atau 5 pilihan ("options") dan 1 kunci benar ("correctKey": "opt_a").' :
           qType === 'checkbox' ? 'Semua butir soal berbentuk Pilihan Ganda Kompleks ("type": "checkbox") dengan 4 atau 5 pilihan di mana terdapat 2 atau lebih jawaban yang benar ("correctKey": ["opt_a", "opt_c"]).' :
           qType === 'true_false' ? 'Semua butir soal berbentuk Benar/Salah ("type": "multiple_choice") dengan 2 opsi ("opt_a": "Benar", "opt_b": "Salah") dan "correctKey" berupa "opt_a" atau "opt_b".' :
-          qType === 'essay' ? 'Semua butir soal berbentuk Uraian / Isian Singkat ("type": "essay") dengan "options": [] dan "correctKey" berupa rangkuman jawaban/kata kunci esai.' :
-          'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), dan Uraian ("type": "essay").';
+          qType === 'short_answer' ? 'Semua butir soal berbentuk Isian Pendek / Singkat ("type": "short_answer") dengan "options": [] dan "correctKey" berupa jawaban singkat pasti (1 kata, istilah, atau angka; pisahkan variasi dengan " | ").' :
+          qType === 'essay' ? 'Semua butir soal berbentuk Uraian / Esai ("type": "essay") dengan "options": [] dan "correctKey" berupa rangkuman jawaban/rubrik penskoran esai.' :
+          'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), Isian Pendek ("type": "short_answer"), dan Uraian ("type": "essay").';
       }
 
       const validObjectives = Array.isArray(params.learningObjectives) ? params.learningObjectives.filter(Boolean).slice(0, 15) : [];
@@ -332,8 +338,9 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
   {
     "order": ${allAccumulatedQuestions.length + 1},
     "prompt": "Stimulus bacaan 2-4 paragraf yang kaya dan kontekstual... (diikuti kalimat pertanyaan analisis yang jelas)",
-    "type": "${qType === 'checkbox' ? 'checkbox' : qType === 'essay' ? 'essay' : 'multiple_choice'}",
+    "type": "${qType === 'checkbox' ? 'checkbox' : qType === 'short_answer' ? 'short_answer' : qType === 'essay' ? 'essay' : 'multiple_choice'}",
     "mediaType": "none",
+    ${params.includeMedia ? '"illustrationType": "illustration",\n    "illustrationPrompt": "Deskripsi rinci gambar/diagram/grafik lengkap dengan data/label (tanpa membocorkan jawaban)",' : ''}
     "options": [
       { "id": "opt_a", "text": "Teks opsi A (tanpa awalan huruf A.)" },
       { "id": "opt_b", "text": "Teks opsi B (tanpa awalan huruf B.)" },
@@ -381,7 +388,9 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
             grade: params.grade,
             customApiKey,
             learningObjectives: params.learningObjectives,
-            customPrompt: params.customPrompt
+            customPrompt: params.customPrompt,
+            includeMedia: params.includeMedia,
+            mediaPreference: params.mediaPreference
           })
         });
 
@@ -481,6 +490,49 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
     }
 
     if (allAccumulatedQuestions.length > 0) {
+      if (params.includeMedia) {
+        const visualTargets = allAccumulatedQuestions.filter((item) => {
+          const iType = String(item?.illustrationType || '').toLowerCase();
+          return Boolean(item?.illustrationPrompt && iType !== 'none');
+        });
+        const targets = visualTargets.length > 0
+          ? visualTargets
+          : allAccumulatedQuestions.slice(0, Math.min(3, allAccumulatedQuestions.length));
+
+        for (let tIdx = 0; tIdx < targets.length; tIdx++) {
+          const qItem = targets[tIdx];
+          if (onProgress) {
+            onProgress(
+              tIdx + 1,
+              targets.length,
+              `Membuat gambar/grafik ilustrasi ${tIdx + 1}/${targets.length} & menyimpan ke Google Drive...`
+            );
+          }
+          try {
+            const vType =
+              qItem.illustrationType === 'chart'
+                ? 'chart'
+                : params.mediaPreference === 'chart'
+                ? 'chart'
+                : params.mediaPreference === 'illustration'
+                ? 'illustration'
+                : 'auto';
+
+            const result = await GoogleDriveService.generateAndSaveIllustration({
+              prompt: qItem.illustrationPrompt || qItem.prompt || params.topic,
+              questionPrompt: qItem.prompt || '',
+              subject: params.subject,
+              grade: params.grade,
+              visualType: vType,
+              fileNamePrefix: `soal_${params.subject.replace(/\s+/g, '_').toLowerCase()}`
+            });
+            qItem.mediaType = 'image';
+            qItem.mediaUrl = result.driveResult.mediaUrl;
+          } catch (imgErr) {
+            console.warn(`Gagal membuat ilustrasi soal ke-${tIdx + 1}:`, imgErr);
+          }
+        }
+      }
       return this.formatGeneratedQuestions(examId, allAccumulatedQuestions, params);
     }
 
@@ -548,24 +600,38 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
   private static formatGeneratedQuestions(examId: string, list: any[], params: GenerateParams) {
     let formatted: Question[] = list.map((item: any, idx: number) => {
       const id = `Q-AI-${Date.now()}-${idx + 1}`;
+      const resolvedType: Question['type'] =
+        item.type === 'checkbox' || item.type === 'short_answer' || item.type === 'essay' || item.type === 'matching'
+          ? item.type
+          : params.questionType === 'checkbox'
+          ? 'checkbox'
+          : params.questionType === 'short_answer'
+          ? 'short_answer'
+          : params.questionType === 'essay'
+          ? 'essay'
+          : 'multiple_choice';
+
+      const isTextAnswerType = resolvedType === 'short_answer' || resolvedType === 'essay' || resolvedType === 'matching';
+      const hasGeneratedImage = item.mediaType === 'image' && Boolean(item.mediaUrl);
+
       return {
         id,
         examId,
         order: idx + 1,
         prompt: item.prompt || 'Soal asesmen',
-        type: item.type === 'checkbox' || item.type === 'essay' ? item.type : (params.questionType === 'checkbox' ? 'checkbox' : params.questionType === 'essay' ? 'essay' : 'multiple_choice'),
-        mediaType: item.mediaType === 'image' ? 'image' : 'none',
-        mediaUrl: item.mediaType === 'image' ? (item.mediaUrl || 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=800&auto=format&fit=crop&q=80') : undefined,
-        options: (item.type === 'essay' || params.questionType === 'essay') 
-          ? [] 
+        type: resolvedType,
+        mediaType: hasGeneratedImage ? 'image' : 'none',
+        mediaUrl: hasGeneratedImage ? item.mediaUrl : undefined,
+        options: isTextAnswerType
+          ? []
           : (Array.isArray(item.options) && item.options.length > 0 ? item.options : [
               { id: 'opt_a', text: 'Pilihan A' },
               { id: 'opt_b', text: 'Pilihan B' },
               { id: 'opt_c', text: 'Pilihan C' },
               { id: 'opt_d', text: 'Pilihan D' }
             ]),
-        correctKey: item.correctKey || (item.type === 'checkbox' || params.questionType === 'checkbox' ? ['opt_a'] : 'opt_a'),
-        points: Number(item.points) || 20,
+        correctKey: item.correctKey || (resolvedType === 'checkbox' ? ['opt_a'] : resolvedType === 'short_answer' || resolvedType === 'essay' ? '' : 'opt_a'),
+        points: Number(item.points) || (resolvedType === 'short_answer' ? 10 : 20),
         explanation: item.explanation || '',
         bloomLevel: item.bloomLevel || 'C3 - Menerapkan',
         soloLevel: item.soloLevel || 'Multistructural',

@@ -307,7 +307,9 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
       grade = 'SMA/SMK',
       customApiKey,
       learningObjectives = [],
-      customPrompt = ''
+      customPrompt = '',
+      includeMedia = false,
+      mediaPreference = 'auto'
     } = req.body;
 
     const apiKey = (customApiKey || process.env.GEMINI_API_KEY || '').trim();
@@ -335,20 +337,31 @@ apiRouter.post('/gemini/generate-questions', async (req, res) => {
       : '';
 
     let typeInstruction = '';
-    if (typeBreakdown && (typeBreakdown.multipleChoice > 0 || typeBreakdown.checkbox > 0 || typeBreakdown.trueFalse > 0 || typeBreakdown.essay > 0)) {
+    if (typeBreakdown && (typeBreakdown.multipleChoice > 0 || typeBreakdown.checkbox > 0 || typeBreakdown.trueFalse > 0 || (typeBreakdown.shortAnswer || 0) > 0 || typeBreakdown.essay > 0)) {
       typeInstruction = `Distribusi Kuantitas per Bentuk Soal (Wajib Ditaati Persis Total ${count} butir):\n` +
         (typeBreakdown.multipleChoice > 0 ? `- Buat persis ${typeBreakdown.multipleChoice} butir Pilihan Ganda Tunggal ("type": "multiple_choice", 4 pilihan opsi opt_a..opt_d, 1 kunci benar)\n` : '') +
         (typeBreakdown.checkbox > 0 ? `- Buat persis ${typeBreakdown.checkbox} butir Pilihan Ganda Kompleks ("type": "checkbox", 4 pilihan opsi opt_a..opt_d, 2 atau lebih kunci benar)\n` : '') +
         (typeBreakdown.trueFalse > 0 ? `- Buat persis ${typeBreakdown.trueFalse} butir Benar/Salah ("type": "multiple_choice", 2 pilihan: Benar & Salah, 1 kunci benar)\n` : '') +
-        (typeBreakdown.essay > 0 ? `- Buat persis ${typeBreakdown.essay} butir Uraian / Isian Singkat ("type": "essay", "options": [], kunci berupa teks acuan)\n` : '');
+        ((typeBreakdown.shortAnswer || 0) > 0 ? `- Buat persis ${typeBreakdown.shortAnswer} butir Isian Pendek / Singkat ("type": "short_answer", "options": [], "correctKey": jawaban singkat pasti berupa 1 kata/frasa/angka, pisahkan variasi sah dengan tanda " | ", contoh: "Fotosintesis | Proses fotosintesis")\n` : '') +
+        (typeBreakdown.essay > 0 ? `- Buat persis ${typeBreakdown.essay} butir Uraian / Esai Terbuka ("type": "essay", "options": [], "correctKey": rubrik penilaian & poin-poin jawaban panjang)\n` : '');
     } else {
       typeInstruction = 
         questionType === 'multiple_choice' ? 'Semua butir soal berbentuk Pilihan Ganda Tunggal ("type": "multiple_choice") dengan 4 pilihan ("opt_a", "opt_b", "opt_c", "opt_d") dan 1 kunci benar.' :
         questionType === 'checkbox' ? 'Semua butir soal berbentuk Pilihan Ganda Kompleks ("type": "checkbox") dengan 4 pilihan di mana terdapat 2 atau lebih jawaban yang benar ("correctKey": ["opt_a", "opt_c"]).' :
         questionType === 'true_false' ? 'Semua butir soal berbentuk Benar/Salah ("type": "multiple_choice") dengan 2 opsi ("opt_a": "Benar", "opt_b": "Salah") dan "correctKey" berupa "opt_a" atau "opt_b".' :
-        questionType === 'essay' ? 'Semua butir soal berbentuk Uraian / Isian Singkat ("type": "essay") dengan "options": [] dan "correctKey" berupa kata kunci / jawaban esai.' :
-        'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), dan Uraian ("type": "essay").';
+        questionType === 'short_answer' ? 'Semua butir soal berbentuk Isian Pendek / Singkat ("type": "short_answer") dengan "options": [] dan "correctKey" berupa jawaban singkat eksak (1 kata, istilah baku, atau angka; jika ada variasi penulisan sah pisahkan dengan " | ", misal: "42 | 42 cm"). JANGAN buat uraian panjang untuk tipe ini.' :
+        questionType === 'essay' ? 'Semua butir soal berbentuk Uraian / Esai ("type": "essay") dengan "options": [] dan "correctKey" berupa poin-poin jawaban lengkap / rubrik penskoran uraian.' :
+        'Berikan kombinasi variatif yang seimbang antara Pilihan Ganda ("type": "multiple_choice"), Pilihan Ganda Kompleks ("type": "checkbox"), Isian Pendek ("type": "short_answer"), dan Uraian ("type": "essay").';
     }
+
+    const mediaInstruction = includeMedia
+      ? `\nPANDUAN PENYERTAAN ILUSTRASI GAMBAR & GRAFIK (WAJIB DIPATUHI):
+- Guru mengaktifkan fitur pembuatan ilustrasi gambar & grafik otomatis untuk soal-soal ini (Preferensi: ${mediaPreference === 'chart' ? 'Fokus Grafik/Bagan Data' : mediaPreference === 'illustration' ? 'Fokus Ilustrasi/Diagram Edukatif' : 'Otomatis Seimbang antara Ilustrasi & Grafik'}).
+- Pada butir soal yang membutuhkan stimulus visual (minimal separuh atau seluruh soal bila relevan), sertakan field:
+  * "illustrationType": "${mediaPreference === 'chart' ? 'chart' : mediaPreference === 'illustration' ? 'illustration' : 'illustration" atau "chart'}" (gunakan "none" hanya jika soal murni teks bacaan).
+  * "illustrationPrompt": Deskripsi visual sangat detail dalam Bahasa Indonesia tentang gambar/diagram/grafik yang harus dibuat untuk soal tersebut, LENGKAP dengan angka data sumbu X/Y (untuk grafik) atau label bagian penting (untuk diagram/ilustrasi).
+- PENTING: Pastikan narasi stimulus di field "prompt" merujuk langsung ke gambar/grafik tersebut (contoh: "Perhatikan grafik batang berikut..." atau "Amati diagram bagian daun di atas..."), dan JANGAN membocorkan jawaban yang ditanyakan di label gambar (gunakan tanda "?" jika bagian/nilai itu yang ditanyakan).\n`
+      : '';
 
     const combinedContext = `${subject} ${topic} ${customPrompt}`.toLowerCase();
     const isJavaneseContext =
@@ -380,7 +393,11 @@ Tugas Anda adalah menghasilkan persis ${count} butir soal berkualitas tinggi unt
 - Jenjang Kelas: ${grade}
 - Tingkat Kesulitan: ${difficulty}
 - Kerangka Taksonomi: ${taxonomy === 'solo' ? 'SOLO (Prestructural, Unistructural, Multistructural, Relational, Extended Abstract)' : 'Bloom-Anderson (C1 Mengingat, C2 Memahami, C3 Menerapkan, C4 Menganalisis, C5 Mengevaluasi, C6 Mencipta)'}
-- Bentuk Soal: ${typeInstruction}${tpInstruction}${customPromptInstruction}${javaneseInstruction}
+- Bentuk Soal: ${typeInstruction}${tpInstruction}${customPromptInstruction}${mediaInstruction}${javaneseInstruction}
+
+PERBEDAAN KETAT BENTUK SOAL ISIAN PENDEK VS URAIAN:
+- "short_answer" (Isian Pendek): Pertanyaan menuntut 1 jawaban singkat, pasti, dan ringkas (1 kata, istilah, nama tokoh, atau angka eksak). Field "options" harus [] dan "correctKey" berisi jawaban eksak (misal: "Klorofil | Zat hijau daun").
+- "essay" (Uraian): Pertanyaan menuntut penjelasan, analisis, argumen, atau langkah pengerjaan dalam beberapa kalimat/paragraf. Field "options" harus [] dan "correctKey" berisi poin-poin rubrik jawaban lengkap.
 
 PANDUAN KHUSUS SOAL HOTS & STIMULUS BACAAN MENDALAM (WAJIB DIPATUHI):
 1. STIMULUS KAYA & KONTEKSTUAL (2 - 4 PARAGRAF / DATA / STUDI KASUS):
@@ -420,8 +437,9 @@ Setiap butir soal HARUS berformat JSON dengan struktur persis seperti berikut:
   {
     "order": 1,
     "prompt": "Stimulus bacaan 2-4 paragraf yang kaya dan kontekstual... (diikuti kalimat pertanyaan analisis yang jelas)",
-    "type": "${questionType === 'checkbox' ? 'checkbox' : questionType === 'essay' ? 'essay' : 'multiple_choice'}",
+    "type": "${questionType === 'checkbox' ? 'checkbox' : questionType === 'short_answer' ? 'short_answer' : questionType === 'essay' ? 'essay' : 'multiple_choice'}",
     "mediaType": "none",
+    ${includeMedia ? '"illustrationType": "illustration",\n    "illustrationPrompt": "Deskripsi rinci gambar/diagram/grafik lengkap dengan data/label (tanpa membocorkan jawaban)",' : ''}
     "options": [
       { "id": "opt_a", "text": "Teks opsi A (tanpa awalan huruf A.)" },
       { "id": "opt_b", "text": "Teks opsi B (tanpa awalan huruf B.)" },
@@ -456,7 +474,7 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
             config: {
               responseMimeType: 'application/json',
               maxOutputTokens: 16384,
-              systemInstruction: 'Anda adalah generator soal ujian berbasis kurikulum nasional. Anda selalu menghasilkan JSON murni berisi daftar array butir soal tanpa teks pembuka atau penutup. Anda selalu mendistribusikan kunci jawaban secara bervariasi. Pada field "explanation", Anda DILARANG membocorkan kunci jawaban atau hasil akhir perhitungan matematika secara langsung; jelaskan kesalahan pengecoh, ciri-ciri, langkah/rumus, kaidah tata bahasa baku terbaru, atau rujukan ilmiah agar siswa dapat menemukan jawaban sendiri secara mandiri.'
+              systemInstruction: 'Anda adalah generator soal ujian berbasis kurikulum nasional. Anda selalu menghasilkan JSON murni berisi daftar array butir soal tanpa teks pembuka atau penutup. Anda selalu mendistribusikan kunci jawaban secara bervariasi dan membedakan bentuk soal short_answer (isian pendek 1 kata/angka) vs essay (uraian panjang). Pada field "explanation", Anda DILARANG membocorkan kunci jawaban atau hasil akhir perhitungan matematika secara langsung; jelaskan kesalahan pengecoh, ciri-ciri, langkah/rumus, kaidah tata bahasa baku terbaru, atau rujukan ilmiah agar siswa dapat menemukan jawaban sendiri secara mandiri.'
             }
           });
 
@@ -498,6 +516,135 @@ Hasilkan HANYA array JSON murni tanpa markdown pembungkus tambahan.
     return res.status(500).json({
       success: false,
       message: `Gagal membuat soal AI: ${err?.message || 'Terjadi gangguan koneksi ke layanan AI.'}`
+    });
+  }
+});
+
+/**
+ * Endpoint Generate Ilustrasi Edukatif & Grafik Data (SVG Terstruktur Presisi -> Raster PNG ke GDrive)
+ */
+apiRouter.post('/gemini/generate-illustration', async (req, res) => {
+  try {
+    const {
+      prompt = '',
+      questionPrompt = '',
+      subject = 'Umum',
+      grade = 'Umum',
+      visualType = 'auto',
+      customApiKey
+    } = req.body || {};
+
+    const apiKey = (customApiKey || process.env.GEMINI_API_KEY || '').trim();
+    if (!apiKey) {
+      return res.status(400).json({
+        success: false,
+        message: 'Gemini API Key belum diatur. Silakan atur di menu Pengaturan.'
+      });
+    }
+
+    const combinedRequest = String(prompt || '').trim() || String(questionPrompt || '').trim();
+    if (!combinedRequest) {
+      return res.status(400).json({
+        success: false,
+        message: 'Deskripsi gambar atau teks soal belum diisi.'
+      });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: { 'User-Agent': 'aistudio-build' }
+      }
+    });
+
+    const visualInstruction = `
+Anda adalah ilustrator buku teks pendidikan nasional dan desainer visualisasi data (grafik, diagram, bagan, peta konsep, dan ilustrasi materi) profesional.
+Tugas Anda adalah membuat satu visual edukatif berformat **SVG murni (scalable vector graphics)** yang sangat jelas, rapi, proporsional, informatif, dan bebas teks bocoran jawaban untuk soal sekolah:
+- Mata Pelajaran: ${subject}
+- Jenjang Kelas: ${grade}
+- Jenis Visual Diminta: ${visualType === 'chart' ? 'GRAFIK / BAGAN DATA STATISTIK' : visualType === 'illustration' ? 'ILUSTRASI / DIAGRAM EDUKATIF' : 'OTOMATIS (Grafik Data jika ada data angka/statistik, atau Ilustrasi/Diagram Edukatif jika konteks visual/IPA/geometri/cerita)'}
+- Instruksi Visual / Deskripsi: "${prompt || '-'}"
+${questionPrompt ? `- Konteks Teks Soal:\n"${String(questionPrompt).slice(0, 1200)}"` : ''}
+
+SPESIFIKASI TEKNIS SVG (WAJIB DIPATUHI):
+1. Gunakan kanvas \`viewBox="0 0 960 600"\` dengan latar belakang \`<rect x="0" y="0" width="960" height="600" fill="#ffffff" rx="16" />\`.
+2. Gunakan font sistem yang rapi (\`font-family="Arial, Helvetica, sans-serif"\`), ukuran teks minimal \`14px\`-\`22px\` agar tetap terbaca tajam saat diperkecil di layar HP maupun dicetak di kertas A4.
+3. JANGAN menggunakan \`<image>\` eksternal, URL \`http\`, \`<script>\`, atau CSS eksternal. Gunakan elemen vektor SVG murni (\`<rect>\`, \`<circle>\`, \`<ellipse>\`, \`<path>\`, \`<polygon>\`, \`<line>\`, \`<polyline>\`, \`<text>\`, \`<g>\`, \`<defs><linearGradient>\`).
+4. JIKA BERUPA GRAFIK / BAGAN DATA (\`chart\`):
+   - Gambar sumbu X & Y lengkap dengan garis grid tipis (\`#e2e8f0\`), angka skala akurat, judul grafik di bagian atas tengah, label kategori jelas tanpa tumpang tindih, warna batang/garis/irisan pie yang kontras dan harmonis (palet biru indigo \`#4f46e5\`, emerald \`#10b981\`, amber \`#f59e0b\`, rose \`#f43f5e\`, cyan \`#06b6d4\`), serta legenda bila perlu.
+   - Angka pada grafik HARUS konsisten 100% dengan data di teks soal!
+5. JIKA BERUPA ILUSTRASI / DIAGRAM (\`illustration\`):
+   - Buat gambar vektor berlapis dengan shading/gradient lembut, garis panah penunjuk (\`<marker>\` atau polygon panah) yang jelas, label bagian anatomi/alat ukur/bangun geometri/siklus alam yang rapi.
+   - **ATURAN ANTI-SPOILER:** Jika soal menanyakan identitas suatu bagian atau nilai sisi/sudut/angka yang hilang, tampilkan label "?" atau "X" pada bagian yang ditanyakan — JANGAN menuliskan jawabannya di gambar!
+
+Kembalikan HANYA JSON murni dengan format:
+{
+  "title": "Judul singkat gambar/grafik (maks 8 kata)",
+  "visualKind": "chart" | "illustration",
+  "caption": "Keterangan singkat gambar untuk referensi guru",
+  "svg": "<svg viewBox=\\"0 0 960 600\\" xmlns=\\"http://www.w3.org/2000/svg\\">...</svg>"
+}`;
+
+    const modelsToTry = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    let lastError: any = null;
+    let parsedResult: any = null;
+
+    for (const model of modelsToTry) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: visualInstruction,
+            config: {
+              responseMimeType: 'application/json',
+              maxOutputTokens: 16384,
+              systemInstruction: 'Anda adalah pembuat ilustrasi vektor SVG dan grafik statistik edukatif. Anda selalu mengembalikan JSON valid dengan field title, visualKind, caption, dan svg (<svg viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg">...</svg>) tanpa elemen berbahaya dan tanpa teks markdown.'
+            }
+          });
+
+          const rawText = response.text?.trim() || '';
+          const cleaned = rawText.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+          let obj: any = null;
+          try {
+            obj = JSON.parse(cleaned);
+          } catch {
+            const m = cleaned.match(/\{[\s\S]*\}/);
+            if (m) obj = JSON.parse(m[0]);
+          }
+          if (obj && typeof obj.svg === 'string' && obj.svg.includes('<svg')) {
+            parsedResult = obj;
+            break;
+          }
+        } catch (err: any) {
+          lastError = err;
+          const msg = String(err?.message || '');
+          if (msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('RESOURCE_EXHAUSTED')) {
+            break;
+          }
+          if (attempt < 2) {
+            await new Promise(r => setTimeout(r, 700 * attempt));
+          }
+        }
+      }
+      if (parsedResult) break;
+    }
+
+    if (!parsedResult || !parsedResult.svg) {
+      throw lastError || new Error('Gagal menghasilkan ilustrasi/grafik SVG dari AI.');
+    }
+
+    return res.json({
+      success: true,
+      title: parsedResult.title || 'Ilustrasi Soal AI',
+      visualKind: parsedResult.visualKind === 'chart' ? 'chart' : 'illustration',
+      caption: parsedResult.caption || '',
+      svg: parsedResult.svg
+    });
+  } catch (err: any) {
+    console.error('Error generating illustration:', err);
+    return res.status(500).json({
+      success: false,
+      message: `Gagal membuat ilustrasi/grafik AI: ${err?.message || 'Gangguan layanan AI.'}`
     });
   }
 });

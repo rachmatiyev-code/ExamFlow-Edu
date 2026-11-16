@@ -22,6 +22,22 @@ export class AnalysisService {
       return correctKeys.every(k => studentKeys.includes(k));
     }
 
+    if (question.type === 'short_answer') {
+      const rawKey = Array.isArray(question.correctKey)
+        ? question.correctKey.join('|')
+        : String(question.correctKey || '');
+      const normalizeShort = (s: string) =>
+        s.replace(/<[^>]+>/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const studentStr = normalizeShort(String(studentAnswer || ''));
+      if (!studentStr) return false;
+      const acceptedVariants = rawKey
+        .split(/[|;\n]+/)
+        .map(normalizeShort)
+        .filter(Boolean);
+      if (acceptedVariants.length === 0) return false;
+      return acceptedVariants.some(variant => studentStr === variant);
+    }
+
     if (question.type === 'essay') {
       const correctKeyStr = String(question.correctKey || '').trim().toLowerCase();
       const studentStr = String(studentAnswer || '').trim().toLowerCase();

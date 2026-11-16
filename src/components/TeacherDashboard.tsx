@@ -254,14 +254,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [aiCount, setAiCount] = useState(5);
   const [aiDifficulty, setAiDifficulty] = useState<'Mudah' | 'Sedang' | 'Sukar'>('Sedang');
   const [aiTaxonomy, setAiTaxonomy] = useState<'bloom' | 'solo'>('bloom');
-  const [aiQuestionType, setAiQuestionType] = useState<'multiple_choice' | 'checkbox' | 'true_false' | 'essay' | 'mixed'>('multiple_choice');
+  const [aiQuestionType, setAiQuestionType] = useState<'multiple_choice' | 'checkbox' | 'true_false' | 'short_answer' | 'essay' | 'mixed'>('multiple_choice');
   const [aiTypeBreakdown, setAiTypeBreakdown] = useState<QuestionTypeBreakdown>({
     multipleChoice: 5,
     checkbox: 0,
     trueFalse: 0,
+    shortAnswer: 0,
     essay: 0
   });
   const [aiUseCustomBreakdown, setAiUseCustomBreakdown] = useState<boolean>(false);
+  const [aiIncludeMedia, setAiIncludeMedia] = useState<boolean>(false);
+  const [aiMediaPreference, setAiMediaPreference] = useState<'auto' | 'illustration' | 'chart'>('auto');
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
 
@@ -290,11 +293,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     multipleChoice: number;
     checkbox: number;
     trueFalse: number;
+    shortAnswer: number;
     essay: number;
   }>({
     multipleChoice: 2,
     checkbox: 4,
     trueFalse: 2,
+    shortAnswer: 5,
     essay: 10
   });
   const [syncScoreToSheets, setSyncScoreToSheets] = useState(true);
@@ -546,7 +551,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       type: editingQuestion.type || 'multiple_choice',
       mediaType: resolvedMediaType,
       mediaUrl: rawMediaUrl,
-      options: isMatching ? [] : (safeOptions.length > 0 ? safeOptions : (editingQuestion.type === 'essay' ? [] : [
+      options: isMatching ? [] : (safeOptions.length > 0 ? safeOptions : (editingQuestion.type === 'essay' || editingQuestion.type === 'short_answer' ? [] : [
         { id: 'opt_a', text: 'Pilihan A' },
         { id: 'opt_b', text: 'Pilihan B' },
         { id: 'opt_c', text: 'Pilihan C' },
@@ -997,7 +1002,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
 
     const cleanObjectives = aiLearningObjectives.filter(Boolean).slice(0, 15);
     const effectiveCount = aiUseCustomBreakdown
-      ? Math.max(1, (aiTypeBreakdown.multipleChoice || 0) + (aiTypeBreakdown.checkbox || 0) + (aiTypeBreakdown.trueFalse || 0) + (aiTypeBreakdown.essay || 0))
+      ? Math.max(1, (aiTypeBreakdown.multipleChoice || 0) + (aiTypeBreakdown.checkbox || 0) + (aiTypeBreakdown.trueFalse || 0) + (aiTypeBreakdown.shortAnswer || 0) + (aiTypeBreakdown.essay || 0))
       : aiCount;
 
     try {
@@ -1013,7 +1018,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           subject: currentExam.subject,
           grade: (aiGrade && aiGrade !== 'Semua') ? aiGrade : currentExam.grade,
           learningObjectives: cleanObjectives,
-          customPrompt: aiCustomPrompt
+          customPrompt: aiCustomPrompt,
+          includeMedia: aiIncludeMedia,
+          mediaPreference: aiMediaPreference
         },
         (_completed, _total, message) => {
           setAiMessage(message);
@@ -1037,6 +1044,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           aiQuestionType === 'multiple_choice' ? 'PG Biasa' :
           aiQuestionType === 'checkbox' ? 'PG Kompleks' :
           aiQuestionType === 'true_false' ? 'Benar/Salah' :
+          aiQuestionType === 'short_answer' ? 'Isian Pendek' :
           aiQuestionType === 'essay' ? 'Uraian' : 'Campuran';
 
         setAiMessage(`Sukses! ${res.questions.length} butir soal ${typeLabel} (${aiTaxonomy.toUpperCase()}) berhasil ditambahkan ke ujian "${currentExam.title}".`);
@@ -1136,7 +1144,9 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
         if (scoreConfigMode === 'uniform') {
           pts = Math.max(1, Number(uniformScoreInput) || 10);
         } else {
-          if (q.type === 'essay') {
+          if (q.type === 'short_answer') {
+            pts = Math.max(1, Number(typeScoreInputs.shortAnswer) || 5);
+          } else if (q.type === 'essay') {
             pts = Math.max(1, Number(typeScoreInputs.essay) || 10);
           } else if (q.type === 'checkbox') {
             pts = Math.max(1, Number(typeScoreInputs.checkbox) || 4);
@@ -3325,7 +3335,7 @@ const rekapDistinctGrades = useMemo(() => {
                     </span>
                     <span className="text-slate-400">·</span>
                     <span className="font-semibold text-slate-600 dark:text-slate-300">
-                      {q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'PG Kompleks' : q.type === 'matching' ? 'Menjodohkan' : 'Uraian'}
+                      {q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'PG Kompleks' : q.type === 'matching' ? 'Menjodohkan' : q.type === 'short_answer' ? 'Isian Pendek' : 'Uraian'}
                     </span>
                     <span className="text-slate-400">·</span>
                     <span className="text-slate-500 font-mono">Bobot: {q.points || 10} Poin</span>
@@ -3346,7 +3356,7 @@ const rekapDistinctGrades = useMemo(() => {
                             { id: 'pair_1', premise: '', match: '' },
                             { id: 'pair_2', premise: '', match: '' }
                           ] : undefined),
-                          options: safeOptions.length > 0 ? safeOptions : (q.type === 'essay' || q.type === 'matching' ? [] : [
+                          options: safeOptions.length > 0 ? safeOptions : (q.type === 'essay' || q.type === 'short_answer' || q.type === 'matching' ? [] : [
                             { id: 'opt_a', text: '' },
                             { id: 'opt_b', text: '' },
                             { id: 'opt_c', text: '' },
@@ -3417,10 +3427,12 @@ const rekapDistinctGrades = useMemo(() => {
                   );
                 })()}
 
-                {/* Essay Answer Key preview */}
-                {q.type === 'essay' && q.correctKey && (
+                {/* Short Answer / Essay Answer Key preview */}
+                {(q.type === 'short_answer' || q.type === 'essay') && q.correctKey && (
                   <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs">
-                    <span className="font-semibold text-slate-700 dark:text-slate-300">Kunci / Panduan Jawaban: </span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      {q.type === 'short_answer' ? 'Kunci Jawaban Singkat: ' : 'Kunci / Panduan Jawaban Uraian: '}
+                    </span>
                     <span className="text-slate-600 dark:text-slate-400">{typeof q.correctKey === 'string' ? q.correctKey : JSON.stringify(q.correctKey)}</span>
                   </div>
                 )}
@@ -4593,7 +4605,7 @@ const rekapDistinctGrades = useMemo(() => {
                 </thead>
                 <tbody>
                   {questionAnalysisList.map((qa) => {
-                    const bentukStr = qa.type === 'multiple_choice' ? 'PG' : qa.type === 'checkbox' ? 'PG Kompleks' : 'Uraian';
+                    const bentukStr = qa.type === 'multiple_choice' ? 'PG' : qa.type === 'checkbox' ? 'PG Kompleks' : qa.type === 'short_answer' ? 'Isian Pendek' : qa.type === 'matching' ? 'Menjodohkan' : 'Uraian';
                     return (
                       <tr key={qa.questionId} className="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="p-3 text-center font-mono font-bold">{qa.order}</td>
@@ -6629,6 +6641,10 @@ const rekapDistinctGrades = useMemo(() => {
           setAiTypeBreakdown={setAiTypeBreakdown}
           aiUseCustomBreakdown={aiUseCustomBreakdown}
           setAiUseCustomBreakdown={setAiUseCustomBreakdown}
+          aiIncludeMedia={aiIncludeMedia}
+          setAiIncludeMedia={setAiIncludeMedia}
+          aiMediaPreference={aiMediaPreference}
+          setAiMediaPreference={setAiMediaPreference}
         />
       )}
 
@@ -7055,6 +7071,13 @@ const rekapDistinctGrades = useMemo(() => {
                         matchingPairs: initialPairs,
                         correctKey: JSON.stringify(initialPairs.reduce((acc, p) => ({ ...acc, [p.id]: p.match }), {}))
                       });
+                    } else if (newType === 'short_answer') {
+                      setEditingQuestion({
+                        ...editingQuestion,
+                        type: 'short_answer',
+                        options: [],
+                        correctKey: typeof editingQuestion.correctKey === 'string' ? editingQuestion.correctKey : ''
+                      });
                     } else if (newType === 'essay') {
                       setEditingQuestion({
                         ...editingQuestion,
@@ -7104,7 +7127,8 @@ const rekapDistinctGrades = useMemo(() => {
                   <option value="checkbox">Pilihan Ganda Kompleks (Multi Jawaban Benar)</option>
                   <option value="matching">Menjodohkan / Mencocokkan Premis & Respon</option>
                   <option value="true_false">Benar / Salah (2 Opsi: Benar atau Salah)</option>
-                  <option value="essay">Uraian / Isian Singkat</option>
+                  <option value="short_answer">Isian Pendek / Singkat (1 Baris, Koreksi Otomatis)</option>
+                  <option value="essay">Uraian / Esai (Jawaban Panjang & Rubrik)</option>
                 </select>
               </div>
 
@@ -7119,12 +7143,15 @@ const rekapDistinctGrades = useMemo(() => {
                 />
               </div>
 
-              {/* Multimedia Attachment Selector with PC Upload & Drive / YouTube */}
+              {/* Multimedia Attachment Selector with PC Upload, Drive / YouTube & AI Image/Chart Generator */}
               <MediaUploaderInput
                 mediaType={editingQuestion.mediaType || 'none'}
                 mediaUrl={editingQuestion.mediaUrl || ''}
                 onChange={(mType, mUrl) => setEditingQuestion({ ...editingQuestion, mediaType: mType, mediaUrl: mUrl })}
                 onZoomImage={(url) => setZoomImageUrl(url)}
+                questionPrompt={editingQuestion.prompt || ''}
+                questionSubject={currentExam?.subject || 'Umum'}
+                questionGrade={currentExam?.grade || 'Umum'}
               />
 
               {/* Multiple Choice Options (Single Correct) */}
@@ -7259,15 +7286,34 @@ const rekapDistinctGrades = useMemo(() => {
                 );
               })()}
 
+              {/* Short Answer Key (Auto-Gradable Variants) */}
+              {editingQuestion.type === 'short_answer' && (
+                <div className="p-3.5 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/60 space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Kunci Jawaban Isian Pendek (Dikoreksi Otomatis, Tidak Peka Huruf Kapital):
+                  </label>
+                  <input
+                    type="text"
+                    value={typeof editingQuestion.correctKey === 'string' ? editingQuestion.correctKey : ''}
+                    onChange={(e) => setEditingQuestion({ ...editingQuestion, correctKey: e.target.value })}
+                    placeholder="Contoh: Fotosintesis | Proses fotosintesis (pisahkan variasi jawaban benar dengan tanda | )"
+                    className="w-full px-3 py-2 text-xs rounded-lg border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-semibold"
+                  />
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Gunakan pemisah tanda garis vertikal <code>|</code> jika terdapat beberapa variasi jawaban singkat yang sama-sama benar (contoh: <code>42 | 42 cm | empat puluh dua</code>).
+                  </p>
+                </div>
+              )}
+
               {/* Essay Sample Key with RichTextEditor */}
               {editingQuestion.type === 'essay' && (
                 <div>
                   <RichTextEditor
                     value={typeof editingQuestion.correctKey === 'string' ? editingQuestion.correctKey : ''}
                     onChange={(val) => setEditingQuestion({ ...editingQuestion, correctKey: val })}
-                    placeholder="Tuliskan kata kunci, indikator penskoran, rumus atau contoh jawaban benar..."
+                    placeholder="Tuliskan kata kunci, indikator penskoran, rumus atau contoh jawaban uraian lengkap..."
                     rows={4}
-                    label="Kunci / Rangkuman Jawaban & Pedoman Penskoran (Esai / Uraian)"
+                    label="Kunci / Rangkuman Jawaban & Pedoman Penskoran (Uraian / Esai)"
                   />
                 </div>
               )}
@@ -9166,16 +9212,39 @@ const rekapDistinctGrades = useMemo(() => {
                     </div>
                   </div>
 
+                  {/* Isian Pendek / Singkat */}
+                  <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
+                    <div>
+                      <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <span>Isian Pendek / Singkat</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 font-mono">
+                          {currentQuestions.filter(q => q.type === 'short_answer').length} soal
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-slate-400">Jawaban singkat eksak (1 kata/frasa/angka, koreksi otomatis)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={typeScoreInputs.shortAnswer}
+                        onChange={(e) => setTypeScoreInputs({ ...typeScoreInputs, shortAnswer: Math.max(1, Number(e.target.value)) })}
+                        className="w-20 px-2.5 py-1.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                      />
+                      <span className="text-xs text-slate-500">pt</span>
+                    </div>
+                  </div>
+
                   {/* Esai / Uraian */}
                   <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
                     <div>
                       <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <span>Esai / Uraian (Jawaban Terbuka)</span>
+                        <span>Uraian / Esai (Jawaban Panjang)</span>
                         <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono">
                           {currentQuestions.filter(q => q.type === 'essay').length} soal
                         </span>
                       </div>
-                      <span className="text-[11px] text-slate-400">Penjelasan narasi dan rumus perhitungan</span>
+                      <span className="text-[11px] text-slate-400">Penjelasan narasi dan rubrik perhitungan terbuka</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <input
@@ -9195,14 +9264,15 @@ const rekapDistinctGrades = useMemo(() => {
                   const mcCount = currentQuestions.filter(q => q.type === 'multiple_choice' && !(normalizeQuestionOptions(q.options).length === 2 && normalizeQuestionOptions(q.options)[0]?.text === 'Benar')).length;
                   const cbCount = currentQuestions.filter(q => q.type === 'checkbox').length;
                   const tfCount = currentQuestions.filter(q => q.type === 'multiple_choice' && normalizeQuestionOptions(q.options).length === 2 && normalizeQuestionOptions(q.options)[0]?.text === 'Benar').length;
+                  const shortCount = currentQuestions.filter(q => q.type === 'short_answer').length;
                   const essayCount = currentQuestions.filter(q => q.type === 'essay').length;
-                  const projectedTotal = (mcCount * typeScoreInputs.multipleChoice) + (cbCount * typeScoreInputs.checkbox) + (tfCount * typeScoreInputs.trueFalse) + (essayCount * typeScoreInputs.essay);
+                  const projectedTotal = (mcCount * typeScoreInputs.multipleChoice) + (cbCount * typeScoreInputs.checkbox) + (tfCount * typeScoreInputs.trueFalse) + (shortCount * typeScoreInputs.shortAnswer) + (essayCount * typeScoreInputs.essay);
                   return (
                     <div className="p-3.5 bg-indigo-50/60 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/60 text-xs space-y-1">
                       <div className="flex justify-between text-slate-600 dark:text-slate-400">
                         <span>Rincian Subtotal:</span>
                         <span className="font-mono text-[11px] text-slate-500">
-                          PG: {mcCount * typeScoreInputs.multipleChoice} · PGK: {cbCount * typeScoreInputs.checkbox} · B/S: {tfCount * typeScoreInputs.trueFalse} · Esai: {essayCount * typeScoreInputs.essay}
+                          PG: {mcCount * typeScoreInputs.multipleChoice} · PGK: {cbCount * typeScoreInputs.checkbox} · B/S: {tfCount * typeScoreInputs.trueFalse} · Isian: {shortCount * typeScoreInputs.shortAnswer} · Uraian: {essayCount * typeScoreInputs.essay}
                         </span>
                       </div>
                       <div className="flex justify-between text-slate-600 dark:text-slate-400 pt-1 border-t border-indigo-100 dark:border-indigo-900/60">

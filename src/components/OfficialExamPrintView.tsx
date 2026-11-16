@@ -358,7 +358,7 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
                 />
 
                 {/* Opsi Jawaban (Jika Pilihan Ganda / Checkbox / Benar-Salah) */}
-                {q.type !== 'essay' && Array.isArray(q.options) && q.options.length > 0 && (
+                {q.type !== 'essay' && q.type !== 'short_answer' && Array.isArray(q.options) && q.options.length > 0 && (
                   <div className="mt-2.5 space-y-1.5 pl-1">
                     {q.options.map((opt, optIndex) => {
                       const letter = getLetterBadge(optIndex);
@@ -426,6 +426,16 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
                         })}
                       </tbody>
                     </table>
+                  </div>
+                )}
+
+                {/* Ruang Isian Pendek (Jika Soal Isian Singkat) */}
+                {q.type === 'short_answer' && (
+                  <div className="mt-3 pl-1">
+                    <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-2">
+                      <span>Jawaban Singkat:</span>
+                      <span className="inline-block w-64 border-b border-dotted border-slate-500">&nbsp;</span>
+                    </div>
                   </div>
                 )}
 
@@ -529,8 +539,10 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
                   } else if (q.type === 'matching') {
                     const pairs = q.matchingPairs || [];
                     keyLabel = pairs.map((p, pIdx) => `${pIdx + 1}➔${p.match}`).join(', ');
+                  } else if (q.type === 'short_answer') {
+                    keyLabel = typeof q.correctKey === 'string' && q.correctKey.trim() ? q.correctKey : 'Isian Pendek';
                   } else if (q.type === 'essay') {
-                    keyLabel = typeof q.correctKey === 'string' ? q.correctKey : 'Rubrik Esai';
+                    keyLabel = typeof q.correctKey === 'string' && q.correctKey.trim() ? q.correctKey : 'Rubrik Uraian';
                   }
 
                   return (
@@ -539,7 +551,7 @@ export const OfficialExamPrintView: React.FC<OfficialExamPrintViewProps> = ({
                         {idx + 1}
                       </td>
                       <td className="border border-black p-1.5 text-center text-[11px]">
-                        {q.type === 'checkbox' ? 'PG Kompleks' : q.type === 'essay' ? 'Uraian' : q.type === 'matching' ? 'Menjodohkan' : 'PG Biasa'}
+                        {q.type === 'checkbox' ? 'PG Kompleks' : q.type === 'short_answer' ? 'Isian Pendek' : q.type === 'essay' ? 'Uraian' : q.type === 'matching' ? 'Menjodohkan' : 'PG Biasa'}
                       </td>
                       <td className="border border-black p-1.5 text-center font-bold text-indigo-700 print:text-black">
                         {keyLabel}

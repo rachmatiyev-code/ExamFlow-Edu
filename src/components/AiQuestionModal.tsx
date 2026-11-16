@@ -10,12 +10,16 @@ import {
   RefreshCw,
   BookOpen,
   Sliders,
-  CheckCircle2
+  CheckCircle2,
+  Image as ImageIcon,
+  BarChart3,
+  CloudUpload
 } from 'lucide-react';
 import { Exam, CurriculumItem, normalizeLearningObjectives } from '../types';
 import { StorageService } from '../services/storage';
 import { QuestionTypeBreakdown } from '../services/aiGenerator';
 import { AksaraJawaModal } from './AksaraJawaModal';
+import { GoogleDriveService, APP_DATA_BACKUP_FOLDER_NAME, QUESTION_ILLUSTRATIONS_SUBFOLDER_NAME } from '../services/googleDriveService';
 
 interface AiQuestionModalProps {
   isOpen: boolean;
@@ -32,8 +36,8 @@ interface AiQuestionModalProps {
   setAiLearningObjectives: React.Dispatch<React.SetStateAction<string[]>>;
   newAiTpInput: string;
   setNewAiTpInput: (input: string) => void;
-  aiQuestionType: 'multiple_choice' | 'checkbox' | 'true_false' | 'essay' | 'mixed';
-  setAiQuestionType: (type: 'multiple_choice' | 'checkbox' | 'true_false' | 'essay' | 'mixed') => void;
+  aiQuestionType: 'multiple_choice' | 'checkbox' | 'true_false' | 'short_answer' | 'essay' | 'mixed';
+  setAiQuestionType: (type: 'multiple_choice' | 'checkbox' | 'true_false' | 'short_answer' | 'essay' | 'mixed') => void;
   aiCount: number;
   setAiCount: (count: number) => void;
   aiDifficulty: 'Mudah' | 'Sedang' | 'Sukar';
@@ -50,6 +54,10 @@ interface AiQuestionModalProps {
   setAiTypeBreakdown?: React.Dispatch<React.SetStateAction<QuestionTypeBreakdown>>;
   aiUseCustomBreakdown?: boolean;
   setAiUseCustomBreakdown?: React.Dispatch<React.SetStateAction<boolean>>;
+  aiIncludeMedia?: boolean;
+  setAiIncludeMedia?: React.Dispatch<React.SetStateAction<boolean>>;
+  aiMediaPreference?: 'auto' | 'illustration' | 'chart';
+  setAiMediaPreference?: React.Dispatch<React.SetStateAction<'auto' | 'illustration' | 'chart'>>;
 }
 
 export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
@@ -84,13 +92,25 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
   aiTypeBreakdown,
   setAiTypeBreakdown,
   aiUseCustomBreakdown = false,
-  setAiUseCustomBreakdown
+  setAiUseCustomBreakdown,
+  aiIncludeMedia = false,
+  setAiIncludeMedia,
+  aiMediaPreference = 'auto',
+  setAiMediaPreference
 }) => {
   const modalContainerRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
   const [isAksaraGuideOpen, setIsAksaraGuideOpen] = React.useState(false);
+  const [isDriveConnected, setIsDriveConnected] = React.useState(false);
+  const [isConnectingDrive, setIsConnectingDrive] = React.useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      GoogleDriveService.isOAuthConnected().then(setIsDriveConnected).catch(() => setIsDriveConnected(false));
+    }
+  }, [isOpen]);
 
   const targetExamObj = exams.find(e => e.id === (selectedExamId || exams[0]?.id)) || exams[0];
   const [internalGrade, setInternalGrade] = React.useState<string>(targetExamObj?.grade || 'Semua');
@@ -610,8 +630,9 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                     <option value="multiple_choice">Pilihan Ganda Biasa (1 Jawaban Benar)</option>
                     <option value="checkbox">Pilihan Ganda Kompleks (Multi Jawaban Benar)</option>
                     <option value="true_false">Benar / Salah (2 Opsi)</option>
-                    <option value="essay">Uraian / Isian Singkat</option>
-                    <option value="mixed">Campuran / Variatif (PG, PG Kompleks & Uraian)</option>
+                    <option value="short_answer">Isian Pendek / Singkat (1 Baris, Koreksi Otomatis)</option>
+                    <option value="essay">Uraian / Esai (Jawaban Panjang & Rubrik)</option>
+                    <option value="mixed">Campuran / Variatif (PG, PGK, Isian Pendek & Uraian)</option>
                   </select>
                 ) : (
                   <div className="p-3 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/60 space-y-2.5">
@@ -620,7 +641,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                         Kuantitas Spesifik per Jenis Soal:
                       </span>
                       <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                        Total: {((aiTypeBreakdown?.multipleChoice || 0) + (aiTypeBreakdown?.checkbox || 0) + (aiTypeBreakdown?.trueFalse || 0) + (aiTypeBreakdown?.essay || 0))} Soal
+                        Total: {((aiTypeBreakdown?.multipleChoice || 0) + (aiTypeBreakdown?.checkbox || 0) + (aiTypeBreakdown?.trueFalse || 0) + (aiTypeBreakdown?.shortAnswer || 0) + (aiTypeBreakdown?.essay || 0))} Soal
                       </span>
                     </div>
 
@@ -639,7 +660,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                             if (setAiTypeBreakdown && aiTypeBreakdown) {
                               const updated = { ...aiTypeBreakdown, multipleChoice: val };
                               setAiTypeBreakdown(updated);
-                              const total = val + (updated.checkbox || 0) + (updated.trueFalse || 0) + (updated.essay || 0);
+                              const total = val + (updated.checkbox || 0) + (updated.trueFalse || 0) + (updated.shortAnswer || 0) + (updated.essay || 0);
                               setAiCount(Math.max(1, total));
                             }
                           }}
@@ -661,7 +682,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                             if (setAiTypeBreakdown && aiTypeBreakdown) {
                               const updated = { ...aiTypeBreakdown, checkbox: val };
                               setAiTypeBreakdown(updated);
-                              const total = (updated.multipleChoice || 0) + val + (updated.trueFalse || 0) + (updated.essay || 0);
+                              const total = (updated.multipleChoice || 0) + val + (updated.trueFalse || 0) + (updated.shortAnswer || 0) + (updated.essay || 0);
                               setAiCount(Math.max(1, total));
                             }
                           }}
@@ -683,7 +704,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                             if (setAiTypeBreakdown && aiTypeBreakdown) {
                               const updated = { ...aiTypeBreakdown, trueFalse: val };
                               setAiTypeBreakdown(updated);
-                              const total = (updated.multipleChoice || 0) + (updated.checkbox || 0) + val + (updated.essay || 0);
+                              const total = (updated.multipleChoice || 0) + (updated.checkbox || 0) + val + (updated.shortAnswer || 0) + (updated.essay || 0);
                               setAiCount(Math.max(1, total));
                             }
                           }}
@@ -693,7 +714,29 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
 
                       <div className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800">
                         <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
-                          Uraian / Esai (Isian):
+                          Isian Pendek (Singkat):
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={30}
+                          value={aiTypeBreakdown?.shortAnswer ?? 0}
+                          onChange={(e) => {
+                            const val = Math.max(0, Math.min(30, Number(e.target.value) || 0));
+                            if (setAiTypeBreakdown && aiTypeBreakdown) {
+                              const updated = { ...aiTypeBreakdown, shortAnswer: val };
+                              setAiTypeBreakdown(updated);
+                              const total = (updated.multipleChoice || 0) + (updated.checkbox || 0) + (updated.trueFalse || 0) + val + (updated.essay || 0);
+                              setAiCount(Math.max(1, total));
+                            }
+                          }}
+                          className="w-full px-2.5 py-1 text-xs font-mono font-bold rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                        />
+                      </div>
+
+                      <div className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-800 col-span-2">
+                        <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                          Uraian / Esai (Jawaban Panjang & Rubrik):
                         </label>
                         <input
                           type="number"
@@ -705,7 +748,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                             if (setAiTypeBreakdown && aiTypeBreakdown) {
                               const updated = { ...aiTypeBreakdown, essay: val };
                               setAiTypeBreakdown(updated);
-                              const total = (updated.multipleChoice || 0) + (updated.checkbox || 0) + (updated.trueFalse || 0) + val;
+                              const total = (updated.multipleChoice || 0) + (updated.checkbox || 0) + (updated.trueFalse || 0) + (updated.shortAnswer || 0) + val;
                               setAiCount(Math.max(1, total));
                             }
                           }}
@@ -808,6 +851,109 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                   </div>
                 </div>
               </div>
+
+              {/* Ilustrasi Gambar & Grafik AI (Otomatis simpan ke Subfolder GDrive) */}
+              {setAiIncludeMedia && (
+                <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/60 space-y-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={aiIncludeMedia}
+                        onChange={(e) => setAiIncludeMedia(e.target.checked)}
+                        className="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <div>
+                        <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <ImageIcon className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                          <span>Sertakan Ilustrasi Gambar & Grafik AI pada Soal</span>
+                        </span>
+                        <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                          Gambar & grafik disimpan otomatis ke subfolder <strong>{APP_DATA_BACKUP_FOLDER_NAME} / {QUESTION_ILLUSTRATIONS_SUBFOLDER_NAME}</strong> di Google Drive & tertaut langsung ke soal.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {aiIncludeMedia && (
+                    <div className="space-y-2 pt-2 border-t border-amber-200/70 dark:border-amber-900/50">
+                      {setAiMediaPreference && (
+                        <div className="grid grid-cols-3 gap-1.5 text-[10.5px]">
+                          <button
+                            type="button"
+                            onClick={() => setAiMediaPreference('auto')}
+                            className={`py-1 px-2 rounded-lg border font-semibold cursor-pointer ${
+                              aiMediaPreference === 'auto'
+                                ? 'bg-white dark:bg-slate-900 border-amber-500 text-amber-700 dark:text-amber-300 shadow-2xs'
+                                : 'border-amber-200/70 dark:border-amber-900 text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            Otomatis
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAiMediaPreference('illustration')}
+                            className={`py-1 px-2 rounded-lg border font-semibold flex items-center justify-center gap-1 cursor-pointer ${
+                              aiMediaPreference === 'illustration'
+                                ? 'bg-white dark:bg-slate-900 border-amber-500 text-amber-700 dark:text-amber-300 shadow-2xs'
+                                : 'border-amber-200/70 dark:border-amber-900 text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            <ImageIcon className="w-3 h-3" />
+                            <span>Ilustrasi</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAiMediaPreference('chart')}
+                            className={`py-1 px-2 rounded-lg border font-semibold flex items-center justify-center gap-1 cursor-pointer ${
+                              aiMediaPreference === 'chart'
+                                ? 'bg-white dark:bg-slate-900 border-amber-500 text-amber-700 dark:text-amber-300 shadow-2xs'
+                                : 'border-amber-200/70 dark:border-amber-900 text-slate-600 dark:text-slate-400'
+                            }`}
+                          >
+                            <BarChart3 className="w-3 h-3" />
+                            <span>Grafik Data</span>
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-2 text-[10.5px]">
+                        {isDriveConnected || Boolean(StorageService.getSettings().gasWebAppUrl?.trim()) ? (
+                          <span className="text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{isDriveConnected ? 'Google Drive terhubung (OAuth)' : 'Simpan Drive via Google Apps Script'}</span>
+                          </span>
+                        ) : (
+                          <>
+                            <span className="text-amber-800 dark:text-amber-200">
+                              Hubungkan Google Drive agar link tersimpan di Drive:
+                            </span>
+                            <button
+                              type="button"
+                              disabled={isConnectingDrive}
+                              onClick={async () => {
+                                setIsConnectingDrive(true);
+                                try {
+                                  await GoogleDriveService.connectGoogleDrive();
+                                  setIsDriveConnected(true);
+                                } catch (e) {
+                                  console.warn(e);
+                                } finally {
+                                  setIsConnectingDrive(false);
+                                }
+                              }}
+                              className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center gap-1 shrink-0 cursor-pointer"
+                            >
+                              <CloudUpload className="w-3 h-3" />
+                              <span>{isConnectingDrive ? 'Menghubungkan...' : 'Hubungkan GDrive'}</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Standar Mutu AI & Anti-Monoton */}
               <div className="p-2.5 bg-slate-50 dark:bg-slate-950/70 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 space-y-1.5">

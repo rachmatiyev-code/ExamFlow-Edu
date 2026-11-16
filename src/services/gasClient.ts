@@ -1703,4 +1703,34 @@ export class GasClient {
       return { success: false, message: err?.message || String(err) };
     }
   }
+
+  /**
+   * Mengunggah gambar ilustrasi soal (base64 data URL) ke subfolder Ilustrasi_Soal_AI di Google Drive via GAS
+   */
+  static async uploadQuestionImageToDrive(
+    dataUrl: string,
+    fileName: string
+  ): Promise<{ success: boolean; fileId?: string; driveUrl?: string; folderPath?: string; message?: string }> {
+    const url = this.getWebAppUrl();
+    if (!url) return { success: false, message: 'URL Google Apps Script belum dikonfigurasi' };
+    try {
+      const res = await this.postToGas({
+        action: 'uploadQuestionImageToDrive',
+        dataUrl,
+        fileName
+      });
+      if (res.success && res.data?.driveUrl) {
+        return {
+          success: true,
+          fileId: res.data.fileId,
+          driveUrl: res.data.driveUrl,
+          folderPath: res.data.folderPath,
+          message: res.message
+        };
+      }
+      return { success: false, message: res.message || 'Gagal mengunggah gambar ke Google Drive via GAS.' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || String(err) };
+    }
+  }
 }

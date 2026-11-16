@@ -1483,6 +1483,76 @@ function doPost(e) {
       }
     }
 
+    if (action === 'uploadQuestionImageToDrive') {
+      try {
+        const dataUrl = String(payload.dataUrl || '');
+        const fileName = String(payload.fileName || ('ilustrasi_soal_' + Date.now() + '.png'));
+        if (!dataUrl || !dataUrl.includes('base64,')) {
+          return jsonResponse({ status: 'error', message: 'Data gambar base64 tidak valid.' });
+        }
+
+        const headerPart = dataUrl.split('base64,')[0];
+        const base64Part = dataUrl.split('base64,')[1];
+        const mimeMatch = headerPart.match(/data:([^;]+);/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+        const decodedBytes = Utilities.base64Decode(base64Part);
+        const blob = Utilities.newBlob(decodedBytes, mimeType, fileName);
+
+        // Cari folder induk tempat spreadsheet berada (data & backup app), atau buat folder data & backup
+        let parentFolder = null;
+        try {
+          const ssFile = DriveApp.getFileById(ss.getId());
+          const parents = ssFile.getParents();
+          if (parents.hasNext()) {
+            parentFolder = parents.next();
+          }
+        } catch (e) {}
+
+        const backupFolderName = 'ExamFlow Edu - Data & Backup';
+        const subFolderName = 'Ilustrasi_Soal_AI';
+
+        let dataBackupFolder = null;
+        if (parentFolder) {
+          const existingBackup = parentFolder.getFoldersByName(backupFolderName);
+          if (existingBackup.hasNext()) {
+            dataBackupFolder = existingBackup.next();
+          } else {
+            dataBackupFolder = parentFolder.createFolder(backupFolderName);
+          }
+        } else {
+          const rootExisting = DriveApp.getFoldersByName(backupFolderName);
+          if (rootExisting.hasNext()) {
+            dataBackupFolder = rootExisting.next();
+          } else {
+            dataBackupFolder = DriveApp.createFolder(backupFolderName);
+          }
+        }
+
+        let illustrationFolder = null;
+        const subIter = dataBackupFolder.getFoldersByName(subFolderName);
+        if (subIter.hasNext()) {
+          illustrationFolder = subIter.next();
+        } else {
+          illustrationFolder = dataBackupFolder.createFolder(subFolderName);
+        }
+
+        const createdFile = illustrationFolder.createFile(blob);
+        createdFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        const fileId = createdFile.getId();
+        const driveUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
+
+        return jsonResponse({
+          status: 'success',
+          fileId: fileId,
+          driveUrl: driveUrl,
+          folderPath: dataBackupFolder.getName() + ' / ' + illustrationFolder.getName(),
+          message: 'Ilustrasi soal berhasil disimpan ke Google Drive.'
+        });
+      } catch (driveErr) {
+        return jsonResponse({ status: 'error', message: 'Gagal menyimpan gambar ke Google Drive: ' + driveErr.toString() });
+      }
+    }
+
     return jsonResponse({ status: 'error', message: 'Action POST tidak dikenal: ' + action });
   } catch (err) {
     return jsonResponse({ status: 'error', message: err.toString() });

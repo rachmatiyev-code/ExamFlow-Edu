@@ -525,7 +525,7 @@ export async function exportItemAnalysisToDocx(
           const studentKeys = Array.isArray(studentAns) ? studentAns : [];
           const matchCount = correctKeys.filter(k => studentKeys.includes(k)).length;
           score = matchCount > 0 ? Math.round((matchCount / correctKeys.length) * (q.points || 1)) : 0;
-        } else if (q.type === 'matching') {
+        } else if (q.type === 'matching' || q.type === 'short_answer') {
           score = AnalysisService.isAnswerCorrect(q, studentAns) ? (q.points || 1) : 0;
         } else {
           // essay

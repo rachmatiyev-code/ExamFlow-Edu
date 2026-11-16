@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Exam, Question, SchoolProfile, Submission, Student } from '../types';
 import { StorageService } from '../services/storage';
+import { AnalysisService } from '../services/analysisService';
 import { exportItemAnalysisToExcel } from '../services/exportExcelService';
 import { exportItemAnalysisToDocx } from '../services/exportDocxService';
 import { PrintSetupModal } from './PrintSetupModal';
@@ -95,6 +96,8 @@ export const ItemAnalysisMatrix: React.FC<ItemAnalysisMatrixProps> = ({
           const studentKeys = Array.isArray(studentAns) ? studentAns : [];
           const matchCount = correctKeys.filter(k => studentKeys.includes(k)).length;
           score = matchCount > 0 ? Math.round((matchCount / correctKeys.length) * (q.points || 1)) : 0;
+        } else if (q.type === 'matching' || q.type === 'short_answer') {
+          score = AnalysisService.isAnswerCorrect(q, studentAns) ? (q.points || 1) : 0;
         } else {
           // essay
           score = (studentAns && typeof studentAns === 'string' && studentAns.trim().length > 5) ? (q.points || 1) : 0;

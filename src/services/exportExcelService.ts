@@ -66,7 +66,7 @@ export function exportExamToExcel(
 
       return [
         idx + 1,
-        q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'PG Kompleks' : 'Uraian',
+        q.type === 'multiple_choice' ? 'Pilihan Ganda' : q.type === 'checkbox' ? 'PG Kompleks' : q.type === 'short_answer' ? 'Isian Pendek' : q.type === 'matching' ? 'Menjodohkan' : 'Uraian',
         q.prompt.replace(/<[^>]*>/g, ''),
         optA,
         optB,
@@ -244,6 +244,8 @@ export function exportItemAnalysisToExcel(
         const studentKeys = Array.isArray(studentAns) ? studentAns : [];
         const matchCount = correctKeys.filter(k => studentKeys.includes(k)).length;
         score = matchCount > 0 ? Math.round((matchCount / correctKeys.length) * (q.points || 1)) : 0;
+      } else if (q.type === 'matching' || q.type === 'short_answer') {
+        score = AnalysisService.isAnswerCorrect(q, studentAns) ? (q.points || 1) : 0;
       } else {
         score = (studentAns && typeof studentAns === 'string' && studentAns.trim().length > 5) ? (q.points || 1) : 0;
       }

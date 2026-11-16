@@ -58,7 +58,7 @@ export interface Question {
   examId: string;
   order: number;
   prompt: string;
-  type: 'multiple_choice' | 'checkbox' | 'essay' | 'matching';
+  type: 'multiple_choice' | 'checkbox' | 'short_answer' | 'essay' | 'matching';
   mediaType: 'none' | 'image' | 'audio' | 'video';
   mediaUrl?: string;
   options: QuestionOption[];

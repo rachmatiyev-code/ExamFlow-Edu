@@ -361,10 +361,12 @@ export function exportStudentReportToExcel(
     sheet1Rows.push(['Catatan Evaluasi Guru', options.teacherNote]);
   }
   sheet1Rows.push(['']);
-  sheet1Rows.push(['Mengetahui,', '', '', 'Guru Kelas / Pengampu']);
-  sheet1Rows.push(['Kepala Sekolah', '', '', profile.teacherName || '']);
-  sheet1Rows.push([profile.principalName || '', '', '', `NIP. ${profile.teacherNip || '-'}`]);
-  sheet1Rows.push([`NIP. ${profile.principalNip || '-'}`]);
+  sheet1Rows.push(['', '', '', '', 'Mengetahui,', '', '', '', '']);
+  sheet1Rows.push(['', 'Orang Tua / Wali Murid', '', '', 'Kepala Sekolah', '', '', '', 'Guru Kelas / Pengampu']);
+  sheet1Rows.push(['']);
+  sheet1Rows.push(['']);
+  sheet1Rows.push(['', '( ...................................... )', '', '', profile.principalName || 'Dr. H. Sulaiman, M.Pd.', '', '', '', profile.teacherName || 'Siti Rahmawati, S.Pd.']);
+  sheet1Rows.push(['', '', '', '', `NIP. ${profile.principalNip || '-'}`, '', '', '', `NIP. ${profile.teacherNip || '-'}`]);
 
   const wsRapor = XLSX.utils.aoa_to_sheet(sheet1Rows);
   wsRapor['!cols'] = [

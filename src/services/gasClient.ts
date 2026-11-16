@@ -365,17 +365,20 @@ export class GasClient {
         const subMap = new Map<string, Submission>();
         cleanRemoteSubs.forEach(sub => subMap.set(sub.id, sub));
 
-        // Hanya pertahankan pending lokal yang dibuat dalam 2 menit terakhir dan bukan yang sengaja dihapus guru
+        // Pertahankan submission lokal yang masih berstatus 'pending' dan ada di antrean pendingSync agar nilai siswa yang belum tersinkron ke Sheets tidak pernah hilang!
+        const pendingQueueIds = new Set(StorageService.getPendingSync().map(p => p.id));
         const now = Date.now();
         const pendingLocal = StorageService.getSubmissions().filter(s => {
-          if (s.syncStatus !== 'pending') return false;
-          const subTime = new Date(s.submittedAt).getTime();
-          // Jangan pulihkan data lama yang sudah lewat dari 2 menit jika server sudah tidak menyimpannya
-          return (now - subTime) < 120000;
+          if (s.syncStatus !== 'pending' && !pendingQueueIds.has(s.id)) return false;
+          const subTime = parseFlexibleTimestamp(s.submittedAt);
+          // Pertahankan selama masih ada di antrean pending atau dibuat dalam 24 jam terakhir
+          return pendingQueueIds.has(s.id) || (now - subTime) < 86400000;
         });
 
         pendingLocal.forEach(sub => {
-          if (!subMap.has(sub.id)) subMap.set(sub.id, sub);
+          if (!subMap.has(sub.id)) {
+            subMap.set(sub.id, sub);
+          }
         });
         StorageService.saveSubmissions(Array.from(subMap.values()));
       }
@@ -511,7 +514,7 @@ export class GasClient {
       });
       if (proxyRes.ok) {
         const json = await proxyRes.json();
-        if (json && (json.status === 'success' || json.success)) {
+        if (json && !json.isNonJson && !json.raw && (json.status === 'success' || json.success)) {
           return { success: true, data: json, message: json.message || 'Sukses dikirim ke Google Sheets' };
         }
       }
@@ -608,22 +611,74 @@ export class GasClient {
   }
 
   /**
-   * Catat bahwa siswa telah menyelesaikan ujian di server (untuk penguncian 1x pengerjaan)
+   * Catat bahwa siswa telah menyelesaikan ujian di server (untuk penguncian 1x pengerjaan & sinkronisasi nilai)
    */
   static async recordAttemptOnServer(submission: Submission): Promise<void> {
     try {
+      const examObj = StorageService.getExamById(submission.examId);
       await fetch('/api/exam-attempts/record', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           examId: submission.examId,
+          examTitle: submission.examTitle || examObj?.title || '',
           studentNo: submission.studentNo,
           studentName: submission.studentName,
+          classGrade: submission.classGrade,
           submissionId: submission.id,
+          score: submission.score,
+          maxScore: submission.maxScore,
+          percentage: submission.percentage,
+          passed: submission.passed,
+          timeSpentSeconds: submission.timeSpentSeconds,
+          tabSwitchCount: submission.tabSwitchCount,
+          feedback: submission.feedback || '',
+          answers: submission.answers || {},
           submittedAt: submission.submittedAt
         })
       });
     } catch {}
+  }
+
+  /**
+   * Ambil daftar ujian yang telah diselesaikan siswa dari server Express
+   */
+  static async fetchStudentAttemptsFromServer(
+    studentNo: string,
+    studentName?: string
+  ): Promise<Submission[]> {
+    try {
+      const params = new URLSearchParams();
+      if (studentNo) params.set('studentNo', String(studentNo).trim());
+      if (studentName) params.set('studentName', String(studentName).trim());
+      if (!params.toString()) return [];
+      const res = await fetch(`/api/exam-attempts/student?${params.toString()}&_t=${Date.now()}`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      if (!json?.success || !Array.isArray(json.attempts)) return [];
+      return json.attempts.map((a: any): Submission => ({
+        id: String(a.submissionId || `SUB-${a.examId}-${a.studentNo}`),
+        examId: String(a.examId || ''),
+        examTitle: String(a.examTitle || ''),
+        studentNo: String(a.studentNo || ''),
+        studentName: String(a.studentName || ''),
+        classGrade: String(a.classGrade || ''),
+        answers: a.answers && typeof a.answers === 'object' ? a.answers : {},
+        score: Number(a.score || 0),
+        maxScore: Number(a.maxScore || 100),
+        percentage: Number(a.percentage || 0),
+        passed: Boolean(a.passed),
+        submittedAt: String(a.submittedAt || toLocalIsoString()),
+        tabSwitchCount: Number(a.tabSwitchCount || 0),
+        timeSpentSeconds: Number(a.timeSpentSeconds || 0),
+        syncStatus: 'synced',
+        feedback: String(a.feedback || ''),
+        statusNote: String(a.statusNote || 'Selesai'),
+        allowRepeat: Boolean(a.allowRepeat)
+      }));
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -649,13 +704,18 @@ export class GasClient {
    */
   static async submitAnswer(submission: Submission): Promise<{ success: boolean; message: string }> {
     const url = this.getWebAppUrl();
+    const examObj = StorageService.getExamById(submission.examId);
+    const enrichedSubmission: Submission = {
+      ...submission,
+      examTitle: submission.examTitle || examObj?.title || ''
+    };
     
     // Simpan ke storage lokal dan catat di server terlebih dahulu
-    StorageService.addSubmission(submission);
-    await this.recordAttemptOnServer(submission);
+    StorageService.addSubmission(enrichedSubmission);
+    await this.recordAttemptOnServer(enrichedSubmission);
 
     if (!url) {
-      StorageService.addLog('SYNC', `Disimpan secara offline. Jawaban ${submission.studentName} akan dikirim saat Web App terhubung.`, undefined, 'warn');
+      StorageService.addLog('SYNC', `Disimpan secara offline. Jawaban ${enrichedSubmission.studentName} akan dikirim saat Web App terhubung.`, undefined, 'warn');
       return {
         success: true,
         message: 'Jawaban tersimpan offline di perangkat. Akan otomatis disinkronkan saat terhubung.'
@@ -663,13 +723,10 @@ export class GasClient {
     }
 
     try {
-      const examObj = StorageService.getExamById(submission.examId);
-      const examTitle = submission.examTitle || examObj?.title || '';
       const res = await this.postToGas({
         action: 'saveSubmission',
         submission: {
-          ...submission,
-          examTitle,
+          ...enrichedSubmission,
           syncStatus: 'synced'
         }
       });
@@ -678,8 +735,8 @@ export class GasClient {
         throw new Error(res.message);
       }
 
-      StorageService.markSubmissionSynced(submission.id);
-      StorageService.addLog('SYNC', `Jawaban siswa ${submission.studentName} berhasil dikirim ke Google Sheets!`, undefined, 'success');
+      StorageService.markSubmissionSynced(enrichedSubmission.id);
+      StorageService.addLog('SYNC', `Jawaban siswa ${enrichedSubmission.studentName} berhasil dikirim ke Google Sheets!`, undefined, 'success');
 
       return {
         success: true,

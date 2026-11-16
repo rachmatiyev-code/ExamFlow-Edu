@@ -261,7 +261,7 @@ function initDatabase() {
     shLaporanIndividu.appendRow(['Catatan Integritas (Pindah Tab):', '=IFERROR(VLOOKUP(B3, Data_Mentah!A2:J, 7, FALSE), 0)']);
     shLaporanIndividu.appendRow(['Durasi Pengerjaan (Detik):', '=IFERROR(VLOOKUP(B3, Data_Mentah!A2:J, 8, FALSE), 0)']);
     shLaporanIndividu.appendRow([]);
-    shLaporanIndividu.appendRow(['Tanda Tangan Guru Pengampu', '', 'Tanda Tangan Orang Tua / Wali']);
+    shLaporanIndividu.appendRow(['Tanda Tangan Orang Tua / Wali', 'Mengetahui, Kepala Sekolah', 'Tanda Tangan Guru Pengampu']);
   }
 
   // 5D. Tab Rekap_Nilai (Rekapitulasi Nilai Asesmen per Mata Pelajaran & Kelas)

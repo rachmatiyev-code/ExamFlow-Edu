@@ -1297,8 +1297,9 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-4 text-center">
-                <div>
-                  <span className="block text-slate-600 mb-1">Orang Tua / Wali Murid</span>
+                <div className="flex flex-col items-center">
+                  <span className="block text-slate-600 invisible select-none">Mengetahui,</span>
+                  <span className="block text-slate-700 font-semibold mb-1">Orang Tua / Wali Murid</span>
                   <div className="h-16 flex items-end justify-center">
                     <span className="font-serif italic text-slate-300 text-[11px]">[Tanda Tangan Wali]</span>
                   </div>
@@ -1306,8 +1307,23 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
                   <span className="block text-[11px] text-slate-500 mt-0.5">( ......................................... )</span>
                 </div>
 
-                <div>
-                  <span className="block text-slate-600 mb-1">Guru Kelas / Pengampu</span>
+                <div className="flex flex-col items-center">
+                  <span className="block text-slate-600">Mengetahui,</span>
+                  <span className="block font-bold text-slate-900 mb-1">Kepala Sekolah</span>
+                  <div className="h-16 flex items-end justify-center">
+                    <span className="font-serif italic text-slate-300 text-[11px]">[Cap & Tanda Tangan]</span>
+                  </div>
+                  <span className="block font-bold underline text-slate-900 mt-2">
+                    {profile.principalName || 'Dr. H. Sulaiman, M.Pd.'}
+                  </span>
+                  <span className="block font-mono text-[10px] text-slate-600">
+                    NIP. {profile.principalNip || '19750812 200003 1 002'}
+                  </span>
+                </div>
+
+                <div className="flex flex-col items-center">
+                  <span className="block text-slate-600 invisible select-none">Mengetahui,</span>
+                  <span className="block text-slate-700 font-semibold mb-1">Guru Kelas / Pengampu</span>
                   <div className="h-16 flex items-end justify-center">
                     <span className="font-serif italic text-slate-300 text-[11px]">[Tanda Tangan Guru]</span>
                   </div>
@@ -1316,20 +1332,6 @@ export const OfficialReportPrintView: React.FC<OfficialReportPrintViewProps> = (
                   </span>
                   <span className="block font-mono text-[10px] text-slate-600">
                     NIP. {profile.teacherNip || '19820514 200801 2 009'}
-                  </span>
-                </div>
-
-                <div>
-                  <span className="block text-slate-600 mb-1">Mengetahui,</span>
-                  <span className="block font-bold text-slate-900 text-[11px]">Kepala Sekolah</span>
-                  <div className="h-14 flex items-end justify-center">
-                    <span className="font-serif italic text-slate-300 text-[11px]">[Cap & Tanda Tangan]</span>
-                  </div>
-                  <span className="block font-bold underline text-slate-900 mt-2">
-                    {profile.principalName || 'Dr. H. Sulaiman, M.Pd.'}
-                  </span>
-                  <span className="block font-mono text-[10px] text-slate-600">
-                    NIP. {profile.principalNip || '19750812 200003 1 002'}
                   </span>
                 </div>
               </div>

@@ -536,7 +536,12 @@ apiRouter.all('/gas-proxy', async (req, res) => {
       const json = JSON.parse(text);
       return res.json(json);
     } catch {
-      return res.json({ status: 'success', raw: text });
+      return res.status(502).json({
+        status: 'error',
+        isNonJson: true,
+        message: 'Respons dari Google Apps Script bukan JSON yang valid. Periksa deployment Web App GAS Anda.',
+        raw: text.slice(0, 500)
+      });
     }
   } catch (err: any) {
     console.error('Proxy GAS error:', err);
@@ -842,9 +847,19 @@ interface ServerExamControl {
 
 interface ServerExamAttempt {
   examId: string;
+  examTitle?: string;
   studentNo: string;
   studentName: string;
+  classGrade?: string;
   submissionId: string;
+  score?: number;
+  maxScore?: number;
+  percentage?: number;
+  passed?: boolean;
+  timeSpentSeconds?: number;
+  tabSwitchCount?: number;
+  feedback?: string;
+  answers?: Record<string, any>;
   submittedAt: string;
   statusNote: string;
   allowRepeat: boolean;
@@ -961,6 +976,17 @@ apiRouter.post('/exam-controls', (req, res) => {
   }
 });
 
+function matchesStudentNo(aNo: string | undefined, bNo: string | undefined): boolean {
+  const cleanA = String(aNo || '').trim().toLowerCase();
+  const cleanB = String(bNo || '').trim().toLowerCase();
+  if (!cleanA || !cleanB) return false;
+  if (cleanA === cleanB) return true;
+  if (/^\d+$/.test(cleanA) && /^\d+$/.test(cleanB)) {
+    return cleanA.replace(/^0+/, '') === cleanB.replace(/^0+/, '');
+  }
+  return false;
+}
+
 // GET /api/exam-attempts/check
 apiRouter.get('/exam-attempts/check', (req, res) => {
   const examId = String(req.query.examId || '').trim().toLowerCase();
@@ -973,7 +999,7 @@ apiRouter.get('/exam-attempts/check', (req, res) => {
 
   const matched = examAttemptsList.filter(a => {
     if (a.examId.toLowerCase() !== examId) return false;
-    const matchNo = Boolean(studentNo && a.studentNo && a.studentNo.toLowerCase() === studentNo);
+    const matchNo = matchesStudentNo(a.studentNo, studentNo);
     const matchName = Boolean(studentName && a.studentName && a.studentName.toLowerCase() === studentName);
     return matchNo || matchName;
   });
@@ -985,6 +1011,29 @@ apiRouter.get('/exam-attempts/check', (req, res) => {
     success: true,
     hasCompleted: hasCompleted && !hasRepeatPermission,
     allowRepeat: hasRepeatPermission,
+    attempts: matched
+  });
+});
+
+// GET /api/exam-attempts/student (untuk sinkronisasi status selesai & nilai di perangkat siswa)
+apiRouter.get('/exam-attempts/student', (req, res) => {
+  const studentNo = String(req.query.studentNo || '').trim().toLowerCase();
+  const studentName = String(req.query.studentName || '').trim().toLowerCase();
+
+  if (!studentNo && !studentName) {
+    return res.json({ success: true, attempts: [] });
+  }
+
+  const matched = examAttemptsList.filter(a => {
+    const matchNo = studentNo ? matchesStudentNo(a.studentNo, studentNo) : false;
+    const matchName = studentName
+      ? Boolean(a.studentName && (a.studentName.toLowerCase() === studentName || a.studentName.toLowerCase().includes(studentName)))
+      : false;
+    return matchNo || matchName;
+  });
+
+  return res.json({
+    success: true,
     attempts: matched
   });
 });
@@ -1003,16 +1052,26 @@ apiRouter.post('/exam-attempts/record', (req, res) => {
     // Hapus izin ulang lama untuk kombinasi siswa + ujian ini karena siswa baru saja submit
     examAttemptsList = examAttemptsList.filter(a => {
       if (a.examId.toLowerCase() !== examId.toLowerCase()) return true;
-      const matchNo = Boolean(studentNo && a.studentNo && a.studentNo.toLowerCase() === studentNo.toLowerCase());
+      const matchNo = matchesStudentNo(a.studentNo, studentNo);
       const matchName = Boolean(studentName && a.studentName && a.studentName.toLowerCase() === studentName.toLowerCase());
       return !(matchNo || matchName);
     });
 
     examAttemptsList.push({
       examId,
+      examTitle: b.examTitle ? String(b.examTitle).trim() : '',
       studentNo,
       studentName,
+      classGrade: b.classGrade ? String(b.classGrade).trim() : '',
       submissionId: String(b.submissionId || `SUB-${Date.now()}`),
+      score: typeof b.score === 'number' ? b.score : Number(b.score || 0),
+      maxScore: typeof b.maxScore === 'number' ? b.maxScore : Number(b.maxScore || 100),
+      percentage: typeof b.percentage === 'number' ? b.percentage : Number(b.percentage || 0),
+      passed: Boolean(b.passed),
+      timeSpentSeconds: Number(b.timeSpentSeconds || 0),
+      tabSwitchCount: Number(b.tabSwitchCount || 0),
+      feedback: b.feedback ? String(b.feedback) : '',
+      answers: b.answers && typeof b.answers === 'object' ? b.answers : undefined,
       submittedAt: String(b.submittedAt || new Date().toISOString()),
       statusNote: 'Selesai',
       allowRepeat: false
@@ -1036,7 +1095,7 @@ apiRouter.post('/exam-attempts/reset', (req, res) => {
     examAttemptsList = examAttemptsList.filter(a => {
       if (submissionId && a.submissionId.toLowerCase() === submissionId) return false;
       if (examId && a.examId.toLowerCase() === examId) {
-        const matchNo = Boolean(studentNo && a.studentNo && a.studentNo.toLowerCase() === studentNo);
+        const matchNo = matchesStudentNo(a.studentNo, studentNo);
         const matchName = Boolean(studentName && a.studentName && a.studentName.toLowerCase() === studentName);
         if (matchNo || matchName) return false;
       }

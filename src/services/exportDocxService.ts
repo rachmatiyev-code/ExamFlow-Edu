@@ -999,24 +999,27 @@ export async function exportStudentReportToDocx(
             new TableCell({
               width: { size: 33, type: WidthType.PERCENTAGE },
               children: [
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: ' ', size: 18 })] }),
                 new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Orang Tua / Wali Murid', size: 18 })] }),
                 new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 650 }, children: [new TextRun({ text: '( ...................................... )', size: 18 })] })
               ]
             }),
             new TableCell({
-              width: { size: 33, type: WidthType.PERCENTAGE },
+              width: { size: 34, type: WidthType.PERCENTAGE },
               children: [
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Guru Kelas / Pengampu', size: 18 })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 650 }, children: [new TextRun({ text: profile.teacherName || 'Siti Rahmawati, S.Pd.', bold: true, underline: {}, size: 18 })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `NIP. ${profile.teacherNip || '-'}`, size: 16 })] })
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Mengetahui,', size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Kepala Sekolah', bold: true, size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 650 }, children: [new TextRun({ text: profile.principalName || 'Dr. H. Sulaiman, M.Pd.', bold: true, underline: {}, size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `NIP. ${profile.principalNip || '-'}`, size: 16 })] })
               ]
             }),
             new TableCell({
-              width: { size: 34, type: WidthType.PERCENTAGE },
+              width: { size: 33, type: WidthType.PERCENTAGE },
               children: [
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Mengetahui,\nKepala Sekolah', size: 18 })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 550 }, children: [new TextRun({ text: profile.principalName || 'Dr. H. Sulaiman, M.Pd.', bold: true, underline: {}, size: 18 })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `NIP. ${profile.principalNip || '-'}`, size: 16 })] })
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: ' ', size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Guru Kelas / Pengampu', size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 650 }, children: [new TextRun({ text: profile.teacherName || 'Siti Rahmawati, S.Pd.', bold: true, underline: {}, size: 18 })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `NIP. ${profile.teacherNip || '-'}`, size: 16 })] })
               ]
             })
           ]

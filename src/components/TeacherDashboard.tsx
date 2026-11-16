@@ -3732,7 +3732,7 @@ const rekapDistinctGrades = useMemo(() => {
                   <span>
                     {reportMode === 'klasikal'
                       ? 'Format Klasikal: Rekapitulasi kelas, formula rata-rata, KKM, serta tanda tangan Kepala Sekolah & Guru (Kop SDN Pisangcandi 1).'
-                      : 'Format Individu: Lembar rapor hasil asesmen per siswa, capaian Tujuan Pembelajaran (TP), dan kolom tanda tangan Wali Murid & Guru.'}
+                      : 'Format Individu: Lembar rapor hasil asesmen per siswa, capaian Tujuan Pembelajaran (TP), dan tanda tangan Orang Tua / Wali (kiri), Kepala Sekolah (tengah), & Guru (kanan).'}
                   </span>
                   <span className="font-semibold text-indigo-600 dark:text-indigo-400">
                     Standar A4 Sekolah (Tanpa Screenshot)

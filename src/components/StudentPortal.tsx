@@ -77,14 +77,47 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [serverStoppedNotice, setServerStoppedNotice] = useState<string | null>(null);
   
-  // Student Login State
+  // Student Login State (pulihkan identitas siswa terakhir di perangkat agar status pengerjaan tetap terbaca)
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [studentNo, setStudentNo] = useState('');
-  const [studentName, setStudentName] = useState('');
-  const [studentClass, setStudentClass] = useState('');
+  const [studentNo, setStudentNo] = useState(() => {
+    try {
+      const saved = localStorage.getItem('examflow_student_identity');
+      if (saved) return JSON.parse(saved).studentNo || '';
+    } catch {}
+    return '';
+  });
+  const [studentName, setStudentName] = useState(() => {
+    try {
+      const saved = localStorage.getItem('examflow_student_identity');
+      if (saved) return JSON.parse(saved).studentName || '';
+    } catch {}
+    return '';
+  });
+  const [studentClass, setStudentClass] = useState(() => {
+    try {
+      const saved = localStorage.getItem('examflow_student_identity');
+      if (saved) return JSON.parse(saved).classGrade || '';
+    } catch {}
+    return '';
+  });
   const [examToken, setExamToken] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isDownloadingQuestions, setIsDownloadingQuestions] = useState(false);
+  const [serverStudentAttempts, setServerStudentAttempts] = useState<Submission[]>([]);
+  const [submissionVersion, setSubmissionVersion] = useState(0);
+
+  // Persist student identity locally whenever studentNo or studentName is set
+  const persistStudentIdentity = React.useCallback((sNo: string, sName: string, sClass: string) => {
+    try {
+      if (sNo.trim() || sName.trim()) {
+        localStorage.setItem('examflow_student_identity', JSON.stringify({
+          studentNo: sNo.trim(),
+          studentName: sName.trim(),
+          classGrade: sClass.trim()
+        }));
+      }
+    } catch {}
+  }, []);
 
   // Exam Active State
   const [isExamActive, setIsExamActive] = useState(false);
@@ -102,6 +135,23 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   useEffect(() => {
     setLiveExams((exams || []).map(e => StorageService.normalizeExamRecord(e)));
   }, [exams]);
+
+  // Sinkronkan riwayat pengerjaan siswa aktif dari server Express saat identitas terisi
+  useEffect(() => {
+    const cleanNo = studentNo.trim();
+    const cleanName = studentName.trim();
+    if (!cleanNo && !cleanName) {
+      setServerStudentAttempts([]);
+      return;
+    }
+    let active = true;
+    GasClient.fetchStudentAttemptsFromServer(cleanNo, cleanName).then(list => {
+      if (active && Array.isArray(list)) {
+        setServerStudentAttempts(list);
+      }
+    });
+    return () => { active = false; };
+  }, [studentNo, studentName, submissionVersion]);
 
   // Refs for real-time listeners without re-subscribing
   const activeExamRef = useRef<{ active: boolean; examId?: string; isLoginOpen: boolean }>({
@@ -391,6 +441,73 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [studentLookupResults, setStudentLookupResults] = useState<Submission[] | null>(null);
   const [scoreLookupTab, setScoreLookupTab] = useState<'all' | 'pending' | 'completed'>('all');
   const [scoreLookupMatchedStudent, setScoreLookupMatchedStudent] = useState<Student | null>(null);
+  const [isSyncingLookup, setIsSyncingLookup] = useState(false);
+
+  // Helper normalisasi identitas & pencocokan ujian
+  const normalizeNumericStr = (val?: string) => {
+    const clean = String(val || '').trim().toLowerCase();
+    if (!clean) return '';
+    return /^\d+$/.test(clean) ? (clean.replace(/^0+/, '') || '0') : clean;
+  };
+
+  const isResetSubmissionEntry = (s: Submission) => {
+    const rawNote = String(s.statusNote || '').toLowerCase();
+    return (
+      s.allowRepeat === true ||
+      String(s.allowRepeat).toLowerCase() === 'true' ||
+      String(s.allowRepeat) === '1' ||
+      rawNote.includes('ulang') ||
+      rawNote.includes('reset') ||
+      rawNote.includes('retake')
+    );
+  };
+
+  const mergeSubmissionsSources = (localSubs: Submission[], serverSubs: Submission[]): Submission[] => {
+    const map = new Map<string, Submission>();
+    const addSub = (sub: Submission) => {
+      const exKey = String(sub.examId || '').trim().toLowerCase();
+      const sKey = normalizeNumericStr(sub.studentNo) || String(sub.studentName || '').trim().toLowerCase();
+      const key = `${exKey}::${sKey}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, sub);
+        return;
+      }
+      const existingIsReset = isResetSubmissionEntry(existing);
+      const newIsReset = isResetSubmissionEntry(sub);
+      // Prioritaskan submisi yang benar-benar selesai di atas placeholder reset
+      if (existingIsReset && !newIsReset) {
+        map.set(key, sub);
+        return;
+      }
+      if (!existingIsReset && newIsReset) {
+        return;
+      }
+      // Jika sama-sama selesai, ambil yang memiliki jawaban lebih lengkap atau submittedAt terbaru
+      const existingAnsCount = existing.answers ? Object.keys(existing.answers).length : 0;
+      const newAnsCount = sub.answers ? Object.keys(sub.answers).length : 0;
+      const existingTime = new Date(existing.submittedAt).getTime() || 0;
+      const newTime = new Date(sub.submittedAt).getTime() || 0;
+      if (newTime > existingTime || (newTime === existingTime && newAnsCount > existingAnsCount)) {
+        map.set(key, {
+          ...sub,
+          answers: newAnsCount > 0 ? sub.answers : existing.answers
+        });
+      }
+    };
+    localSubs.forEach(addSub);
+    serverSubs.forEach(addSub);
+    return Array.from(map.values());
+  };
+
+  const matchSubToExam = (sub: Submission, exam: Exam): boolean => {
+    const sExId = String(sub.examId || '').trim().toLowerCase();
+    const exId = String(exam.id || '').trim().toLowerCase();
+    if (sExId && exId && sExId === exId) return true;
+    const sTitle = String(sub.examTitle || '').trim().toLowerCase();
+    const exTitle = String(exam.title || '').trim().toLowerCase();
+    return Boolean(sTitle && exTitle && sTitle === exTitle);
+  };
 
   // Filter exams available today
   const todayStr = getLocalDateInputValue();
@@ -1003,6 +1120,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     const submission: Submission = {
       id: `SUB-${Date.now()}`,
       examId: selectedExam.id,
+      examTitle: selectedExam.title,
       studentNo: studentNo.trim(),
       studentName: studentName.trim(),
       classGrade: studentClass.trim() || 'Umum',
@@ -1020,8 +1138,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       feedback: passed ? 'Selamat, Anda telah melampaui kriteria ketuntasan!' : 'Belum mencapai batas kelulusan. Pelajari kembali materi ini.'
     };
 
-    // Send to Google Apps Script / Local storage
+    persistStudentIdentity(studentNo, studentName, studentClass);
+
+    // Send to Google Apps Script / Local storage & Server Attempt Lock
     await GasClient.submitAnswer(submission);
+    setServerStudentAttempts(prev => mergeSubmissionsSources(prev, [submission]));
+    setSubmissionVersion(v => v + 1);
     onSubmissionComplete(submission);
 
     // Bersihkan draft progress di perangkat lokal setelah jawaban berhasil diserahkan
@@ -1149,7 +1271,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           {/* Review Jawaban & Pembahasan Lengkap di Akhir Ujian */}
           {showDetailedReview && (
             <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800 text-left space-y-5 animate-fadeIn">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <div>
                   <h4 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
@@ -1159,9 +1281,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     Pelajari kembali butir soal, analisis jawaban Anda, serta panduan pembahasan materi berikut ini.
                   </p>
                 </div>
-                <span className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-full border border-indigo-200 dark:border-indigo-800 shrink-0">
-                  Total {examQuestions.length} Butir Soal
-                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="px-3 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold text-xs rounded-full border border-emerald-200 dark:border-emerald-800">
+                    {examQuestions.filter(q => isQuestionAnswered(q.id, completedSubmission.answers || {})).length}/{examQuestions.length} Terjawab
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -1338,10 +1462,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     const currentQ = examQuestions[currentQuestionIndex];
     const isLast = currentQuestionIndex === examQuestions.length - 1;
     const isFirst = currentQuestionIndex === 0;
-    const answeredCount = Object.keys(userAnswers).filter(k => {
-      const val = userAnswers[k];
-      return Array.isArray(val) ? val.length > 0 : Boolean(val);
-    }).length;
+    const answeredCount = answeredQuestionsCount;
 
     return (
       <div className="min-h-screen pb-16 bg-slate-100 dark:bg-slate-950 transition-colors">
@@ -2220,6 +2341,96 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         </div>
       </div>
 
+      {/* Helper Lookup Function & Today's Schedule Header */}
+      {(() => {
+        // Trigger fungsi cek nilai secara programatik (dipakai oleh tombol Cek Nilai Saya maupun card Ujian)
+        const triggerLookup = async (initialQuery: string, targetTab: 'all' | 'pending' | 'completed' = 'all') => {
+          setIsScoreLookupOpen(true);
+          setScoreLookupTab(targetTab);
+          const cleanQuery = initialQuery.trim();
+          setScoreLookupNis(cleanQuery);
+
+          if (!cleanQuery) {
+            setStudentLookupResults(null);
+            setScoreLookupMatchedStudent(null);
+            return;
+          }
+
+          const queryLower = cleanQuery.toLowerCase();
+          const queryNum = normalizeNumericStr(cleanQuery);
+
+          const foundStudent =
+            students.find(s => {
+              const sNo = normalizeNumericStr(s.studentNo);
+              const sNis = normalizeNumericStr(s.nis);
+              const sNisn = normalizeNumericStr(s.nisn);
+              return (sNo && sNo === queryNum) || (sNis && sNis === queryNum) || (sNisn && sNisn === queryNum);
+            }) ||
+            students.find(s => String(s.fullName || '').trim().toLowerCase() === queryLower) ||
+            students.find(s => String(s.fullName || '').trim().toLowerCase().includes(queryLower)) ||
+            null;
+          setScoreLookupMatchedStudent(foundStudent);
+
+          const filterMatchedForQuery = (subsList: Submission[]) => {
+            const matched = subsList.filter(s => {
+              const sNoNorm = normalizeNumericStr(s.studentNo);
+              const sName = String(s.studentName || '').trim().toLowerCase();
+              const directMatch =
+                (queryNum && sNoNorm === queryNum) ||
+                (queryLower && (sName === queryLower || sName.includes(queryLower)));
+              if (directMatch) return true;
+              if (foundStudent) {
+                const tNo = normalizeNumericStr(foundStudent.studentNo);
+                const tNis = normalizeNumericStr(foundStudent.nis);
+                const tNisn = normalizeNumericStr(foundStudent.nisn);
+                const tName = String(foundStudent.fullName || '').trim().toLowerCase();
+                return (
+                  (tNo && sNoNorm === tNo) ||
+                  (tNis && sNoNorm === tNis) ||
+                  (tNisn && sNoNorm === tNisn) ||
+                  (tName && sName === tName)
+                );
+              }
+              return false;
+            });
+
+            // Gabungkan & hilangkan duplikat per ujian: jika ada submisi selesai, abaikan placeholder reset lama
+            const deduped = mergeSubmissionsSources(matched, []);
+            return deduped.filter(s => !isResetSubmissionEntry(s));
+          };
+
+          // 1. Tampilkan segera hasil lokal + server cache yang sudah ada
+          const combinedImmediate = mergeSubmissionsSources(StorageService.getSubmissions(), serverStudentAttempts);
+          setStudentLookupResults(filterMatchedForQuery(combinedImmediate));
+
+          // 2. Sinkronkan latar belakang dari server Express & Google Sheets agar selalu akurat lintas perangkat
+          setIsSyncingLookup(true);
+          try {
+            const serverList = await GasClient.fetchStudentAttemptsFromServer(
+              foundStudent?.studentNo || cleanQuery,
+              foundStudent?.fullName || cleanQuery
+            );
+            if (serverList.length > 0) {
+              setServerStudentAttempts(prev => mergeSubmissionsSources(prev, serverList));
+            }
+            const gasUrl = StorageService.getSettings().gasWebAppUrl;
+            if (gasUrl && gasUrl.trim().startsWith('http')) {
+              await GasClient.fetchAllFromSheets();
+            }
+            const latestCombined = mergeSubmissionsSources(
+              StorageService.getSubmissions(),
+              mergeSubmissionsSources(serverStudentAttempts, serverList)
+            );
+            setStudentLookupResults(filterMatchedForQuery(latestCombined));
+          } finally {
+            setIsSyncingLookup(false);
+          }
+        };
+
+        (window as any).__examflowTriggerLookup = triggerLookup;
+        return null;
+      })()}
+
       {/* Today's Schedule Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
         <div>
@@ -2233,16 +2444,43 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {(studentNo.trim() || studentName.trim()) && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-xs font-semibold rounded-lg border border-emerald-200 dark:border-emerald-800">
+              <User className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>{studentName || 'Siswa'} ({studentNo || '-'})</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setStudentNo('');
+                  setStudentName('');
+                  setStudentClass('');
+                  setServerStudentAttempts([]);
+                  try { localStorage.removeItem('examflow_student_identity'); } catch {}
+                }}
+                className="ml-1 text-emerald-600 hover:text-rose-600 dark:text-emerald-300 dark:hover:text-rose-400 cursor-pointer"
+                title="Ganti identitas peserta di perangkat ini"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => {
-              setIsScoreLookupOpen(true);
-              setStudentLookupResults(null);
-              setScoreLookupMatchedStudent(null);
-              setScoreLookupTab('all');
-              setScoreLookupNis(studentNo.trim() || '');
+              const autoQuery = studentNo.trim() || studentName.trim();
+              const fn = (window as any).__examflowTriggerLookup;
+              if (autoQuery && typeof fn === 'function') {
+                fn(autoQuery, 'all');
+              } else {
+                setIsScoreLookupOpen(true);
+                setStudentLookupResults(null);
+                setScoreLookupMatchedStudent(null);
+                setScoreLookupTab('all');
+                setScoreLookupNis('');
+              }
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
           >
             <BarChart3 className="w-3.5 h-3.5" />
             <span>Cek Nilai Saya</span>
@@ -2255,9 +2493,24 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       </div>
 
       {/* Exam Cards Grid */}
-      {activeExams.length > 0 ? (
+      {activeExams.length > 0 ? (() => {
+        const cleanCurrentNo = normalizeNumericStr(studentNo);
+        const cleanCurrentName = studentName.trim().toLowerCase();
+        const combinedDeviceSubs = mergeSubmissionsSources(StorageService.getSubmissions(), serverStudentAttempts);
+        const currentStudentSubs = (cleanCurrentNo || cleanCurrentName)
+          ? combinedDeviceSubs.filter(s => {
+              const sNo = normalizeNumericStr(s.studentNo);
+              const sName = String(s.studentName || '').trim().toLowerCase();
+              return (cleanCurrentNo && sNo === cleanCurrentNo) || (cleanCurrentName && sName === cleanCurrentName);
+            })
+          : [];
+
+        return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {activeExams.map(exam => {
+            const matchedSub = currentStudentSubs.find(s => matchSubToExam(s, exam));
+            const isStudentCompleted = Boolean(matchedSub && !isResetSubmissionEntry(matchedSub));
+            const isStudentNeedsRetake = Boolean(matchedSub && isResetSubmissionEntry(matchedSub));
             return (
               <div
                 key={exam.id}
@@ -2334,9 +2587,30 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     </div>
                   </div>
 
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-3 line-clamp-2">
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2 line-clamp-2">
                     {exam.title}
                   </h3>
+
+                  {/* Badge Status Pengerjaan Siswa di Perangkat */}
+                  {isStudentCompleted && matchedSub && (
+                    <div className="mb-3 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
+                      <span className="font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span>Sudah Dikerjakan</span>
+                      </span>
+                      {exam.allowReview && (
+                        <span className="font-mono font-extrabold text-emerald-800 dark:text-emerald-200">
+                          Nilai: {matchedSub.percentage}%
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {isStudentNeedsRetake && (
+                    <div className="mb-3 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-200">
+                      <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                      <span>Diizinkan Mengulang Ujian</span>
+                    </div>
+                  )}
 
                   {/* Info Metadata */}
                   <div className="space-y-2 text-xs text-slate-600 dark:text-slate-300 mb-5 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
@@ -2392,6 +2666,29 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   const isStopped = StorageService.isExamStopped(exam);
                   const isLate = Boolean(exam.allowLateSubmission) || (Number(exam.lateExtensionMinutes) || 0) > 0;
                   const isSessionActive = exam.sessionStatus === 'active';
+
+                  if (isStudentCompleted && exam.attemptMode !== 'unlimited') {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const fn = (window as any).__examflowTriggerLookup;
+                          const query = studentNo.trim() || studentName.trim();
+                          if (typeof fn === 'function' && query) {
+                            fn(query, 'completed');
+                          } else {
+                            setIsScoreLookupOpen(true);
+                          }
+                        }}
+                        className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>
+                          Sudah Dikerjakan{exam.allowReview && matchedSub ? ` (Nilai: ${matchedSub.percentage}%)` : ''} · Lihat Hasil
+                        </span>
+                      </button>
+                    );
+                  }
 
                   if (isStopped) {
                     return (
@@ -2453,8 +2750,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       onClick={() => handleStartExamClick(exam)}
                       className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>Mulai Kerjakan Ujian</span>
+                      {isStudentCompleted ? <RotateCcw className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                      <span>{isStudentCompleted ? 'Kerjakan Ulang Ujian' : 'Mulai Kerjakan Ujian'}</span>
                     </button>
                   );
                 })()}
@@ -2462,7 +2759,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             );
           })}
         </div>
-      ) : (
+        );
+      })() : (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center text-slate-500 dark:text-slate-400">
           <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-40 text-indigo-500" />
           <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
@@ -2673,37 +2971,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                const query = scoreLookupNis.trim().toLowerCase();
-                if (!query) return;
-
-                const foundStudent =
-                  students.find(s => String(s.studentNo || '').trim().toLowerCase() === query) ||
-                  students.find(s => String(s.fullName || '').trim().toLowerCase().includes(query)) ||
-                  null;
-                setScoreLookupMatchedStudent(foundStudent);
-
-                const allSubs = StorageService.getSubmissions();
-                const matched = allSubs.filter(s => {
-                  const sNo = String(s.studentNo || '').trim().toLowerCase();
-                  const sName = String(s.studentName || '').trim().toLowerCase();
-                  if (foundStudent) {
-                    const targetNo = String(foundStudent.studentNo || '').trim().toLowerCase();
-                    const targetName = String(foundStudent.fullName || '').trim().toLowerCase();
-                    return (targetNo && sNo === targetNo) || (targetName && sName === targetName);
-                  }
-                  return sNo === query || sName.includes(query);
-                });
-
-                // Pisahkan submisi yang benar-benar sudah selesai dari entri reset/Mengulang Ujian
-                const completedOnly = matched.filter(s => {
-                  const isResetPlaceholder =
-                    s.allowRepeat === true ||
-                    String(s.allowRepeat).toLowerCase() === 'true' ||
-                    String(s.statusNote || '').toLowerCase().includes('ulang');
-                  return !isResetPlaceholder;
-                });
-
-                setStudentLookupResults(completedOnly);
+                const fn = (window as any).__examflowTriggerLookup;
+                if (typeof fn === 'function') {
+                  fn(scoreLookupNis, scoreLookupTab);
+                }
               }}
               className="space-y-4 mb-5"
             >
@@ -2724,8 +2995,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     type="submit"
                     className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
                   >
-                    <Search className="w-3.5 h-3.5" />
-                    <span>Cek Status</span>
+                    {isSyncingLookup ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                    <span>{isSyncingLookup ? 'Menyinkronkan...' : 'Cek Status'}</span>
                   </button>
                 </div>
               </div>
@@ -2733,31 +3004,48 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
             {studentLookupResults !== null && (() => {
               const query = scoreLookupNis.trim().toLowerCase();
-              const allSubs = StorageService.getSubmissions();
+              const queryNum = normalizeNumericStr(scoreLookupNis);
+              const allSubs = mergeSubmissionsSources(StorageService.getSubmissions(), serverStudentAttempts);
+
+              const completedExamIds = new Set<string>();
+              const completedExamTitles = new Set<string>();
+              studentLookupResults.forEach(s => {
+                const exId = String(s.examId || '').trim().toLowerCase();
+                if (exId) completedExamIds.add(exId);
+                const sTitle = String(s.examTitle || '').trim().toLowerCase();
+                if (sTitle) completedExamTitles.add(sTitle);
+              });
+
+              const isExamCompletedByStudent = (exam: Exam) => {
+                const exId = String(exam.id || '').trim().toLowerCase();
+                const exTitle = String(exam.title || '').trim().toLowerCase();
+                return (exId && completedExamIds.has(exId)) || (exTitle && completedExamTitles.has(exTitle));
+              };
+
               const resetExamIds = new Set(
                 allSubs
                   .filter(s => {
-                    const sNo = String(s.studentNo || '').trim().toLowerCase();
+                    const sNo = normalizeNumericStr(s.studentNo);
                     const sName = String(s.studentName || '').trim().toLowerCase();
-                    const matchesIdentity = scoreLookupMatchedStudent
-                      ? (sNo === String(scoreLookupMatchedStudent.studentNo || '').trim().toLowerCase() ||
-                         sName === String(scoreLookupMatchedStudent.fullName || '').trim().toLowerCase())
-                      : (sNo === query || sName.includes(query));
-                    const isResetPlaceholder =
-                      s.allowRepeat === true ||
-                      String(s.allowRepeat).toLowerCase() === 'true' ||
-                      String(s.statusNote || '').toLowerCase().includes('ulang');
-                    return matchesIdentity && isResetPlaceholder;
+                    const directMatch =
+                      (queryNum && sNo === queryNum) ||
+                      (query && (sName === query || sName.includes(query)));
+                    const studentMatch = scoreLookupMatchedStudent
+                      ? (
+                          (normalizeNumericStr(scoreLookupMatchedStudent.studentNo) && sNo === normalizeNumericStr(scoreLookupMatchedStudent.studentNo)) ||
+                          (normalizeNumericStr(scoreLookupMatchedStudent.nis) && sNo === normalizeNumericStr(scoreLookupMatchedStudent.nis)) ||
+                          (normalizeNumericStr(scoreLookupMatchedStudent.nisn) && sNo === normalizeNumericStr(scoreLookupMatchedStudent.nisn)) ||
+                          sName === String(scoreLookupMatchedStudent.fullName || '').trim().toLowerCase()
+                        )
+                      : false;
+                    return (directMatch || studentMatch) && isResetSubmissionEntry(s);
                   })
                   .map(s => String(s.examId || '').trim().toLowerCase())
-              );
-
-              const completedExamIds = new Set(
-                studentLookupResults.map(s => String(s.examId || '').trim().toLowerCase())
+                  .filter(exId => !completedExamIds.has(exId))
               );
 
               const pendingExams = activeExams.filter(
-                exam => !completedExamIds.has(String(exam.id).trim().toLowerCase())
+                exam => !isExamCompletedByStudent(exam)
               );
 
               const handleStartFromLookup = (exam: Exam) => {

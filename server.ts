@@ -585,22 +585,36 @@ Kembalikan HANYA JSON murni dengan format:
   "svg": "<svg viewBox=\\"0 0 960 600\\" xmlns=\\"http://www.w3.org/2000/svg\\">...</svg>"
 }`;
 
-    const modelsToTry = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-4-hydrogen'];
+    const maxAttemptsPerModel = isServerless ? 1 : 2;
     let lastError: any = null;
     let parsedResult: any = null;
 
+    const withTimeout = <T>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([
+        promise,
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error(`${label} melebihi batas waktu (${ms / 1000}s)`)), ms)
+        )
+      ]);
+
     for (const model of modelsToTry) {
-      for (let attempt = 1; attempt <= 2; attempt++) {
+      for (let attempt = 1; attempt <= maxAttemptsPerModel; attempt++) {
         try {
-          const response = await ai.models.generateContent({
-            model,
-            contents: visualInstruction,
-            config: {
-              responseMimeType: 'application/json',
-              maxOutputTokens: 16384,
-              systemInstruction: 'Anda adalah pembuat ilustrasi vektor SVG dan grafik statistik edukatif. Anda selalu mengembalikan JSON valid dengan field title, visualKind, caption, dan svg (<svg viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg">...</svg>) tanpa elemen berbahaya dan tanpa teks markdown.'
-            }
-          });
+          const response = await withTimeout(
+            ai.models.generateContent({
+              model,
+              contents: visualInstruction,
+              config: {
+                responseMimeType: 'application/json',
+                maxOutputTokens: 8192,
+                systemInstruction: 'Anda adalah pembuat ilustrasi vektor SVG dan grafik statistik edukatif. Anda selalu menghasilkan SVG yang bersih, ringkas, cepat dirender, dan valid dalam format JSON {"title","visualKind","caption","svg"} dengan viewBox="0 0 960 600" tanpa elemen berbahaya atau markdown.'
+              }
+            }),
+            isServerless ? 9000 : 18000,
+            `Model ${model}`
+          );
 
           const rawText = response.text?.trim() || '';
           const cleaned = rawText.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
@@ -618,11 +632,16 @@ Kembalikan HANYA JSON murni dengan format:
         } catch (err: any) {
           lastError = err;
           const msg = String(err?.message || '');
-          if (msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('RESOURCE_EXHAUSTED')) {
+          if (
+            msg.includes('503') ||
+            msg.includes('UNAVAILABLE') ||
+            msg.includes('RESOURCE_EXHAUSTED') ||
+            msg.includes('batas waktu')
+          ) {
             break;
           }
-          if (attempt < 2) {
-            await new Promise(r => setTimeout(r, 700 * attempt));
+          if (attempt < maxAttemptsPerModel) {
+            await new Promise(r => setTimeout(r, 500 * attempt));
           }
         }
       }
@@ -642,9 +661,17 @@ Kembalikan HANYA JSON murni dengan format:
     });
   } catch (err: any) {
     console.error('Error generating illustration:', err);
+    let cleanMsg = String(err?.message || 'Gangguan layanan AI.');
+    try {
+      const parsed = JSON.parse(cleanMsg);
+      if (parsed?.error?.message) cleanMsg = parsed.error.message;
+    } catch {}
+    if (cleanMsg.includes('high demand') || cleanMsg.includes('503') || cleanMsg.includes('UNAVAILABLE')) {
+      cleanMsg = 'Server Gemini sedang mengalami lonjakan trafik sementara (503). Silakan klik Generate lagi sesaat lagi.';
+    }
     return res.status(500).json({
       success: false,
-      message: `Gagal membuat ilustrasi/grafik AI: ${err?.message || 'Gangguan layanan AI.'}`
+      message: `Gagal membuat ilustrasi/grafik AI: ${cleanMsg}`
     });
   }
 });
@@ -1502,6 +1529,19 @@ async function startServer() {
   }
 }
 
-startServer();
+// Global Express JSON error handler agar tidak mengembalikan HTML/plain text non-JSON
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('Unhandled Express error:', err);
+  if (res.headersSent) return;
+  const status = typeof err?.status === 'number' ? err.status : 500;
+  res.status(status).json({
+    success: false,
+    message: err?.message || 'Terjadi kesalahan internal pada server.'
+  });
+});
+
+if (!process.env.VERCEL) {
+  startServer();
+}
 
 export default app;

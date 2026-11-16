@@ -19,6 +19,20 @@ export class GoogleDriveService {
   private static readonly DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
   private static readonly DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 
+  private static async safeParseResponse(res: Response): Promise<{ isJson: boolean; data: any; rawText: string }> {
+    try {
+      const rawText = await res.text();
+      try {
+        const data = JSON.parse(rawText);
+        return { isJson: true, data, rawText };
+      } catch {
+        return { isJson: false, data: null, rawText };
+      }
+    } catch (e: any) {
+      return { isJson: false, data: null, rawText: e?.message || '' };
+    }
+  }
+
   static async isOAuthConnected(): Promise<boolean> {
     const token = await getAccessToken();
     return Boolean(token);
@@ -53,13 +67,15 @@ export class GoogleDriveService {
       throw new Error('Sesi Google Drive berakhir. Silakan hubungkan ulang akun Google.');
     }
 
+    const parsed = await this.safeParseResponse(res);
     if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Gagal memeriksa folder Google Drive (HTTP ${res.status}): ${errText}`);
+      const errMsg = parsed.data?.error?.message || parsed.rawText.slice(0, 200);
+      throw new Error(`Gagal memeriksa folder Google Drive (HTTP ${res.status}): ${errMsg}`);
     }
-
-    const data = await res.json();
-    const first = Array.isArray(data.files) && data.files.length > 0 ? data.files[0] : null;
+    if (!parsed.isJson || !parsed.data) {
+      throw new Error('Respons pemeriksaan folder Google Drive bukan JSON yang valid.');
+    }
+    const first = Array.isArray(parsed.data.files) && parsed.data.files.length > 0 ? parsed.data.files[0] : null;
     return first?.id || null;
   }
 
@@ -85,13 +101,16 @@ export class GoogleDriveService {
       body: JSON.stringify(metadata)
     });
 
+    const parsed = await this.safeParseResponse(res);
     if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Gagal membuat folder "${folderName}" di Google Drive: ${errText}`);
+      const errMsg = parsed.data?.error?.message || parsed.rawText.slice(0, 200);
+      throw new Error(`Gagal membuat folder "${folderName}" di Google Drive: ${errMsg}`);
+    }
+    if (!parsed.isJson || !parsed.data?.id) {
+      throw new Error(`Respons pembuatan folder "${folderName}" di Google Drive tidak valid.`);
     }
 
-    const data = await res.json();
-    return data.id;
+    return parsed.data.id;
   }
 
   /**
@@ -170,13 +189,16 @@ export class GoogleDriveService {
       throw new Error('Token akses Google Drive kedaluwarsa. Klik hubungkan Google Drive kembali.');
     }
 
+    const parsedUpload = await this.safeParseResponse(uploadRes);
     if (!uploadRes.ok) {
-      const errText = await uploadRes.text();
-      throw new Error(`Gagal mengunggah gambar ke Google Drive: ${errText}`);
+      const errMsg = parsedUpload.data?.error?.message || parsedUpload.rawText.slice(0, 200);
+      throw new Error(`Gagal mengunggah gambar ke Google Drive: ${errMsg}`);
+    }
+    if (!parsedUpload.isJson || !parsedUpload.data?.id) {
+      throw new Error('Respons unggah Google Drive tidak mengandung ID berkas.');
     }
 
-    const uploaded = await uploadRes.json();
-    const fileId = uploaded.id;
+    const fileId = parsedUpload.data.id;
 
     // Set permission agar siapa saja dengan tautan (guru & siswa) dapat melihat gambar di soal
     try {
@@ -284,26 +306,114 @@ export class GoogleDriveService {
     pngDataUrl: string;
   }> {
     const settings = StorageService.getSettings();
-    const res = await fetch('/api/gemini/generate-illustration', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: params.prompt,
-        questionPrompt: params.questionPrompt || '',
-        subject: params.subject || 'Umum',
-        grade: params.grade || 'Umum',
-        visualType: params.visualType || 'auto',
-        customApiKey: settings.geminiApiKey?.trim() || undefined
-      })
-    });
+    const customApiKey = settings.geminiApiKey?.trim() || '';
+    let illustrationData: {
+      title?: string;
+      visualKind?: 'illustration' | 'chart';
+      caption?: string;
+      svg?: string;
+    } | null = null;
+    let lastServerError = '';
 
-    const data = await res.json();
-    if (!res.ok || !data.success || !data.svg) {
-      throw new Error(data.message || 'Gagal menghasilkan ilustrasi/grafik dari AI.');
+    // 1. Coba melalui endpoint backend terlebih dahulu dengan safe text-then-JSON parser
+    try {
+      const res = await fetch('/api/gemini/generate-illustration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: params.prompt,
+          questionPrompt: params.questionPrompt || '',
+          subject: params.subject || 'Umum',
+          grade: params.grade || 'Umum',
+          visualType: params.visualType || 'auto',
+          customApiKey: customApiKey || undefined
+        })
+      });
+
+      const { isJson, data, rawText } = await this.safeParseResponse(res);
+      if (res.ok && isJson && data?.success && data?.svg) {
+        illustrationData = data;
+      } else if (isJson && data?.message) {
+        lastServerError = String(data.message);
+      } else {
+        const preview = rawText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+        lastServerError = preview
+          ? `Server mengembalikan respons non-JSON (HTTP ${res.status}): "${preview}"`
+          : `Server gagal merespons (HTTP ${res.status})`;
+      }
+    } catch (fetchErr: any) {
+      lastServerError = fetchErr?.message || 'Koneksi ke endpoint ilustrasi gagal.';
     }
 
-    const rendered = await svgToPng(data.svg, 1200, 750);
-    const prefix = params.fileNamePrefix || data.visualKind || 'ilustrasi_soal';
+    // 2. Fallback langsung ke Google Generative Language API dari browser jika backend timeout / non-JSON
+    if (!illustrationData?.svg && customApiKey) {
+      const visualPrompt = `Buat satu visual edukatif SVG murni untuk soal sekolah:
+- Mata Pelajaran: ${params.subject || 'Umum'}
+- Jenjang: ${params.grade || 'Umum'}
+- Jenis: ${params.visualType === 'chart' ? 'GRAFIK / BAGAN DATA' : params.visualType === 'illustration' ? 'ILUSTRASI / DIAGRAM' : 'OTOMATIS (Grafik Data atau Diagram Edukatif)'}
+- Deskripsi: ${params.prompt}
+${params.questionPrompt ? `- Konteks Soal: ${params.questionPrompt.slice(0, 900)}` : ''}
+
+Aturan SVG wajib:
+- Gunakan kanvas viewBox="0 0 960 600" dengan background <rect x="0" y="0" width="960" height="600" fill="#ffffff" rx="16" />.
+- Elemen SVG vektor murni (rect, circle, path, line, polygon, text, g) dengan font Arial, Helvetica, sans-serif ukuran 14px-22px.
+- DILARANG membocorkan jawaban yang ditanyakan pada label gambar (gunakan tanda "?" jika nilai/bagian itu yang ditanyakan).
+- Kembalikan HANYA JSON valid: {"title":"...","visualKind":"chart"|"illustration","caption":"...","svg":"<svg viewBox=\\"0 0 960 600\\" xmlns=\\"http://www.w3.org/2000/svg\\">...</svg>"}`;
+
+      const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-4-hydrogen'];
+      for (const modelName of modelsToTry) {
+        try {
+          const directUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(customApiKey)}`;
+          const directRes = await fetch(directUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: visualPrompt }] }],
+              generationConfig: {
+                temperature: 0.4,
+                responseMimeType: 'application/json',
+                maxOutputTokens: 8192
+              }
+            })
+          });
+
+          const parsedDirect = await this.safeParseResponse(directRes);
+          if (!directRes.ok || !parsedDirect.isJson) {
+            lastServerError = parsedDirect.data?.error?.message || `HTTP ${directRes.status}`;
+            continue;
+          }
+
+          const rawCandidate = parsedDirect.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const cleaned = rawCandidate.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+          let obj: any = null;
+          try {
+            obj = JSON.parse(cleaned);
+          } catch {
+            const match = cleaned.match(/\{[\s\S]*\}/);
+            if (match) {
+              try { obj = JSON.parse(match[0]); } catch {}
+            }
+          }
+          if (obj && typeof obj.svg === 'string' && obj.svg.includes('<svg')) {
+            illustrationData = obj;
+            break;
+          }
+        } catch (directErr: any) {
+          lastServerError = directErr?.message || String(directErr);
+        }
+      }
+    }
+
+    if (!illustrationData?.svg) {
+      throw new Error(
+        lastServerError
+          ? `Gagal menghasilkan ilustrasi/grafik AI (${lastServerError}). Pastikan Gemini API Key valid atau coba deskripsi yang lebih ringkas.`
+          : 'Gagal menghasilkan ilustrasi/grafik dari AI.'
+      );
+    }
+
+    const rendered = await svgToPng(illustrationData.svg, 1200, 750);
+    const prefix = params.fileNamePrefix || illustrationData.visualKind || 'ilustrasi_soal';
     const driveResult = await this.saveIllustrationPngWithDrive(
       rendered.pngBlob,
       rendered.pngDataUrl,
@@ -312,9 +422,9 @@ export class GoogleDriveService {
 
     return {
       driveResult,
-      title: data.title || 'Ilustrasi Soal',
-      visualKind: data.visualKind === 'chart' ? 'chart' : 'illustration',
-      caption: data.caption || '',
+      title: illustrationData.title || 'Ilustrasi Soal',
+      visualKind: illustrationData.visualKind === 'chart' ? 'chart' : 'illustration',
+      caption: illustrationData.caption || '',
       pngDataUrl: rendered.pngDataUrl
     };
   }

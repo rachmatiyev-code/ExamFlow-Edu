@@ -1658,11 +1658,14 @@ export class GasClient {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'listClassroomCourses' })
       });
-      const data = await res.json();
-      if (data.status === 'success') {
-        return { success: true, courses: data.data || [] };
+      const parsed = await this.safeParseGasResponse(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, message: parsed.errorMessage || 'Respons Google Apps Script bukan JSON valid.' };
       }
-      return { success: false, message: data.message };
+      if (parsed.data.status === 'success') {
+        return { success: true, courses: parsed.data.data || [] };
+      }
+      return { success: false, message: parsed.data.message };
     } catch (err: any) {
       return { success: false, message: err?.message || String(err) };
     }
@@ -1688,17 +1691,20 @@ export class GasClient {
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'syncToClassroom', ...payload })
       });
-      const data = await res.json();
-      if (data.status === 'success') {
+      const parsed = await this.safeParseGasResponse(res);
+      if (!parsed.isJson || !parsed.data) {
+        return { success: false, message: parsed.errorMessage || 'Respons Google Apps Script bukan JSON valid.' };
+      }
+      if (parsed.data.status === 'success') {
         return { 
           success: true, 
-          syncedCount: data.syncedCount, 
-          total: data.total, 
-          details: data.details,
-          message: `Berhasil mencantumkan ${data.syncedCount} nilai siswa ke Google Classroom!`
+          syncedCount: parsed.data.syncedCount, 
+          total: parsed.data.total, 
+          details: parsed.data.details,
+          message: `Berhasil mencantumkan ${parsed.data.syncedCount} nilai siswa ke Google Classroom!`
         };
       }
-      return { success: false, message: data.message };
+      return { success: false, message: parsed.data.message };
     } catch (err: any) {
       return { success: false, message: err?.message || String(err) };
     }

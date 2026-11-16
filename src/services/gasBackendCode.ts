@@ -944,8 +944,113 @@ function doPost(e) {
           }
         }
       }
-      logAction('EXAM', 'Sesi ujian DIHENTIKAN PERMANEN: ' + examId);
-      return jsonResponse({ status: 'success', message: 'Sesi ujian ' + examId + ' berhasil dihentikan secara permanen.' });
+
+      // Otomatis beri nilai 0 untuk siswa yang belum mengikuti ujian ini
+      const autoZeros = Array.isArray(payload.autoZeroSubmissions) ? payload.autoZeroSubmissions : [];
+      let addedZeroCount = 0;
+      if (autoZeros.length > 0 && examId) {
+        let shSub = ss.getSheetByName(SHEETS.SUBMISSIONS);
+        if (!shSub) {
+          initDatabase();
+          shSub = ss.getSheetByName(SHEETS.SUBMISSIONS);
+        }
+        ensureMinColumns(shSub, CANONICAL_SUBMISSION_HEADERS.length);
+        const subVals = shSub.getDataRange().getValues();
+        const subHdrs = subVals.length > 0 ? subVals[0].map(function(h) { return String(h || '').trim().toLowerCase(); }) : [];
+        const cId = subHdrs.indexOf('id');
+        const cExamId = subHdrs.indexOf('examid');
+        const cNo = subHdrs.indexOf('studentno');
+        const cName = subHdrs.indexOf('studentname');
+        const cNote = subHdrs.indexOf('statusnote');
+        const cRepeat = subHdrs.indexOf('allowrepeat');
+
+        const existingRows = [];
+        for (let r = 1; r < subVals.length; r++) {
+          if (cExamId !== -1 && String(subVals[r][cExamId] || '').trim().toLowerCase() === examId.toLowerCase()) {
+            const rNote = cNote !== -1 ? String(subVals[r][cNote] || '').toLowerCase() : '';
+            const rRep = cRepeat !== -1 && (subVals[r][cRepeat] === true || String(subVals[r][cRepeat]).toLowerCase() === 'true');
+            existingRows.push({
+              id: cId !== -1 ? String(subVals[r][cId] || '').trim() : '',
+              no: cNo !== -1 ? String(subVals[r][cNo] || '').trim().toLowerCase().replace(/^0+/, '') : '',
+              name: cName !== -1 ? String(subVals[r][cName] || '').trim().toLowerCase() : '',
+              isCompleted: !rRep && rNote.indexOf('ulang') === -1 && rNote.indexOf('reset') === -1
+            });
+          }
+        }
+
+        const newSubRows = [];
+        const newDmRows = [];
+        for (let z = 0; z < autoZeros.length; z++) {
+          const item = autoZeros[z] || {};
+          const zId = String(item.id || ('SUB-STOP0-' + examId + '-' + z));
+          const zNo = String(item.studentNo || '').trim().toLowerCase().replace(/^0+/, '');
+          const zName = String(item.studentName || '').trim().toLowerCase();
+
+          let alreadyExists = false;
+          for (let k = 0; k < existingRows.length; k++) {
+            const ex = existingRows[k];
+            if (ex.id === zId) { alreadyExists = true; break; }
+            if (ex.isCompleted && ((zNo && ex.no === zNo) || (zName && ex.name === zName))) {
+              alreadyExists = true;
+              break;
+            }
+          }
+          if (alreadyExists) continue;
+
+          newSubRows.push([
+            zId,
+            String(item.examId || examId),
+            String(item.examTitle || ''),
+            String(item.studentNo || ''),
+            String(item.studentName || ''),
+            String(item.classGrade || ''),
+            '{}',
+            0,
+            Number(item.maxScore || 100),
+            0,
+            false,
+            String(item.submittedAt || formatLocalIso()),
+            0,
+            0,
+            String(item.feedback || 'Nilai 0 otomatis karena sesi ujian dihentikan secara permanen sebelum siswa mengerjakan.'),
+            String(item.statusNote || 'Nilai 0 (Ujian Dihentikan Permanen)'),
+            false
+          ]);
+
+          newDmRows.push([
+            String(item.studentNo || ''),
+            String(item.studentName || ''),
+            String(item.classGrade || ''),
+            String(item.examTitle || item.examId || examId),
+            0,
+            'Remedial',
+            0,
+            0,
+            String(item.statusNote || 'Nilai 0 (Ujian Dihentikan Permanen)'),
+            String(item.submittedAt || formatLocalIso())
+          ]);
+          addedZeroCount++;
+        }
+
+        if (newSubRows.length > 0) {
+          const startRow = shSub.getLastRow() + 1;
+          shSub.getRange(startRow, 1, newSubRows.length, newSubRows[0].length).setValues(newSubRows);
+        }
+        let shDataMentah = ss.getSheetByName(SHEETS.DATA_MENTAH);
+        if (shDataMentah && newDmRows.length > 0) {
+          const dmStart = shDataMentah.getLastRow() + 1;
+          shDataMentah.getRange(dmStart, 1, newDmRows.length, newDmRows[0].length).setValues(newDmRows);
+        }
+        SpreadsheetApp.flush();
+      }
+
+      logAction('EXAM', 'Sesi ujian DIHENTIKAN PERMANEN: ' + examId + ' (Nilai 0 otomatis: ' + addedZeroCount + ' siswa)');
+      return jsonResponse({
+        status: 'success',
+        autoZeroApplied: true,
+        autoZeroCount: addedZeroCount,
+        message: 'Sesi ujian ' + examId + ' berhasil dihentikan secara permanen. ' + addedZeroCount + ' siswa belum ujian diberi nilai 0.'
+      });
     }
 
     if (action === 'resumeExamSession') {

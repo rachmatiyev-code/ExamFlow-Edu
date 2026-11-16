@@ -1038,6 +1038,19 @@ apiRouter.get('/exam-attempts/student', (req, res) => {
   });
 });
 
+// GET /api/exam-attempts/exam (untuk sinkronisasi peserta yang sudah ujian pada paket tertentu)
+apiRouter.get('/exam-attempts/exam', (req, res) => {
+  const examId = String(req.query.examId || '').trim().toLowerCase();
+  if (!examId) {
+    return res.json({ success: true, attempts: [] });
+  }
+  const matched = examAttemptsList.filter(a => String(a.examId || '').trim().toLowerCase() === examId);
+  return res.json({
+    success: true,
+    attempts: matched
+  });
+});
+
 // POST /api/exam-attempts/record
 apiRouter.post('/exam-attempts/record', (req, res) => {
   try {
@@ -1073,13 +1086,86 @@ apiRouter.post('/exam-attempts/record', (req, res) => {
       feedback: b.feedback ? String(b.feedback) : '',
       answers: b.answers && typeof b.answers === 'object' ? b.answers : undefined,
       submittedAt: String(b.submittedAt || new Date().toISOString()),
-      statusNote: 'Selesai',
-      allowRepeat: false
+      statusNote: b.statusNote ? String(b.statusNote) : 'Selesai',
+      allowRepeat: Boolean(b.allowRepeat)
     });
     saveExamAttemptsToDisk();
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err?.message || 'Gagal mencatat pengerjaan ujian.' });
+  }
+});
+
+// POST /api/exam-attempts/record-zero-unsubmitted (catat nilai 0 otomatis untuk siswa yang belum ujian saat dihentikan permanen)
+apiRouter.post('/exam-attempts/record-zero-unsubmitted', (req, res) => {
+  try {
+    const b = req.body || {};
+    const examId = String(b.examId || '').trim();
+    const list = Array.isArray(b.submissions) ? b.submissions : [];
+    if (!examId || list.length === 0) {
+      return res.json({ success: true, addedCount: 0, skippedCount: 0 });
+    }
+
+    const cleanExamId = examId.toLowerCase();
+    let addedCount = 0;
+    let skippedCount = 0;
+
+    list.forEach((item: any) => {
+      const sNo = String(item?.studentNo || '').trim();
+      const sName = String(item?.studentName || '').trim();
+      if (!sNo && !sName) return;
+
+      // Pastikan siswa belum memiliki rekaman selesai yang valid untuk ujian ini
+      const alreadyCompleted = examAttemptsList.some(a => {
+        if (String(a.examId || '').trim().toLowerCase() !== cleanExamId) return false;
+        const isReset = a.allowRepeat || String(a.statusNote || '').toLowerCase().includes('ulang');
+        if (isReset) return false;
+        const matchNo = matchesStudentNo(a.studentNo, sNo);
+        const matchName = Boolean(sName && a.studentName && a.studentName.trim().toLowerCase() === sName.toLowerCase());
+        return matchNo || matchName;
+      });
+
+      if (alreadyCompleted) {
+        skippedCount += 1;
+        return;
+      }
+
+      // Hapus entri placeholder mengulang / duplikat lama jika ada
+      examAttemptsList = examAttemptsList.filter(a => {
+        if (String(a.examId || '').trim().toLowerCase() !== cleanExamId) return true;
+        const matchNo = matchesStudentNo(a.studentNo, sNo);
+        const matchName = Boolean(sName && a.studentName && a.studentName.trim().toLowerCase() === sName.toLowerCase());
+        return !(matchNo || matchName);
+      });
+
+      examAttemptsList.push({
+        examId,
+        examTitle: item.examTitle ? String(item.examTitle).trim() : '',
+        studentNo: sNo,
+        studentName: sName,
+        classGrade: item.classGrade ? String(item.classGrade).trim() : '',
+        submissionId: String(item.id || item.submissionId || `SUB-STOP0-${examId}-${sNo || addedCount}`),
+        score: 0,
+        maxScore: typeof item.maxScore === 'number' ? item.maxScore : Number(item.maxScore || 100),
+        percentage: 0,
+        passed: false,
+        timeSpentSeconds: 0,
+        tabSwitchCount: 0,
+        feedback: item.feedback ? String(item.feedback) : 'Nilai 0 otomatis karena sesi ujian dihentikan secara permanen sebelum siswa mengerjakan.',
+        answers: {},
+        submittedAt: String(item.submittedAt || new Date().toISOString()),
+        statusNote: item.statusNote ? String(item.statusNote) : 'Nilai 0 (Ujian Dihentikan Permanen)',
+        allowRepeat: false
+      });
+      addedCount += 1;
+    });
+
+    if (addedCount > 0) {
+      saveExamAttemptsToDisk();
+    }
+    return res.json({ success: true, addedCount, skippedCount });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Gagal mencatat nilai 0 otomatis.' });
   }
 });
 

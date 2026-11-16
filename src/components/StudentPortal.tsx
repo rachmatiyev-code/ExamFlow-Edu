@@ -203,6 +203,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     if (changed) {
       StorageService.saveExams(updatedList);
       setLiveExams(updatedList);
+      setSubmissionVersion(v => v + 1);
+      setTimeout(() => setSubmissionVersion(v => v + 1), 1000);
     } else {
       // Ensure liveExams still reflects latest controls even on first load
       setLiveExams(prev => {
@@ -2592,19 +2594,38 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   </h3>
 
                   {/* Badge Status Pengerjaan Siswa di Perangkat */}
-                  {isStudentCompleted && matchedSub && (
-                    <div className="mb-3 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
-                      <span className="font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        <span>Sudah Dikerjakan</span>
-                      </span>
-                      {exam.allowReview && (
-                        <span className="font-mono font-extrabold text-emerald-800 dark:text-emerald-200">
-                          Nilai: {matchedSub.percentage}%
+                  {(() => {
+                    if (!isStudentCompleted || !matchedSub) return null;
+                    const isAutoZero =
+                      String(matchedSub.id || '').startsWith('SUB-STOP0-') ||
+                      String(matchedSub.statusNote || '').toLowerCase().includes('dihentikan');
+                    if (isAutoZero) {
+                      return (
+                        <div className="mb-3 px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center justify-between gap-2 text-xs">
+                          <span className="font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                            <StopCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                            <span>Nilai 0 (Belum Ujian Saat Dihentikan)</span>
+                          </span>
+                          <span className="font-mono font-extrabold text-rose-800 dark:text-rose-200">
+                            Nilai: {matchedSub.percentage}%
+                          </span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="mb-3 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
+                        <span className="font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <span>Sudah Dikerjakan</span>
                         </span>
-                      )}
-                    </div>
-                  )}
+                        {exam.allowReview && (
+                          <span className="font-mono font-extrabold text-emerald-800 dark:text-emerald-200">
+                            Nilai: {matchedSub.percentage}%
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {isStudentNeedsRetake && (
                     <div className="mb-3 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-200">
                       <RotateCcw className="w-3.5 h-3.5 shrink-0" />
@@ -2666,6 +2687,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   const isStopped = StorageService.isExamStopped(exam);
                   const isLate = Boolean(exam.allowLateSubmission) || (Number(exam.lateExtensionMinutes) || 0) > 0;
                   const isSessionActive = exam.sessionStatus === 'active';
+                  const isAutoZero = Boolean(
+                    matchedSub &&
+                    (String(matchedSub.id || '').startsWith('SUB-STOP0-') ||
+                      String(matchedSub.statusNote || '').toLowerCase().includes('dihentikan'))
+                  );
 
                   if (isStudentCompleted && exam.attemptMode !== 'unlimited') {
                     return (
@@ -2680,11 +2706,17 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                             setIsScoreLookupOpen(true);
                           }
                         }}
-                        className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                        className={`w-full py-2.5 px-4 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer ${
+                          isAutoZero
+                            ? 'bg-rose-600 hover:bg-rose-700'
+                            : 'bg-emerald-600 hover:bg-emerald-700'
+                        }`}
                       >
-                        <CheckCircle2 className="w-4 h-4" />
+                        {isAutoZero ? <StopCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                         <span>
-                          Sudah Dikerjakan{exam.allowReview && matchedSub ? ` (Nilai: ${matchedSub.percentage}%)` : ''} · Lihat Hasil
+                          {isAutoZero
+                            ? `Dihentikan (Nilai: ${matchedSub?.percentage ?? 0}%) · Lihat Rincian`
+                            : `Sudah Dikerjakan${exam.allowReview && matchedSub ? ` (Nilai: ${matchedSub.percentage}%)` : ''} · Lihat Hasil`}
                         </span>
                       </button>
                     );

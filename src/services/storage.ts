@@ -435,6 +435,33 @@ export class StorageService {
     return ss === 'active' || Boolean(exam.allowLateSubmission);
   }
 
+  static isGradeCompatible(studentClass?: string, examGrade?: string): boolean {
+    const sc = String(studentClass || '').trim().toLowerCase();
+    const eg = String(examGrade || '').trim().toLowerCase();
+    if (!eg || eg === 'umum' || eg === 'semua' || eg.includes('semua kelas') || eg === 'all') return true;
+    if (!sc) return true;
+    if (sc === eg || sc.startsWith(eg) || eg.startsWith(sc)) return true;
+
+    const extractLevel = (val: string): string | null => {
+      const digit = val.match(/\d+/)?.[0];
+      if (digit) return digit;
+      const romanMap: Record<string, string> = {
+        xii: '12', xi: '11', x: '10', ix: '9', viii: '8', vii: '7',
+        vi: '6', v: '5', iv: '4', iii: '3', ii: '2', i: '1'
+      };
+      const tokens = val.split(/[^a-z0-9]+/).filter(Boolean);
+      for (const tok of tokens) {
+        if (romanMap[tok]) return romanMap[tok];
+      }
+      return null;
+    };
+
+    const scLevel = extractLevel(sc);
+    const egLevel = extractLevel(eg);
+    if (scLevel && egLevel) return scLevel === egLevel;
+    return false;
+  }
+
   static getExams(): Exam[] {
     const list = this.getItem<Exam[]>(STORAGE_KEYS.EXAMS, DEFAULT_EXAMS);
     if (!Array.isArray(list)) return DEFAULT_EXAMS.map(e => this.normalizeExamRecord(e));

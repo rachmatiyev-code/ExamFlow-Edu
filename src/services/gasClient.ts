@@ -941,9 +941,11 @@ export class GasClient {
 
   /**
    * Menghentikan sesi ujian secara permanen di server & lokal
+   * serta otomatis memberi nilai 0 (nol) kepada siswa yang belum mengerjakan ujian.
    */
-  static async stopExamSession(examId: string): Promise<{ success: boolean; message: string }> {
+  static async stopExamSession(examId: string): Promise<{ success: boolean; message: string; zeroCount?: number }> {
     const endedAt = toLocalIsoString();
+    const cleanExamId = String(examId || '').trim().toLowerCase();
     const exam = StorageService.getExamById(examId);
     if (exam) {
       exam.status = 'stopped';
@@ -962,19 +964,170 @@ export class GasClient {
       });
     }
 
+    // 1. Kumpulkan seluruh peserta yang SUDAH menyelesaikan ujian ini (gabungan lokal + server Express)
+    let serverExamAttempts: any[] = [];
+    try {
+      const serverRes = await fetch(`/api/exam-attempts/exam?examId=${encodeURIComponent(examId)}&_t=${Date.now()}`);
+      if (serverRes.ok) {
+        const json = await serverRes.json();
+        if (Array.isArray(json?.attempts)) {
+          serverExamAttempts = json.attempts;
+        }
+      }
+    } catch {}
+
+    const normNo = (v?: string) => {
+      const clean = String(v || '').trim().toLowerCase();
+      if (!clean) return '';
+      return /^\d+$/.test(clean) ? (clean.replace(/^0+/, '') || '0') : clean;
+    };
+    const isCompletedAttempt = (item: any) => {
+      const note = String(item?.statusNote || '').toLowerCase();
+      const allowRep = item?.allowRepeat === true || String(item?.allowRepeat).toLowerCase() === 'true' || String(item?.allowRepeat) === '1';
+      return !allowRep && !note.includes('ulang') && !note.includes('reset') && !note.includes('retake');
+    };
+
+    const localSubs = StorageService.getSubmissions();
+    const localCompletedForExam = localSubs.filter(
+      s => String(s.examId || '').trim().toLowerCase() === cleanExamId && isCompletedAttempt(s)
+    );
+    const serverCompletedForExam = serverExamAttempts.filter(
+      a => String(a.examId || '').trim().toLowerCase() === cleanExamId && isCompletedAttempt(a)
+    );
+
+    const hasStudentCompleted = (st: { studentNo?: string; nis?: string; nisn?: string; fullName?: string }): boolean => {
+      const nos = [st.studentNo, st.nis, st.nisn].map(normNo).filter(Boolean);
+      const nameLow = String(st.fullName || '').trim().toLowerCase();
+      const checkList = [...localCompletedForExam, ...serverCompletedForExam];
+      return checkList.some(entry => {
+        const eNo = normNo(entry.studentNo);
+        const eName = String(entry.studentName || '').trim().toLowerCase();
+        if (eNo && nos.includes(eNo)) return true;
+        if (nameLow && eName && nameLow === eName) return true;
+        return false;
+      });
+    };
+
+    // 2. Identifikasi siswa aktif sesuai kelas/jenjang ujian yang BELUM ujian
+    const allStudents = StorageService.getStudents().filter(st => st.status !== 'inactive');
+    const examGrade = exam?.grade || '';
+    const targetStudents = allStudents.filter(st => StorageService.isGradeCompatible(st.classGrade, examGrade));
+    const missingStudents = targetStudents.filter(st => !hasStudentCompleted(st));
+
+    const questions = StorageService.getQuestionsByExamId(examId);
+    const maxScore = questions.length > 0
+      ? questions.reduce((acc, q) => acc + (Number(q.points) || 10), 0)
+      : 100;
+    const cleanExamPart = String(examId || 'EXAM').replace(/[^a-zA-Z0-9_-]/g, '');
+
+    const autoZeroSubmissions: Submission[] = missingStudents.map((st, idx) => {
+      const cleanNoPart = String(st.studentNo || idx).replace(/[^a-zA-Z0-9_-]/g, '') || String(idx);
+      return {
+        id: `SUB-STOP0-${cleanExamPart}-${cleanNoPart}`,
+        examId,
+        examTitle: exam?.title || '',
+        studentNo: st.studentNo,
+        studentName: st.fullName,
+        classGrade: st.classGrade || examGrade || 'Umum',
+        answers: {},
+        score: 0,
+        maxScore,
+        percentage: 0,
+        passed: false,
+        submittedAt: endedAt,
+        tabSwitchCount: 0,
+        timeSpentSeconds: 0,
+        syncStatus: 'pending',
+        feedback: 'Nilai 0 otomatis karena sesi ujian dihentikan secara permanen sebelum siswa mengerjakan.',
+        statusNote: 'Nilai 0 (Ujian Dihentikan Permanen)',
+        allowRepeat: false
+      };
+    });
+
+    if (autoZeroSubmissions.length > 0) {
+      // Hapus placeholder 'Mengulang Ujian' / duplikat lama bagi siswa yang diberi nilai 0
+      const updatedSubs = localSubs.filter(s => {
+        if (String(s.examId || '').trim().toLowerCase() !== cleanExamId) return true;
+        const sNo = normNo(s.studentNo);
+        const sName = String(s.studentName || '').trim().toLowerCase();
+        const matchesZeroStudent = autoZeroSubmissions.some(z => {
+          const zNo = normNo(z.studentNo);
+          const zName = String(z.studentName || '').trim().toLowerCase();
+          return z.id === s.id || (zNo && sNo === zNo) || (zName && sName === zName);
+        });
+        return !matchesZeroStudent;
+      });
+
+      autoZeroSubmissions.forEach(z => {
+        updatedSubs.unshift(z);
+        StorageService.addPendingSync(z);
+        StorageService.consumeRetakePermission(examId, z.studentNo, z.studentName);
+      });
+      StorageService.saveSubmissions(updatedSubs);
+      StorageService.addLog(
+        'EXAM',
+        `${autoZeroSubmissions.length} siswa yang belum mengikuti "${exam?.title || examId}" otomatis diberi nilai 0.`,
+        undefined,
+        'warn'
+      );
+
+      // Catat di Express server agar langsung terbaca di perangkat siswa maupun guru lain
+      try {
+        await fetch('/api/exam-attempts/record-zero-unsubmitted', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ examId, submissions: autoZeroSubmissions })
+        });
+      } catch {}
+    }
+
     const url = this.getWebAppUrl();
     if (!url) {
-      return { success: true, message: 'Status henti disimpan permanen di server & lokal.' };
+      return {
+        success: true,
+        zeroCount: autoZeroSubmissions.length,
+        message: autoZeroSubmissions.length > 0
+          ? `Status henti disimpan & ${autoZeroSubmissions.length} siswa belum ujian diberi nilai 0.`
+          : 'Status henti disimpan permanen di server & lokal.'
+      };
     }
 
     try {
       const res = await this.postToGas({
         action: 'stopExamSession',
-        examId
+        examId,
+        autoZeroSubmissions
       });
-      return res;
+
+      if (autoZeroSubmissions.length > 0) {
+        if (res.success && res.data?.autoZeroApplied) {
+          autoZeroSubmissions.forEach(z => StorageService.markSubmissionSynced(z.id));
+        } else if (res.success) {
+          // Fallback untuk script GAS versi sebelumnya: kirim satu per satu lewat saveSubmission
+          for (const z of autoZeroSubmissions) {
+            try {
+              const saveRes = await this.postToGas({
+                action: 'saveSubmission',
+                submission: { ...z, syncStatus: 'synced' }
+              });
+              if (saveRes.success) {
+                StorageService.markSubmissionSynced(z.id);
+              }
+            } catch {}
+          }
+        }
+      }
+
+      return {
+        ...res,
+        zeroCount: autoZeroSubmissions.length
+      };
     } catch {
-      return { success: true, message: 'Status henti tersimpan di server & lokal.' };
+      return {
+        success: true,
+        zeroCount: autoZeroSubmissions.length,
+        message: 'Status henti tersimpan di server & lokal.'
+      };
     }
   }
 

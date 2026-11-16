@@ -800,7 +800,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   };
 
   const handleStopExamPermanently = async (exam: Exam) => {
-    if (!confirm(`HENTIKAN SESI UJIAN SECARA PERMANEN?\n\nSesi ujian "${exam.title}" akan dihentikan dan seluruh akses siswa langsung diputus oleh server.\n\nStatus henti ini permanen dan tidak dapat berubah meski halaman dimuat ulang (refresh), sampai Anda membukanya kembali dengan tombol "Lanjutkan".`)) {
+    if (!confirm(`HENTIKAN SESI UJIAN SECARA PERMANEN?\n\nSesi ujian "${exam.title}" akan dihentikan dan seluruh akses siswa langsung diputus oleh server.\n\nSiswa pada kelas terkait yang BELUM mengerjakan ujian akan otomatis diberi nilai 0 (nol).\n\nStatus henti ini permanen dan tidak dapat berubah meski halaman dimuat ulang (refresh), sampai Anda membukanya kembali dengan tombol "Lanjutkan".`)) {
       return;
     }
     const updated: Exam = {
@@ -812,10 +812,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     };
     StorageService.upsertExam(updated);
     const qs = StorageService.getQuestionsByExamId(exam.id);
-    await GasClient.stopExamSession(exam.id);
+    const stopRes = await GasClient.stopExamSession(exam.id);
     await GasClient.pushExam(updated, qs);
-    setSessionToast(`Sesi ujian "${exam.title}" telah DIHENTIKAN SECARA PERMANEN! Akses siswa ditutup.`);
-    StorageService.addLog('EXAM', `Sesi ujian "${exam.title}" DIHENTIKAN PERMANEN oleh guru pengawas`, undefined, 'error');
+    const zeroCount = stopRes.zeroCount || 0;
+    const msg = zeroCount > 0
+      ? `Sesi ujian "${exam.title}" DIHENTIKAN PERMANEN! Akses siswa ditutup & ${zeroCount} siswa yang belum ujian otomatis diberi nilai 0.`
+      : `Sesi ujian "${exam.title}" telah DIHENTIKAN SECARA PERMANEN! Akses siswa ditutup.`;
+    setSessionToast(msg);
+    StorageService.addLog('EXAM', `Sesi ujian "${exam.title}" DIHENTIKAN PERMANEN oleh guru pengawas (${zeroCount} siswa belum ujian diberi nilai 0)`, undefined, 'error');
     onRefreshData();
     setTimeout(() => setSessionToast(null), 5000);
   };
@@ -2544,6 +2548,17 @@ const rekapDistinctGrades = useMemo(() => {
                       <FastForward className="w-3 h-3 text-amber-600" />
                       <span>Lanjutkan (Terlambat)</span>
                     </button>
+                    {exam.sessionStatus === 'ended' && (
+                      <button
+                        type="button"
+                        onClick={() => handleStopExamPermanently(exam)}
+                        className="col-span-2 px-2.5 py-1.5 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                        title="Hentikan ujian secara permanen & beri nilai 0 untuk siswa yang belum mengerjakan"
+                      >
+                        <StopCircle className="w-3.5 h-3.5" />
+                        <span>Hentikan Permanen (Nilai 0 Belum Ujian)</span>
+                      </button>
+                    )}
                   </>
                 )}
               </div>

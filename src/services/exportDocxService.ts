@@ -426,13 +426,14 @@ export async function exportGradeRecapToDocx(
                 ]
               }),
               ...validSubs.map((sub, i) => {
-                const isPass = (Number(sub.percentage) || 0) >= kkm;
+                const pct = Math.round(Number(sub.percentage) || 0);
+                const isPass = pct >= kkm;
                 return new TableRow({
                   children: [
                     new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${i + 1}`, size: 18 })] })] }),
                     new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: sub.studentNo || '-', size: 18 })] })] }),
                     new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: sub.studentName || 'Siswa', size: 18 })] })] }),
-                    new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${sub.percentage}`, bold: true, size: 18 })] })] }),
+                    new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${pct}`, bold: true, size: 18 })] })] }),
                     new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: isPass ? 'Tuntas' : 'Remedial', color: isPass ? '008000' : 'CC0000', bold: true, size: 18 })] })] }),
                     new TableCell({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `${sub.tabSwitchCount || 0}x`, size: 18 })] })] })
                   ]
@@ -531,10 +532,10 @@ export async function exportItemAnalysisToDocx(
           // essay
           score = (studentAns && typeof studentAns === 'string' && studentAns.trim().length > 5) ? (q.points || 1) : 0;
         }
-        return score;
+        return Math.round(score);
       });
 
-      const totalScore = scoresPerQ.reduce((a, b) => a + b, 0);
+      const totalScore = Math.round(scoresPerQ.reduce((a, b) => a + b, 0));
 
       return {
         nis,

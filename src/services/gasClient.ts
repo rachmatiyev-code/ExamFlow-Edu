@@ -333,10 +333,10 @@ export class GasClient {
             studentName: String(s.studentName || ''),
             classGrade: String(s.classGrade || ''),
             answers: typeof ans === 'object' && ans !== null ? ans : {},
-            score: Number(s.score) || 0,
-            maxScore: Number(s.maxScore) || 100,
-            percentage: Number(s.percentage) || 0,
-            passed: s.passed === true || s.passed === 'true' || s.passed === 'TRUE' || (Number(s.percentage) >= 75),
+            score: Math.round(Number(s.score) || 0),
+            maxScore: Math.max(1, Math.round(Number(s.maxScore) || 100)),
+            percentage: Math.round(Number(s.percentage) || 0),
+            passed: s.passed === true || s.passed === 'true' || s.passed === 'TRUE' || (Math.round(Number(s.percentage) || 0) >= 75),
             submittedAt: String(s.submittedAt || toLocalIsoString()),
             tabSwitchCount: Number(s.tabSwitchCount) || 0,
             timeSpentSeconds: Number(s.timeSpentSeconds) || 0,
@@ -351,8 +351,19 @@ export class GasClient {
             })()
           };
         });
-        // Selalu bersihkan submission dummy dari hasil sync
-        const cleanRemoteSubs = normalizedSubmissions.filter(s => !StorageService.isDummySubmission(s.id));
+        const allLatestExams = StorageService.getExams();
+        const isStaleAutoZeroForOpenExam = (sub: Submission): boolean => {
+          if (!StorageService.isAutoZeroSubmission(sub)) return false;
+          const matchedEx = allLatestExams.find(
+            e => String(e.id || '').trim().toLowerCase() === String(sub.examId || '').trim().toLowerCase()
+          );
+          return Boolean(matchedEx && StorageService.isExamSessionOpen(matchedEx));
+        };
+
+        // Selalu bersihkan submission dummy & nilai 0 otomatis pada ujian yang sudah dibuka kembali
+        const cleanRemoteSubs = normalizedSubmissions.filter(
+          s => !StorageService.isDummySubmission(s.id) && !isStaleAutoZeroForOpenExam(s)
+        );
         
         // Daftarkan izin mengulang untuk setiap entri yang memiliki status 'Mengulang Ujian'
         cleanRemoteSubs.forEach(sub => {
@@ -369,6 +380,7 @@ export class GasClient {
         const pendingQueueIds = new Set(StorageService.getPendingSync().map(p => p.id));
         const now = Date.now();
         const pendingLocal = StorageService.getSubmissions().filter(s => {
+          if (isStaleAutoZeroForOpenExam(s)) return false;
           if (s.syncStatus !== 'pending' && !pendingQueueIds.has(s.id)) return false;
           const subTime = parseFlexibleTimestamp(s.submittedAt);
           // Pertahankan selama masih ada di antrean pending atau dibuat dalam 24 jam terakhir
@@ -664,9 +676,9 @@ export class GasClient {
         studentName: String(a.studentName || ''),
         classGrade: String(a.classGrade || ''),
         answers: a.answers && typeof a.answers === 'object' ? a.answers : {},
-        score: Number(a.score || 0),
-        maxScore: Number(a.maxScore || 100),
-        percentage: Number(a.percentage || 0),
+        score: Math.round(Number(a.score || 0)),
+        maxScore: Math.max(1, Math.round(Number(a.maxScore || 100))),
+        percentage: Math.round(Number(a.percentage || 0)),
         passed: Boolean(a.passed),
         submittedAt: String(a.submittedAt || toLocalIsoString()),
         tabSwitchCount: Number(a.tabSwitchCount || 0),
@@ -679,6 +691,20 @@ export class GasClient {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Bersihkan catatan nilai 0 otomatis (SUB-STOP0-*) di lokal dan server saat ujian dibuka kembali
+   */
+  static async clearAutoZeroForReopenedExam(examId: string): Promise<void> {
+    StorageService.clearAutoZeroSubmissionsForExam(examId);
+    try {
+      await fetch('/api/exam-attempts/clear-auto-zero', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ examId })
+      });
+    } catch {}
   }
 
   /**
@@ -705,10 +731,10 @@ export class GasClient {
   static async submitAnswer(submission: Submission): Promise<{ success: boolean; message: string }> {
     const url = this.getWebAppUrl();
     const examObj = StorageService.getExamById(submission.examId);
-    const enrichedSubmission: Submission = {
+    const enrichedSubmission: Submission = StorageService.normalizeSubmissionScores({
       ...submission,
       examTitle: submission.examTitle || examObj?.title || ''
-    };
+    });
     
     // Simpan ke storage lokal dan catat di server terlebih dahulu
     StorageService.addSubmission(enrichedSubmission);
@@ -763,6 +789,9 @@ export class GasClient {
     });
     StorageService.upsertExam(updatedExam);
     StorageService.saveQuestionsForExam(updatedExam.id, questions);
+    if (StorageService.isExamSessionOpen(updatedExam)) {
+      await this.clearAutoZeroForReopenedExam(updatedExam.id);
+    }
     await this.pushExamControlToServer(updatedExam);
 
     const url = this.getWebAppUrl();
@@ -1135,6 +1164,7 @@ export class GasClient {
    * Melanjutkan kembali sesi ujian yang sebelumnya dihentikan
    */
   static async resumeExamSession(examId: string): Promise<{ success: boolean; message: string }> {
+    await this.clearAutoZeroForReopenedExam(examId);
     const exam = StorageService.getExamById(examId);
     if (exam) {
       exam.status = 'active';

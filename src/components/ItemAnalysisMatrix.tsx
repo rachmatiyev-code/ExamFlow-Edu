@@ -123,19 +123,19 @@ export const ItemAnalysisMatrix: React.FC<ItemAnalysisMatrixProps> = ({
     if (studentRows.length === 0 || questions.length === 0) return [];
     return questions.map((q, qIdx) => {
       const sum = studentRows.reduce((acc, row) => acc + (row.questionScores[qIdx] || 0), 0);
-      const avg = sum / studentRows.length;
+      const avg = Math.round(sum / studentRows.length);
       const maxPossible = (q.points || 1) * studentRows.length;
       const percentage = maxPossible > 0 ? Math.round((sum / maxPossible) * 100) : 0;
-      return { sum, avg: avg.toFixed(1), percentage };
+      return { sum: Math.round(sum), avg: String(avg), percentage };
     });
   }, [studentRows, questions]);
 
   const grandTotalScore = useMemo(() => {
-    return studentRows.reduce((acc, r) => acc + r.totalScore, 0);
+    return Math.round(studentRows.reduce((acc, r) => acc + r.totalScore, 0));
   }, [studentRows]);
 
   const grandAvgScore = useMemo(() => {
-    return studentRows.length > 0 ? (grandTotalScore / studentRows.length).toFixed(1) : '0';
+    return studentRows.length > 0 ? String(Math.round(grandTotalScore / studentRows.length)) : '0';
   }, [studentRows, grandTotalScore]);
 
   const handleExportExcel = () => {

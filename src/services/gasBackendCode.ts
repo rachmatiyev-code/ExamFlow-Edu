@@ -463,9 +463,9 @@ function doPost(e) {
         String(sub.studentName || ''),
         String(sub.classGrade || ''),
         typeof sub.answers === 'string' ? sub.answers : JSON.stringify(sub.answers || {}),
-        Number(sub.score || 0),
-        Number(sub.maxScore || 100),
-        Number(sub.percentage || 0),
+        Math.round(Number(sub.score || 0)),
+        Math.max(1, Math.round(Number(sub.maxScore || 100))),
+        Math.round(Number(sub.percentage || 0)),
         Boolean(sub.passed),
         String(sub.submittedAt || formatLocalIso()),
         Number(sub.tabSwitchCount || 0),
@@ -483,7 +483,7 @@ function doPost(e) {
           String(sub.studentName || ''),
           String(sub.classGrade || ''),
           String(sub.examTitle || sub.examId || ''),
-          Number(sub.percentage || 0),
+          Math.round(Number(sub.percentage || 0)),
           sub.passed ? 'Lulus' : 'Remedial',
           Number(sub.tabSwitchCount || 0),
           Number(sub.timeSpentSeconds || 0),
@@ -492,7 +492,7 @@ function doPost(e) {
         ]);
       }
       
-      logAction('SYNC', 'Jawaban ujian disimpan: ' + sub.studentName + ' - Paket: ' + (sub.examTitle || sub.examId) + ' (Nilai: ' + sub.percentage + '%, Status: ' + (sub.statusNote || 'Selesai') + ')');
+      logAction('SYNC', 'Jawaban ujian disimpan: ' + sub.studentName + ' - Paket: ' + (sub.examTitle || sub.examId) + ' (Nilai: ' + Math.round(Number(sub.percentage || 0)) + '%, Status: ' + (sub.statusNote || 'Selesai') + ')');
       return jsonResponse({ status: 'success', message: 'Jawaban tersimpan di Google Sheets (Submissions & Data_Mentah)', submissionId: sub.id });
     }
 
@@ -528,9 +528,9 @@ function doPost(e) {
             String(s.studentName || ''),
             String(s.classGrade || ''),
             typeof s.answers === 'string' ? s.answers : JSON.stringify(s.answers || {}),
-            Number(s.score || 0),
-            Number(s.maxScore || 100),
-            Number(s.percentage || 0),
+            Math.round(Number(s.score || 0)),
+            Math.max(1, Math.round(Number(s.maxScore || 100))),
+            Math.round(Number(s.percentage || 0)),
             Boolean(s.passed),
             String(s.submittedAt || formatLocalIso()),
             Number(s.tabSwitchCount || 0),
@@ -558,7 +558,7 @@ function doPost(e) {
               String(s.studentName || ''),
               String(s.classGrade || ''),
               String(s.examId || ''),
-              Number(s.percentage || 0),
+              Math.round(Number(s.percentage || 0)),
               s.passed ? 'Lulus' : 'Remedial',
               Number(s.tabSwitchCount || 0),
               Number(s.timeSpentSeconds || 0),
@@ -595,10 +595,10 @@ function doPost(e) {
           String(r.subject || ''),
           String(r.examTitle || ''),
           String(r.examId || ''),
-          Number(r.score || 0),
-          Number(r.maxScore || 100),
-          Number(r.percentage || 0),
-          Number(r.passingScore || 75),
+          Math.round(Number(r.score || 0)),
+          Math.max(1, Math.round(Number(r.maxScore || 100))),
+          Math.round(Number(r.percentage || 0)),
+          Math.round(Number(r.passingScore || 75)),
           r.passed ? 'Tuntas' : 'Belum Tuntas',
           String(r.statusNote || 'Selesai'),
           Number(r.timeSpentSeconds || 0),
@@ -909,8 +909,50 @@ function doPost(e) {
       formatHeaderRow(shQu);
       SpreadsheetApp.flush();
 
+      // Jika ujian dibuka/diaktifkan kembali, bersihkan nilai 0 otomatis (SUB-STOP0-*) agar siswa terlambat bisa mengerjakan
+      if (!isStoppedExam && String(exam.status || 'active').toLowerCase() === 'active' && (String(exam.sessionStatus || '').toLowerCase() === 'active' || Boolean(exam.allowLateSubmission))) {
+        clearAutoZeroRowsForExam(ss, exam.id, exam.title);
+      }
+
       logAction('EXAM', 'Ujian disimpan: ' + exam.title + ' (' + questions.length + ' soal)');
       return jsonResponse({ status: 'success', message: 'Ujian dan ' + questions.length + ' soal berhasil diperbarui' });
+    }
+
+    function clearAutoZeroRowsForExam(spreadsheet, targetId, targetTitle) {
+      var cleanTarget = String(targetId || '').trim().toLowerCase();
+      var cleanTitle = String(targetTitle || '').trim().toLowerCase();
+      if (!cleanTarget) return 0;
+      var removed = 0;
+      var shSub = spreadsheet.getSheetByName(SHEETS.SUBMISSIONS);
+      if (shSub && shSub.getLastRow() > 1) {
+        var subVals = shSub.getDataRange().getValues();
+        var subHdrs = subVals[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
+        var cId = subHdrs.indexOf('id');
+        var cExId = subHdrs.indexOf('examid');
+        var cNote = subHdrs.indexOf('statusnote');
+        for (var r = subVals.length - 1; r >= 1; r--) {
+          var rExId = cExId !== -1 ? String(subVals[r][cExId] || '').trim().toLowerCase() : '';
+          var rId = cId !== -1 ? String(subVals[r][cId] || '').trim().toUpperCase() : '';
+          var rNote = cNote !== -1 ? String(subVals[r][cNote] || '').toLowerCase() : '';
+          if (rExId === cleanTarget && (rId.indexOf('SUB-STOP0-') === 0 || rNote.indexOf('ujian dihentikan permanen') !== -1)) {
+            shSub.deleteRow(r + 1);
+            removed++;
+          }
+        }
+      }
+      var shDm = spreadsheet.getSheetByName(SHEETS.DATA_MENTAH);
+      if (shDm && shDm.getLastRow() > 1) {
+        var dmVals = shDm.getDataRange().getValues();
+        for (var d = dmVals.length - 1; d >= 1; d--) {
+          var dmEx = String(dmVals[d][3] || '').trim().toLowerCase();
+          var dmNote = String(dmVals[d][8] || '').toLowerCase();
+          if ((dmEx === cleanTarget || (cleanTitle && dmEx === cleanTitle)) && dmNote.indexOf('ujian dihentikan permanen') !== -1) {
+            shDm.deleteRow(d + 1);
+          }
+        }
+      }
+      if (removed > 0) SpreadsheetApp.flush();
+      return removed;
     }
 
     if (action === 'stopExamSession') {
@@ -1055,6 +1097,7 @@ function doPost(e) {
 
     if (action === 'resumeExamSession') {
       const examId = String(payload.examId || '').trim();
+      let examTitle = '';
       let shEx = ss.getSheetByName(SHEETS.EXAMS);
       if (shEx && examId) {
         ensureMinColumns(shEx, CANONICAL_EX_HEADERS.length);
@@ -1068,10 +1111,12 @@ function doPost(e) {
           const refreshedData = shEx.getDataRange().getValues();
           const hdrs = refreshedData[0].map(function(h) { return String(h || '').trim().toLowerCase(); });
           const idCol = hdrs.indexOf('id');
+          const titleCol = hdrs.indexOf('title');
           const statusCol = hdrs.indexOf('status');
           const sessionStatusCol = hdrs.indexOf('sessionstatus');
           for (let i = 1; i < refreshedData.length; i++) {
             if (idCol !== -1 && String(refreshedData[i][idCol] || '').trim().toLowerCase() === examId.toLowerCase()) {
+              if (titleCol !== -1) examTitle = String(refreshedData[i][titleCol] || '');
               if (statusCol !== -1) shEx.getRange(i + 1, statusCol + 1).setValue('active');
               if (sessionStatusCol !== -1) shEx.getRange(i + 1, sessionStatusCol + 1).setValue('active');
               SpreadsheetApp.flush();
@@ -1080,8 +1125,9 @@ function doPost(e) {
           }
         }
       }
-      logAction('EXAM', 'Sesi ujian DILANJUTKAN kembali: ' + examId);
-      return jsonResponse({ status: 'success', message: 'Sesi ujian ' + examId + ' berhasil dilanjutkan.' });
+      var clearedZeros = clearAutoZeroRowsForExam(ss, examId, examTitle);
+      logAction('EXAM', 'Sesi ujian DILANJUTKAN kembali: ' + examId + (clearedZeros > 0 ? ' (' + clearedZeros + ' nilai 0 otomatis dibersihkan)' : ''));
+      return jsonResponse({ status: 'success', clearedZeros: clearedZeros, message: 'Sesi ujian ' + examId + ' berhasil dilanjutkan.' });
     }
 
     if (action === 'saveQuestions' || action === 'syncQuestions') {
@@ -1449,7 +1495,7 @@ function doPost(e) {
 
           if (matched && subByUserId[matched.userId]) {
             const sub = subByUserId[matched.userId];
-            const scaled = Math.round(((Number(sg.score) || 0) / (Number(sg.maxScore) || 100)) * maxScore * 10) / 10;
+            const scaled = Math.round(((Number(sg.score) || 0) / (Number(sg.maxScore) || 100)) * maxScore);
             try {
               Classroom.Courses.CourseWork.StudentSubmissions.patch({
                 assignedGrade: scaled,

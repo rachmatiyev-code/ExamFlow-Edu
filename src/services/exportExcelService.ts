@@ -126,7 +126,7 @@ export function exportGradeRecapToExcel(
   ];
 
   validSubs.forEach((sub, i) => {
-    const pct = Number(sub.percentage) || 0;
+    const pct = Math.round(Number(sub.percentage) || 0);
     const isPass = pct >= kkm;
     const pred = pct >= 90 ? 'A (Sangat Baik)' : pct >= kkm ? 'B (Baik)' : pct >= kkm - 15 ? 'C (Cukup)' : 'D (Kurang)';
     
@@ -250,29 +250,30 @@ export function exportItemAnalysisToExcel(
         score = (studentAns && typeof studentAns === 'string' && studentAns.trim().length > 5) ? (q.points || 1) : 0;
       }
 
-      totalStudentScore += score;
-      questionSums[qIdx] += score;
-      rowItem.push(score);
+      const roundedScore = Math.round(score);
+      totalStudentScore += roundedScore;
+      questionSums[qIdx] += roundedScore;
+      rowItem.push(roundedScore);
     });
 
-    rowItem.push(totalStudentScore);
+    rowItem.push(Math.round(totalStudentScore));
     rows.push(rowItem);
   });
 
   // Baris Total Bawah (Jumlah Skor per Soal)
   if (validSubs.length > 0) {
     const totalRow: any[] = ['', '', '', 'JUMLAH SKOR BENAR'];
-    questionSums.forEach(sum => totalRow.push(sum));
-    const grandTotal = questionSums.reduce((a, b) => a + b, 0);
+    questionSums.forEach(sum => totalRow.push(Math.round(sum)));
+    const grandTotal = Math.round(questionSums.reduce((a, b) => a + b, 0));
     totalRow.push(grandTotal);
     rows.push(totalRow);
 
     const avgRow: any[] = ['', '', '', 'RATA-RATA SKOR BUTIR'];
     questionSums.forEach(sum => {
-      const avg = (sum / validSubs.length).toFixed(2);
+      const avg = Math.round(sum / validSubs.length);
       avgRow.push(avg);
     });
-    const grandAvg = (grandTotal / validSubs.length).toFixed(1);
+    const grandAvg = Math.round(grandTotal / validSubs.length);
     avgRow.push(grandAvg);
     rows.push(avgRow);
   }

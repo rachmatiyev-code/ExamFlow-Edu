@@ -778,6 +778,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       endsAt: shouldExtendEndsAt ? endsFormatted : exam.endsAt
     };
     StorageService.upsertExam(updated);
+    StorageService.clearAutoZeroSubmissionsForExam(exam.id);
+    await GasClient.clearAutoZeroForReopenedExam(exam.id);
     const qs = StorageService.getQuestionsByExamId(exam.id);
     await GasClient.pushExam(updated, qs);
     setSessionToast(`Sesi ujian "${exam.title}" telah DIMULAI! Siswa dapat segera login dan mengerjakan.`);
@@ -793,6 +795,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     const updated: Exam = {
       ...exam,
       sessionStatus: 'ended',
+      allowLateSubmission: false,
       sessionEndedAt: toLocalIsoString()
     };
     StorageService.upsertExam(updated);
@@ -850,6 +853,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
       endsAt: shouldExtendEndsAt ? endsFormatted : exam.endsAt
     };
     StorageService.upsertExam(updated);
+    StorageService.clearAutoZeroSubmissionsForExam(exam.id);
     const qs = StorageService.getQuestionsByExamId(exam.id);
     await GasClient.resumeExamSession(exam.id);
     await GasClient.pushExam(updated, qs);
@@ -885,6 +889,8 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     };
 
     StorageService.upsertExam(updated);
+    StorageService.clearAutoZeroSubmissionsForExam(lateExtensionExam.id);
+    await GasClient.clearAutoZeroForReopenedExam(lateExtensionExam.id);
     const qs = StorageService.getQuestionsByExamId(lateExtensionExam.id);
     await GasClient.pushExam(updated, qs);
 
@@ -2104,10 +2110,10 @@ const rekapDistinctGrades = useMemo(() => {
         if (studentSubs.length > 0) {
           const bestSub = [...studentSubs].sort((a, b) => (Number(b.percentage) || 0) - (Number(a.percentage) || 0))[0];
           const kkm = exam.passingScore ?? 75;
-          const pct = Number(bestSub.percentage) || 0;
+          const pct = Math.round(Number(bestSub.percentage) || 0);
           examScores[exam.id] = {
-            score: Number(bestSub.score) || 0,
-            maxScore: Number(bestSub.maxScore) || 100,
+            score: Math.round(Number(bestSub.score) || 0),
+            maxScore: Math.max(1, Math.round(Number(bestSub.maxScore) || 100)),
             percentage: pct,
             passed: pct >= kkm,
             submittedAt: bestSub.submittedAt
@@ -2206,7 +2212,7 @@ const rekapDistinctGrades = useMemo(() => {
         const ex = exams.find(e => e.id === sub.examId);
         const st = students.find(s => s.studentNo === sub.studentNo || s.nis === sub.studentNo);
         const kkm = ex?.passingScore ?? 75;
-        const pct = Number(sub.percentage) || 0;
+        const pct = Math.round(Number(sub.percentage) || 0);
         const passed = pct >= kkm;
         return {
           id: sub.id,
@@ -2216,8 +2222,8 @@ const rekapDistinctGrades = useMemo(() => {
           subject: ex?.subject || 'Umum',
           examTitle: sub.examTitle || ex?.title || 'Paket Asesmen',
           examId: sub.examId,
-          score: Number(sub.score) || 0,
-          maxScore: Number(sub.maxScore) || 100,
+          score: Math.round(Number(sub.score) || 0),
+          maxScore: Math.max(1, Math.round(Number(sub.maxScore) || 100)),
           percentage: pct,
           passingScore: kkm,
           passed: passed,
@@ -8405,8 +8411,8 @@ const rekapDistinctGrades = useMemo(() => {
                     min={0}
                     value={editingSubmission.score}
                     onChange={(e) => {
-                      const score = Number(e.target.value) || 0;
-                      const maxScore = editingSubmission.maxScore || 100;
+                      const score = Math.round(Number(e.target.value) || 0);
+                      const maxScore = Math.max(1, Math.round(editingSubmission.maxScore || 100));
                       const percentage = Math.round((score / maxScore) * 100);
                       setEditingSubmission({
                         ...editingSubmission,
@@ -8427,8 +8433,8 @@ const rekapDistinctGrades = useMemo(() => {
                     min={1}
                     value={editingSubmission.maxScore}
                     onChange={(e) => {
-                      const maxScore = Number(e.target.value) || 100;
-                      const score = editingSubmission.score || 0;
+                      const maxScore = Math.max(1, Math.round(Number(e.target.value) || 100));
+                      const score = Math.round(editingSubmission.score || 0);
                       const percentage = Math.round((score / maxScore) * 100);
                       setEditingSubmission({
                         ...editingSubmission,
@@ -8450,7 +8456,7 @@ const rekapDistinctGrades = useMemo(() => {
                     max={100}
                     value={editingSubmission.percentage}
                     onChange={(e) => {
-                      const percentage = Number(e.target.value) || 0;
+                      const percentage = Math.round(Number(e.target.value) || 0);
                       setEditingSubmission({
                         ...editingSubmission,
                         percentage,

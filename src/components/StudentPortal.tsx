@@ -105,6 +105,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   const [isDownloadingQuestions, setIsDownloadingQuestions] = useState(false);
   const [serverStudentAttempts, setServerStudentAttempts] = useState<Submission[]>([]);
   const [submissionVersion, setSubmissionVersion] = useState(0);
+  const [portalFilter, setPortalFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [isRefreshingSchedule, setIsRefreshingSchedule] = useState(false);
 
   // Persist student identity locally whenever studentNo or studentName is set
   const persistStudentIdentity = React.useCallback((sNo: string, sName: string, sClass: string) => {
@@ -193,12 +195,34 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         merged.status !== ex.status ||
         merged.sessionStatus !== ex.sessionStatus ||
         merged.attemptMode !== ex.attemptMode ||
-        merged.allowLateSubmission !== ex.allowLateSubmission
+        merged.allowLateSubmission !== ex.allowLateSubmission ||
+        merged.endsAt !== ex.endsAt ||
+        merged.lateExtensionMinutes !== ex.lateExtensionMinutes
       ) {
         changed = true;
       }
       return merged;
     });
+
+    const reopenedExams = updatedList.filter(u => StorageService.isExamSessionOpen(u));
+    if (reopenedExams.length > 0) {
+      let clearedAny = false;
+      reopenedExams.forEach(u => {
+        if (StorageService.clearAutoZeroSubmissionsForExam(u.id) > 0) {
+          clearedAny = true;
+        }
+      });
+      setServerStudentAttempts(prev =>
+        prev.filter(s => {
+          if (!StorageService.isAutoZeroSubmission(s)) return true;
+          const sExId = String(s.examId || '').trim().toLowerCase();
+          return !reopenedExams.some(u => String(u.id || '').trim().toLowerCase() === sExId);
+        })
+      );
+      if (clearedAny) {
+        setSubmissionVersion(v => v + 1);
+      }
+    }
 
     if (changed) {
       StorageService.saveExams(updatedList);
@@ -509,6 +533,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     const sTitle = String(sub.examTitle || '').trim().toLowerCase();
     const exTitle = String(exam.title || '').trim().toLowerCase();
     return Boolean(sTitle && exTitle && sTitle === exTitle);
+  };
+
+  const isStaleAutoZeroForOpenExam = (sub: Submission, examsList: Exam[]): boolean => {
+    if (!StorageService.isAutoZeroSubmission(sub)) return false;
+    const matchedEx = examsList.find(ex => matchSubToExam(sub, ex));
+    return Boolean(matchedEx && StorageService.isExamSessionOpen(matchedEx));
   };
 
   // Filter exams available today
@@ -886,6 +916,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       };
 
       const hasDirectPermission = StorageService.hasRetakePermission(freshExam.id, cleanNo, cleanName);
+      const isFreshExamOpen = StorageService.isExamSessionOpen(freshExam);
+      if (isFreshExamOpen) {
+        StorageService.clearAutoZeroSubmissionsForExam(freshExam.id);
+      }
 
       // Cek rekaman attempt pada server Express (/api/exam-attempts/check)
       const serverAttempt = await GasClient.checkAttemptOnServer(freshExam.id, cleanNo, cleanName);
@@ -906,7 +940,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       const studentPastSubs = allSubmissions.filter(
         sub =>
           String(sub.examId).trim().toLowerCase() === String(freshExam.id).trim().toLowerCase() &&
-          matchesIdentity(sub)
+          matchesIdentity(sub) &&
+          !(isFreshExamOpen && StorageService.isAutoZeroSubmission(sub))
       );
 
       const hasRepeatFlag = studentPastSubs.some(isExplicitRepeatSubmission);
@@ -1102,6 +1137,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       }
     });
 
+    totalScore = Math.round(totalScore);
+    maxScore = Math.max(1, Math.round(maxScore));
     const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
     const passed = percentage >= selectedExam.passingScore;
     const timeSpent = (selectedExam.durationMinutes * 60) - timeRemainingSeconds;
@@ -2401,7 +2438,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             null;
           setScoreLookupMatchedStudent(foundStudent);
 
-          const filterMatchedForQuery = (subsList: Submission[]) => {
+          const filterMatchedForQuery = (subsList: Submission[], examsRef: Exam[]) => {
             const matched = subsList.filter(s => {
               const sNoNorm = normalizeNumericStr(s.studentNo);
               const sName = String(s.studentName || '').trim().toLowerCase();
@@ -2424,18 +2461,22 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               return false;
             });
 
-            // Gabungkan & hilangkan duplikat per ujian: jika ada submisi selesai, abaikan placeholder reset lama
+            // Gabungkan & hilangkan duplikat per ujian: abaikan placeholder reset & nilai 0 otomatis pada ujian yang sudah dibuka kembali
             const deduped = mergeSubmissionsSources(matched, []);
-            return deduped.filter(s => !isResetSubmissionEntry(s));
+            return deduped.filter(s => !isResetSubmissionEntry(s) && !isStaleAutoZeroForOpenExam(s, examsRef));
           };
 
           // 1. Tampilkan segera hasil lokal + server cache yang sudah ada
           const combinedImmediate = mergeSubmissionsSources(StorageService.getSubmissions(), serverStudentAttempts);
-          setStudentLookupResults(filterMatchedForQuery(combinedImmediate));
+          setStudentLookupResults(filterMatchedForQuery(combinedImmediate, liveExams));
 
-          // 2. Sinkronkan latar belakang dari server Express & Google Sheets agar selalu akurat lintas perangkat
+          // 2. Sinkronkan latar belakang kontrol server, attempt server, & Google Sheets agar selalu akurat lintas perangkat
           setIsSyncingLookup(true);
           try {
+            const controls = await GasClient.fetchExamControlsFromServer();
+            if (controls && Object.keys(controls).length > 0) {
+              applyServerControls(controls);
+            }
             const serverList = await GasClient.fetchStudentAttemptsFromServer(
               foundStudent?.studentNo || cleanQuery,
               foundStudent?.fullName || cleanQuery
@@ -2447,11 +2488,19 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             if (gasUrl && gasUrl.trim().startsWith('http')) {
               await GasClient.fetchAllFromSheets();
             }
+            // Terapkan kembali kontrol terbaru agar liveExams selalu sinkron setelah pull Sheets
+            const latestControls = await GasClient.fetchExamControlsFromServer();
+            if (latestControls && Object.keys(latestControls).length > 0) {
+              applyServerControls(latestControls);
+            }
+            const freshExams = StorageService.getExams();
+            setLiveExams(freshExams);
+
             const latestCombined = mergeSubmissionsSources(
               StorageService.getSubmissions(),
               mergeSubmissionsSources(serverStudentAttempts, serverList)
             );
-            setStudentLookupResults(filterMatchedForQuery(latestCombined));
+            setStudentLookupResults(filterMatchedForQuery(latestCombined, freshExams));
           } finally {
             setIsSyncingLookup(false);
           }
@@ -2497,6 +2546,41 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
           <button
             type="button"
+            disabled={isRefreshingSchedule}
+            onClick={async () => {
+              setIsRefreshingSchedule(true);
+              try {
+                const controls = await GasClient.fetchExamControlsFromServer();
+                if (controls && Object.keys(controls).length > 0) {
+                  applyServerControls(controls);
+                }
+                const gasUrl = StorageService.getSettings().gasWebAppUrl;
+                if (gasUrl && gasUrl.trim().startsWith('http')) {
+                  await GasClient.fetchAllFromSheets();
+                  const latestControls = await GasClient.fetchExamControlsFromServer();
+                  if (latestControls && Object.keys(latestControls).length > 0) {
+                    applyServerControls(latestControls);
+                  }
+                }
+                if (studentNo.trim() || studentName.trim()) {
+                  const attempts = await GasClient.fetchStudentAttemptsFromServer(studentNo.trim(), studentName.trim());
+                  setServerStudentAttempts(attempts);
+                }
+                setLiveExams(StorageService.getExams());
+                setSubmissionVersion(v => v + 1);
+              } finally {
+                setIsRefreshingSchedule(false);
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-xs font-semibold rounded-lg border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer disabled:opacity-60"
+            title="Periksa ulang status ujian yang baru dibuka guru pengawas"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingSchedule ? 'animate-spin' : ''}`} />
+            <span>{isRefreshingSchedule ? 'Menyegarkan...' : 'Segarkan Jadwal'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => {
               const autoQuery = studentNo.trim() || studentName.trim();
               const fn = (window as any).__examflowTriggerLookup;
@@ -2535,12 +2619,74 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             })
           : [];
 
-        return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {activeExams.map(exam => {
+        const examCardsData = activeExams
+          .map(exam => {
             const matchedSub = currentStudentSubs.find(s => matchSubToExam(s, exam));
-            const isStudentCompleted = Boolean(matchedSub && !isResetSubmissionEntry(matchedSub));
-            const isStudentNeedsRetake = Boolean(matchedSub && isResetSubmissionEntry(matchedSub));
+            const isStaleZero = Boolean(matchedSub && isStaleAutoZeroForOpenExam(matchedSub, [exam]));
+            const effectiveSub = isStaleZero ? undefined : matchedSub;
+            const isStudentCompleted = Boolean(effectiveSub && !isResetSubmissionEntry(effectiveSub));
+            const isStudentNeedsRetake = Boolean(effectiveSub && isResetSubmissionEntry(effectiveSub));
+            const isOpenNow = StorageService.isExamSessionOpen(exam);
+            return { exam, matchedSub: effectiveSub, isStudentCompleted, isStudentNeedsRetake, isOpenNow };
+          })
+          .sort((a, b) => {
+            // Prioritaskan ujian terbuka & belum dikerjakan di urutan paling atas
+            const scoreA = (a.isOpenNow ? 2 : 0) + (!a.isStudentCompleted ? 1 : 0);
+            const scoreB = (b.isOpenNow ? 2 : 0) + (!b.isStudentCompleted ? 1 : 0);
+            return scoreB - scoreA;
+          });
+
+        const pendingCardsCount = examCardsData.filter(item => !item.isStudentCompleted).length;
+        const completedCardsCount = examCardsData.filter(item => item.isStudentCompleted).length;
+        const visibleExamCards = examCardsData.filter(item => {
+          if (portalFilter === 'pending') return !item.isStudentCompleted;
+          if (portalFilter === 'completed') return item.isStudentCompleted;
+          return true;
+        });
+
+        return (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPortalFilter('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  portalFilter === 'all'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                Semua Ujian ({examCardsData.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPortalFilter('pending')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  portalFilter === 'pending'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                Belum Dikerjakan ({pendingCardsCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setPortalFilter('completed')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  portalFilter === 'completed'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                Sudah Dikerjakan ({completedCardsCount})
+              </button>
+            </div>
+          </div>
+
+          {visibleExamCards.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {visibleExamCards.map(({ exam, matchedSub, isStudentCompleted, isStudentNeedsRetake }) => {
             return (
               <div
                 key={exam.id}
@@ -2818,6 +2964,21 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               </div>
             );
           })}
+        </div>
+          ) : (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-8 text-center text-slate-500 dark:text-slate-400">
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Tidak ada ujian pada filter ini.
+              </p>
+              <button
+                type="button"
+                onClick={() => setPortalFilter('all')}
+                className="mt-3 px-4 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                Tampilkan Semua Ujian
+              </button>
+            </div>
+          )}
         </div>
         );
       })() : (
@@ -3104,9 +3265,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   .filter(exId => !completedExamIds.has(exId))
               );
 
-              const pendingExams = activeExams.filter(
-                exam => !isExamCompletedByStudent(exam)
-              );
+              const pendingExams = activeExams
+                .filter(exam => !isExamCompletedByStudent(exam))
+                .sort((a, b) => {
+                  const aOpen = StorageService.isExamSessionOpen(a) ? 1 : 0;
+                  const bOpen = StorageService.isExamSessionOpen(b) ? 1 : 0;
+                  return bOpen - aOpen;
+                });
 
               const handleStartFromLookup = (exam: Exam) => {
                 if (scoreLookupMatchedStudent) {
@@ -3336,7 +3501,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                                         ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300'
                                         : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300'
                                     }`}>
-                                      {sub.percentage}% ({sub.passed ? 'Lulus' : 'Remedial'})
+                                      {Math.round(Number(sub.percentage) || 0)}% ({sub.passed ? 'Lulus' : 'Remedial'})
                                     </span>
                                   </div>
 

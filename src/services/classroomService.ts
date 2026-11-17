@@ -224,8 +224,8 @@ export class ClassroomService {
         Accept: 'application/json'
       },
       body: JSON.stringify({
-        assignedGrade: Math.round(grade * 10) / 10,
-        draftGrade: Math.round(grade * 10) / 10
+        assignedGrade: Math.round(grade),
+        draftGrade: Math.round(grade)
       })
     });
 
@@ -311,9 +311,9 @@ export class ClassroomService {
         studentNo: appStu.studentNo,
         studentName: appStu.fullName,
         classGrade: appStu.classGrade || 'Umum',
-        examScore: rawScore,
-        maxScore: rawMax,
-        scaledGrade: Math.round(scaledGrade * 10) / 10,
+        examScore: Math.round(rawScore),
+        maxScore: Math.round(rawMax),
+        scaledGrade: Math.round(scaledGrade),
         matchedClassroomUser: bestMatch,
         submissionId: submission?.id,
         syncStatus: bestMatch && submission ? 'pending' : 'unmatched'

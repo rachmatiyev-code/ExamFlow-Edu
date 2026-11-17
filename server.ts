@@ -1085,6 +1085,38 @@ function saveExamAttemptsToDisk() {
   }
 }
 
+function isAutoZeroAttempt(a?: Partial<ServerExamAttempt> | null): boolean {
+  if (!a) return false;
+  const subId = String(a.submissionId || '').trim().toUpperCase();
+  const note = String(a.statusNote || '').toLowerCase();
+  return subId.startsWith('SUB-STOP0-') || note.includes('ujian dihentikan permanen');
+}
+
+function isServerExamControlOpen(ctrl?: ServerExamControl | null): boolean {
+  if (!ctrl) return false;
+  const s = String(ctrl.status || '').toLowerCase();
+  const ss = String(ctrl.sessionStatus || '').toLowerCase();
+  if (s === 'stopped' || ss === 'stopped' || s === 'archived' || s === 'draft' || ss === 'ended') {
+    return false;
+  }
+  return ss === 'active' || Boolean(ctrl.allowLateSubmission);
+}
+
+function clearAutoZeroAttemptsForExam(examId: string): number {
+  const cleanExamId = String(examId || '').trim().toLowerCase();
+  if (!cleanExamId) return 0;
+  const before = examAttemptsList.length;
+  examAttemptsList = examAttemptsList.filter(a => {
+    if (String(a.examId || '').trim().toLowerCase() !== cleanExamId) return true;
+    return !isAutoZeroAttempt(a);
+  });
+  const removed = before - examAttemptsList.length;
+  if (removed > 0) {
+    saveExamAttemptsToDisk();
+  }
+  return removed;
+}
+
 function broadcastExamControl(control: ServerExamControl) {
   const payload = JSON.stringify({ type: 'exam:control_update', data: control });
   connectedClients.forEach(c => {
@@ -1131,7 +1163,9 @@ apiRouter.post('/exam-controls', (req, res) => {
       status,
       sessionStatus,
       attemptMode,
-      allowLateSubmission: status === 'stopped' ? false : Boolean(body.allowLateSubmission ?? existing?.allowLateSubmission ?? false),
+      allowLateSubmission: (status === 'stopped' || sessionStatus === 'ended')
+        ? false
+        : Boolean(body.allowLateSubmission ?? existing?.allowLateSubmission ?? false),
       lateExtensionMinutes: Number(body.lateExtensionMinutes ?? existing?.lateExtensionMinutes ?? 0),
       startsAt: body.startsAt ?? existing?.startsAt,
       endsAt: body.endsAt ?? existing?.endsAt,
@@ -1142,6 +1176,12 @@ apiRouter.post('/exam-controls', (req, res) => {
 
     examControlsMap[key] = updated;
     saveExamControlsToDisk();
+
+    // Jika ujian dibuka/dilanjutkan kembali, bersihkan catatan nilai 0 otomatis (SUB-STOP0-*)
+    if (isServerExamControlOpen(updated)) {
+      clearAutoZeroAttemptsForExam(rawId);
+    }
+
     broadcastExamControl(updated);
 
     return res.json({ success: true, control: updated });
@@ -1171,8 +1211,10 @@ apiRouter.get('/exam-attempts/check', (req, res) => {
     return res.json({ success: true, hasCompleted: false, allowRepeat: false });
   }
 
+  const isExamCurrentlyOpen = isServerExamControlOpen(examControlsMap[examId]);
   const matched = examAttemptsList.filter(a => {
     if (a.examId.toLowerCase() !== examId) return false;
+    if (isExamCurrentlyOpen && isAutoZeroAttempt(a)) return false;
     const matchNo = matchesStudentNo(a.studentNo, studentNo);
     const matchName = Boolean(studentName && a.studentName && a.studentName.toLowerCase() === studentName);
     return matchNo || matchName;
@@ -1199,6 +1241,10 @@ apiRouter.get('/exam-attempts/student', (req, res) => {
   }
 
   const matched = examAttemptsList.filter(a => {
+    const ctrl = examControlsMap[String(a.examId || '').trim().toLowerCase()];
+    if (isServerExamControlOpen(ctrl) && isAutoZeroAttempt(a)) {
+      return false;
+    }
     const matchNo = studentNo ? matchesStudentNo(a.studentNo, studentNo) : false;
     const matchName = studentName
       ? Boolean(a.studentName && (a.studentName.toLowerCase() === studentName || a.studentName.toLowerCase().includes(studentName)))
@@ -1218,7 +1264,12 @@ apiRouter.get('/exam-attempts/exam', (req, res) => {
   if (!examId) {
     return res.json({ success: true, attempts: [] });
   }
-  const matched = examAttemptsList.filter(a => String(a.examId || '').trim().toLowerCase() === examId);
+  const isExamCurrentlyOpen = isServerExamControlOpen(examControlsMap[examId]);
+  const matched = examAttemptsList.filter(a => {
+    if (String(a.examId || '').trim().toLowerCase() !== examId) return false;
+    if (isExamCurrentlyOpen && isAutoZeroAttempt(a)) return false;
+    return true;
+  });
   return res.json({
     success: true,
     attempts: matched
@@ -1251,9 +1302,9 @@ apiRouter.post('/exam-attempts/record', (req, res) => {
       studentName,
       classGrade: b.classGrade ? String(b.classGrade).trim() : '',
       submissionId: String(b.submissionId || `SUB-${Date.now()}`),
-      score: typeof b.score === 'number' ? b.score : Number(b.score || 0),
-      maxScore: typeof b.maxScore === 'number' ? b.maxScore : Number(b.maxScore || 100),
-      percentage: typeof b.percentage === 'number' ? b.percentage : Number(b.percentage || 0),
+      score: Math.round(typeof b.score === 'number' ? b.score : Number(b.score || 0)),
+      maxScore: Math.max(1, Math.round(typeof b.maxScore === 'number' ? b.maxScore : Number(b.maxScore || 100))),
+      percentage: Math.round(typeof b.percentage === 'number' ? b.percentage : Number(b.percentage || 0)),
       passed: Boolean(b.passed),
       timeSpentSeconds: Number(b.timeSpentSeconds || 0),
       tabSwitchCount: Number(b.tabSwitchCount || 0),
@@ -1267,6 +1318,20 @@ apiRouter.post('/exam-attempts/record', (req, res) => {
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err?.message || 'Gagal mencatat pengerjaan ujian.' });
+  }
+});
+
+// POST /api/exam-attempts/clear-auto-zero (hapus nilai 0 otomatis saat ujian dibuka/dilanjutkan kembali)
+apiRouter.post('/exam-attempts/clear-auto-zero', (req, res) => {
+  try {
+    const examId = String((req.body || {}).examId || '').trim();
+    if (!examId) {
+      return res.status(400).json({ success: false, message: 'examId wajib diisi.' });
+    }
+    const removedCount = clearAutoZeroAttemptsForExam(examId);
+    return res.json({ success: true, removedCount });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Gagal membersihkan nilai 0 otomatis.' });
   }
 });
 
@@ -1320,7 +1385,7 @@ apiRouter.post('/exam-attempts/record-zero-unsubmitted', (req, res) => {
         classGrade: item.classGrade ? String(item.classGrade).trim() : '',
         submissionId: String(item.id || item.submissionId || `SUB-STOP0-${examId}-${sNo || addedCount}`),
         score: 0,
-        maxScore: typeof item.maxScore === 'number' ? item.maxScore : Number(item.maxScore || 100),
+        maxScore: Math.max(1, Math.round(typeof item.maxScore === 'number' ? item.maxScore : Number(item.maxScore || 100))),
         percentage: 0,
         passed: false,
         timeSpentSeconds: 0,

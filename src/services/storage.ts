@@ -664,6 +664,45 @@ export class StorageService {
   }
 
   // Submissions
+  static isAutoZeroSubmission(sub?: Partial<Submission> | null): boolean {
+    if (!sub) return false;
+    const id = String(sub.id || '').trim().toUpperCase();
+    const note = String(sub.statusNote || '').toLowerCase();
+    return id.startsWith('SUB-STOP0-') || note.includes('ujian dihentikan permanen');
+  }
+
+  static normalizeSubmissionScores(sub: Submission): Submission {
+    const roundedScore = Math.round(Number(sub.score) || 0);
+    const roundedMax = Math.max(1, Math.round(Number(sub.maxScore) || 100));
+    const roundedPct = Math.round(Number(sub.percentage) || 0);
+    return {
+      ...sub,
+      score: roundedScore,
+      maxScore: roundedMax,
+      percentage: roundedPct
+    };
+  }
+
+  static clearAutoZeroSubmissionsForExam(examId: string): number {
+    const cleanExamId = String(examId || '').trim().toLowerCase();
+    if (!cleanExamId) return 0;
+    const current = this.getSubmissions();
+    const removedIds: string[] = [];
+    const remaining = current.filter(s => {
+      if (String(s.examId || '').trim().toLowerCase() === cleanExamId && this.isAutoZeroSubmission(s)) {
+        removedIds.push(s.id);
+        return false;
+      }
+      return true;
+    });
+    if (removedIds.length > 0) {
+      this.saveSubmissions(remaining);
+      removedIds.forEach(id => this.removePendingSync(id));
+      this.addLog('EXAM', `${removedIds.length} catatan nilai 0 otomatis dibersihkan karena ujian dibuka kembali.`, undefined, 'info');
+    }
+    return removedIds.length;
+  }
+
   static getSubmissions(): Submission[] {
     const raw = localStorage.getItem(STORAGE_KEYS.SUBMISSIONS);
     if (raw !== null) {
@@ -671,7 +710,9 @@ export class StorageService {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           // Selalu bersihkan data dummy agar dasbor nilai selalu nyata dan bersih
-          return parsed.filter(s => !this.isDummySubmission(s.id, s.studentNo, s.studentName));
+          return parsed
+            .filter(s => !this.isDummySubmission(s.id, s.studentNo, s.studentName))
+            .map(s => this.normalizeSubmissionScores(s));
         }
       } catch {}
     }
@@ -680,8 +721,10 @@ export class StorageService {
   }
 
   static saveSubmissions(submissions: Submission[]): void {
-    // Pastikan data yang disimpan bersih dari dummy
-    const cleanList = submissions.filter(s => !this.isDummySubmission(s.id, s.studentNo, s.studentName));
+    // Pastikan data yang disimpan bersih dari dummy dan skor dibulatkan ke satuan terdekat
+    const cleanList = submissions
+      .filter(s => !this.isDummySubmission(s.id, s.studentNo, s.studentName))
+      .map(s => this.normalizeSubmissionScores(s));
     this.setItem(STORAGE_KEYS.SUBMISSIONS, cleanList);
     localStorage.setItem(STORAGE_KEYS.INITIALIZED, 'true');
   }
@@ -697,19 +740,20 @@ export class StorageService {
   }
 
   static addSubmission(submission: Submission): void {
+    const normalized = this.normalizeSubmissionScores(submission);
     const list = this.getSubmissions();
-    const cleanList = list.filter(s => s.id !== submission.id);
-    cleanList.unshift(submission);
+    const cleanList = list.filter(s => s.id !== normalized.id);
+    cleanList.unshift(normalized);
     this.saveSubmissions(cleanList);
-    this.addPendingSync(submission);
-    this.addLog('EXAM', `Jawaban siswa ${submission.studentName} (${submission.studentNo}) tersimpan`);
+    this.addPendingSync(normalized);
+    this.addLog('EXAM', `Jawaban siswa ${normalized.studentName} (${normalized.studentNo}) tersimpan`);
   }
 
   static updateSubmission(id: string, updatedFields: Partial<Submission>): void {
     const list = this.getSubmissions();
     const idx = list.findIndex(s => s.id === id);
     if (idx >= 0) {
-      list[idx] = { ...list[idx], ...updatedFields };
+      list[idx] = this.normalizeSubmissionScores({ ...list[idx], ...updatedFields });
       this.saveSubmissions(list);
       this.addLog('EXAM', `Data nilai siswa ${list[idx].studentName} (${list[idx].studentNo}) berhasil diperbarui`, undefined, 'info');
     }

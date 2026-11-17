@@ -242,9 +242,9 @@ export const ClassroomSyncModal: React.FC<ClassroomSyncModalProps> = ({
           studentNo: sub.studentNo,
           studentName: sub.studentName || stu?.fullName || 'Siswa',
           classGrade: sub.classGrade || stu?.classGrade || 'Umum',
-          examScore: rawScore,
-          maxScore: rawMax,
-          scaledGrade: Math.round(scaledGrade * 10) / 10,
+          examScore: Math.round(rawScore),
+          maxScore: Math.round(rawMax),
+          scaledGrade: Math.round(scaledGrade),
           syncStatus: 'pending'
         };
       });

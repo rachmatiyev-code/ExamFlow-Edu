@@ -10,11 +10,12 @@ import {
   Student, 
   Submission, 
   AppSettings, 
-  AppLog 
+  AppLog,
+  UiPreset
 } from './types';
 import { StorageService } from './services/storage';
 import { GasClient } from './services/gasClient';
-import { Navbar } from './components/Navbar';
+import { Navbar, WorkspaceSidebar } from './components/Navbar';
 import { StudentPortal } from './components/StudentPortal';
 import { TeacherDashboard } from './components/TeacherDashboard';
 import { KisiKisiMatrix } from './components/KisiKisiMatrix';
@@ -43,6 +44,8 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncSuccessBanner, setSyncSuccessBanner] = useState<string | null>(null);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Direct student link parameters (?mode=student&exam=...&token=...&gas=...)
   const [directExamId, setDirectExamId] = useState<string | null>(null);
@@ -220,6 +223,15 @@ export default function App() {
     StorageService.saveSettings(updated);
   };
 
+  // Switch UI Appearance Preset (3 Alternatif Tampilan)
+  const activeUiPreset: UiPreset = settings.uiPreset || 'sidebar_workspace';
+
+  const handleSelectUiPreset = (preset: UiPreset) => {
+    const updated = { ...settings, uiPreset: preset };
+    setSettings(updated);
+    StorageService.saveSettings(updated);
+  };
+
   // Reset to default seed
   const handleResetData = () => {
     localStorage.clear();
@@ -228,63 +240,103 @@ export default function App() {
     setTimeout(() => setSyncSuccessBanner(null), 3000);
   };
 
+  const handleSelectMainTab = (tab: 'student' | 'teacher' | 'kisi-kisi' | 'naskah-soal' | 'laporan-cetak' | 'analisis-butir' | 'logs') => {
+    if (tab === 'laporan-cetak') {
+      setReportPrintMode('individu');
+    }
+    setCurrentTab(tab);
+  };
+
+  const isSidebarWorkspace = activeUiPreset === 'sidebar_workspace';
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors">
-      {/* Top Navigation Bar */}
-      <Navbar
-        currentTab={currentTab}
-        onSelectTab={(tab) => {
-          if (tab === 'laporan-cetak') {
-            setReportPrintMode('individu');
-          }
-          setCurrentTab(tab);
-        }}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        profile={profile}
-        settings={settings}
-        onToggleTheme={handleToggleTheme}
-        onManualSync={handleManualSync}
-        isSyncing={isSyncing}
-        syncSuccessBanner={syncSuccessBanner}
-      />
+    <div
+      data-ui-preset={activeUiPreset}
+      className={`min-h-screen flex ${
+        isSidebarWorkspace ? 'flex-row' : 'flex-col'
+      } bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors`}
+    >
+      {/* Left Workspace Sidebar (only in Alternatif 2: Sidebar Workspace) */}
+      {isSidebarWorkspace && (
+        <WorkspaceSidebar
+          currentTab={currentTab}
+          onSelectTab={handleSelectMainTab}
+          teacherSubTab={teacherSubTab}
+          onSelectTeacherSubTab={(sub) => {
+            setTeacherSubTab(sub);
+            setCurrentTab('teacher');
+          }}
+          profile={profile}
+          mobileOpen={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
+          isCollapsed={isSidebarCollapsed}
+        />
+      )}
 
-      {/* Main View Router */}
-      <main className="flex-1">
-        {currentTab === 'student' && (
-          <StudentPortal
-            profile={profile}
-            exams={exams}
-            students={students}
-            initialExamId={directExamId}
-            initialToken={directToken}
-            onSubmissionComplete={(newSub) => {
-              refreshAllData();
-            }}
-          />
-        )}
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+        {/* Top Navigation Bar */}
+        <Navbar
+          currentTab={currentTab}
+          onSelectTab={handleSelectMainTab}
+          teacherSubTab={teacherSubTab}
+          onSelectTeacherSubTab={(sub) => {
+            setTeacherSubTab(sub);
+            setCurrentTab('teacher');
+          }}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          profile={profile}
+          settings={settings}
+          uiPreset={activeUiPreset}
+          onSelectUiPreset={handleSelectUiPreset}
+          onToggleTheme={handleToggleTheme}
+          onManualSync={handleManualSync}
+          isSyncing={isSyncing}
+          syncSuccessBanner={syncSuccessBanner}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleSidebarCollapsed={() => setIsSidebarCollapsed(prev => !prev)}
+          onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+        />
 
-        {currentTab === 'teacher' && (
-          <TeacherDashboard
-            profile={profile}
-            exams={exams}
-            students={students}
-            submissions={submissions}
-            initialSubTab={teacherSubTab}
-            onUpdateProfile={(p) => {
-              StorageService.saveProfile(p);
-              setProfile(p);
-              refreshAllData();
-            }}
-            onRefreshData={refreshAllData}
-            onSelectTab={(tab, examId, extra) => {
-              if (examId) setPrintTargetExamId(examId);
-              if (extra?.reportMode) setReportPrintMode(extra.reportMode);
-              if (extra?.studentNis) setReportPrintStudentNis(extra.studentNis);
-              setCurrentTab(tab);
-            }}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-          />
-        )}
+        {/* Main View Router */}
+        <main className="flex-1">
+          {currentTab === 'student' && (
+            <StudentPortal
+              profile={profile}
+              exams={exams}
+              students={students}
+              uiPreset={activeUiPreset}
+              initialExamId={directExamId}
+              initialToken={directToken}
+              onSubmissionComplete={(newSub) => {
+                refreshAllData();
+              }}
+            />
+          )}
+
+          {currentTab === 'teacher' && (
+            <TeacherDashboard
+              profile={profile}
+              exams={exams}
+              students={students}
+              submissions={submissions}
+              uiPreset={activeUiPreset}
+              initialSubTab={teacherSubTab}
+              onSubTabChange={(sub) => setTeacherSubTab(sub)}
+              onUpdateProfile={(p) => {
+                StorageService.saveProfile(p);
+                setProfile(p);
+                refreshAllData();
+              }}
+              onRefreshData={refreshAllData}
+              onSelectTab={(tab, examId, extra) => {
+                if (examId) setPrintTargetExamId(examId);
+                if (extra?.reportMode) setReportPrintMode(extra.reportMode);
+                if (extra?.studentNis) setReportPrintStudentNis(extra.studentNis);
+                setCurrentTab(tab);
+              }}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+            />
+          )}
 
         {currentTab === 'kisi-kisi' && (
           <KisiKisiMatrix
@@ -358,26 +410,27 @@ export default function App() {
         onResetData={handleResetData}
       />
 
-      {/* Simple Clean Footer (Quiet & Functional) */}
-      <footer className="no-print py-6 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400">
-        <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div>
-            <strong>{profile.name}</strong> · Ujian Berbasis Komputer & Google Sheets
+        {/* Simple Clean Footer (Quiet & Functional) */}
+        <footer className="no-print py-6 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400">
+          <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div>
+              <strong>{profile.name}</strong> · Ujian Berbasis Komputer & Google Sheets
+            </div>
+            <div className="flex items-center gap-4 text-slate-400">
+              <span>Kurikulum Merdeka</span>
+              <span aria-hidden="true">·</span>
+              <span>Versi 1.2</span>
+              <span aria-hidden="true">·</span>
+              <button
+                onClick={() => setCurrentTab('logs')}
+                className="hover:underline text-indigo-600 dark:text-indigo-400"
+              >
+                Status Log
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-4 text-slate-400">
-            <span>Kurikulum Merdeka</span>
-            <span aria-hidden="true">·</span>
-            <span>Versi 1.2</span>
-            <span aria-hidden="true">·</span>
-            <button
-              onClick={() => setCurrentTab('logs')}
-              className="hover:underline text-indigo-600 dark:text-indigo-400"
-            >
-              Status Log
-            </button>
-          </div>
-        </div>
-      </footer>
+        </footer>
+      </div>
     </div>
   );
 }

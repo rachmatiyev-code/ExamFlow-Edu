@@ -140,7 +140,7 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
         </button>
 
         {/* Badge Huruf (A, B, C, D, E) */}
-        <span className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs font-mono shrink-0 select-none ${
+        <span className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs font-mono shrink-0 select-none ${
           isCorrect
             ? 'bg-emerald-600 text-white shadow-2xs'
             : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
@@ -155,17 +155,17 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
             type="text"
             value={option.text || ''}
             onChange={(e) => onChangeText(e.target.value)}
-            placeholder={`Ketik teks opsi ${letter} (gunakan tombol rumus & format di samping)...`}
-            className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white placeholder-slate-400 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium"
+            placeholder={`Ketik teks opsi ${letter}...`}
+            className="w-full h-9 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white placeholder-slate-400 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all font-medium"
           />
         </div>
 
-        {/* Quick Toolbar (Bold, Italic, Sub, Super, Math, Symbol, Preview, Delete) */}
-        <div className="flex items-center gap-1 shrink-0 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200/80 dark:border-slate-700/80">
+        {/* Quick Toolbar (Uniform 28x28px Icon Buttons) */}
+        <div className="flex items-center gap-0.5 shrink-0 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-lg border border-slate-200/80 dark:border-slate-700/80">
           <button
             type="button"
             onClick={() => insertAtCursor('<strong>', '</strong>', 'teks tebal')}
-            className="p-1 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 rounded transition-colors"
+            className="w-7 h-7 inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer"
             title="Tebal (Bold)"
           >
             <Bold className="w-3.5 h-3.5" />
@@ -173,7 +173,7 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
           <button
             type="button"
             onClick={() => insertAtCursor('<em>', '</em>', 'teks miring')}
-            className="p-1 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 rounded transition-colors"
+            className="w-7 h-7 inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer"
             title="Miring (Italic)"
           >
             <Italic className="w-3.5 h-3.5" />
@@ -181,7 +181,7 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
           <button
             type="button"
             onClick={() => insertAtCursor('<u>', '</u>', 'teks garis bawah')}
-            className="p-1 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 rounded transition-colors"
+            className="w-7 h-7 inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer"
             title="Garis Bawah (Underline)"
           >
             <Underline className="w-3.5 h-3.5" />
@@ -189,7 +189,7 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
           <button
             type="button"
             onClick={() => insertAtCursor('<sub>', '</sub>', '2')}
-            className="p-1 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 rounded transition-colors"
+            className="w-7 h-7 inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer"
             title="Subskrip (misal: H₂O)"
           >
             <Subscript className="w-3.5 h-3.5" />
@@ -197,22 +197,22 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
           <button
             type="button"
             onClick={() => insertAtCursor('<sup>', '</sup>', '2')}
-            className="p-1 text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 rounded transition-colors"
+            className="w-7 h-7 inline-flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700 rounded-md transition-colors cursor-pointer"
             title="Superskrip (misal: cm²)"
           >
             <Superscript className="w-3.5 h-3.5" />
           </button>
 
-          <div className="w-[1px] h-3.5 bg-slate-300 dark:bg-slate-700 my-auto" />
+          <div className="w-px h-4 bg-slate-300 dark:bg-slate-700 mx-0.5" />
 
           {/* Tombol Sisipkan Rumus Matematika KaTeX */}
           <button
             type="button"
             onClick={() => setShowMathModal(!showMathModal)}
-            className={`p-1 rounded transition-colors flex items-center gap-0.5 ${
+            className={`w-7 h-7 inline-flex items-center justify-center rounded-md transition-colors cursor-pointer ${
               showMathModal 
                 ? 'bg-indigo-600 text-white' 
-                : 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60'
+                : 'text-indigo-600 dark:text-indigo-400 hover:bg-white dark:hover:bg-slate-700'
             }`}
             title="Sisipkan Rumus Matematika / KaTeX"
           >
@@ -223,10 +223,10 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
           <button
             type="button"
             onClick={() => setShowSymbolModal(!showSymbolModal)}
-            className={`p-1 rounded transition-colors ${
+            className={`w-7 h-7 inline-flex items-center justify-center rounded-md transition-colors cursor-pointer ${
               showSymbolModal 
                 ? 'bg-indigo-600 text-white' 
-                : 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60'
+                : 'text-indigo-600 dark:text-indigo-400 hover:bg-white dark:hover:bg-slate-700'
             }`}
             title="Sisipkan Simbol Khusus (±, ×, ÷, °, π, dll)"
           >
@@ -237,7 +237,7 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
           <button
             type="button"
             onClick={() => setShowJavaneseModal(true)}
-            className="px-1.5 py-0.5 rounded text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/60 transition-colors font-javanese text-sm leading-none font-bold cursor-pointer"
+            className="w-7 h-7 inline-flex items-center justify-center rounded-md text-indigo-600 dark:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 transition-colors font-javanese text-sm leading-none font-bold cursor-pointer"
             title="Sisipkan Aksara Jawa pada opsi jawaban ini"
           >
             ꦲ
@@ -247,10 +247,10 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
           <button
             type="button"
             onClick={() => setShowLivePreview(!showLivePreview)}
-            className={`p-1 rounded transition-colors ${
+            className={`w-7 h-7 inline-flex items-center justify-center rounded-md transition-colors cursor-pointer ${
               showLivePreview || hasFormattingOrMath
-                ? 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40'
-                : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-700'
+                ? 'text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-700'
+                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-700'
             }`}
             title={showLivePreview ? 'Sembunyikan Pratinjau' : 'Lihat Pratinjau Tampilan Rumus'}
           >
@@ -262,7 +262,7 @@ export const OptionRichTextEditor: React.FC<OptionRichTextEditorProps> = ({
             <button
               type="button"
               onClick={onDelete}
-              className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors"
+              className="w-7 h-7 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-md transition-colors cursor-pointer"
               title="Hapus Opsi Ini"
             >
               <Trash2 className="w-3.5 h-3.5" />

@@ -58,7 +58,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoSyncIntervalMinutes: 5,
   offlineMode: false,
   theme: 'light',
-  enableAudioChime: true
+  enableAudioChime: true,
+  uiPreset: 'sidebar_workspace'
 };
 
 const getTodayDateStr = () => {
@@ -1070,14 +1071,29 @@ export class StorageService {
 
   // Settings
   static getSettings(): AppSettings {
-    const settings = this.getItem<AppSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+    const raw = this.getItem<AppSettings>(STORAGE_KEYS.SETTINGS, DEFAULT_SETTINGS);
+    const settings: AppSettings = { ...DEFAULT_SETTINGS, ...raw };
     if (!settings.geminiModel || settings.geminiModel.includes('1.5') || settings.geminiModel.includes('2.0') || settings.geminiModel === 'gemini-pro') {
       settings.geminiModel = 'gemini-3.8-flash';
+    }
+    const migratedSidebarKey = 'examflow_ui_preset_sidebar_v1';
+    try {
+      if (!localStorage.getItem(migratedSidebarKey)) {
+        settings.uiPreset = 'sidebar_workspace';
+        localStorage.setItem(migratedSidebarKey, 'true');
+        this.setItem(STORAGE_KEYS.SETTINGS, settings);
+      }
+    } catch {}
+    if (!settings.uiPreset || !['classic_clean', 'sidebar_workspace', 'academic_compact'].includes(settings.uiPreset)) {
+      settings.uiPreset = 'sidebar_workspace';
     }
     return settings;
   }
 
   static saveSettings(settings: AppSettings): void {
+    try {
+      localStorage.setItem('examflow_ui_preset_sidebar_v1', 'true');
+    } catch {}
     this.setItem(STORAGE_KEYS.SETTINGS, settings);
   }
 

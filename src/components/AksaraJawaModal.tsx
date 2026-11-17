@@ -135,13 +135,13 @@ export const AksaraJawaModal: React.FC<AksaraJawaModalProps> = ({
           title={item.note || `${item.name} (${item.latin})`}
           className="group p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-amber-50 dark:hover:bg-amber-950/50 hover:border-amber-400 dark:hover:border-amber-600 transition-all flex flex-col items-center justify-center text-center shadow-2xs cursor-pointer"
         >
-          <span className="font-javanese text-2xl leading-[1.8] text-slate-900 dark:text-amber-100 group-hover:scale-110 transition-transform select-none">
+          <span className="font-javanese text-2xl leading-[1.8] text-slate-900 dark:text-slate-100 group-hover:scale-110 transition-transform select-none">
             {item.preview || item.char}
           </span>
-          <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 leading-tight mt-0.5 truncate max-w-full">
+          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 leading-tight mt-0.5 truncate max-w-full">
             {item.latin}
           </span>
-          <span className="text-[9px] text-slate-400 dark:text-slate-500 leading-tight truncate max-w-full">
+          <span className="text-[11px] text-slate-400 dark:text-slate-500 leading-tight truncate max-w-full">
             {item.name}
           </span>
         </button>
@@ -156,7 +156,7 @@ export const AksaraJawaModal: React.FC<AksaraJawaModalProps> = ({
     { id: 'pasangan', label: 'Pasangan' },
     { id: 'tandabaca', label: 'Tanda Baca' },
     { id: 'angka', label: 'Angka Jawa' },
-    { id: 'panduan', label: '📖 Panduan Edit' }
+    { id: 'panduan', label: 'Panduan Edit' }
   ];
 
   const examplePresets = [
@@ -179,9 +179,9 @@ export const AksaraJawaModal: React.FC<AksaraJawaModalProps> = ({
         className="bg-white dark:bg-slate-900 rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] flex flex-col overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-amber-50/70 dark:bg-amber-950/30 shrink-0">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-950/70 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-amber-600 text-white flex items-center justify-center font-javanese text-xl font-bold shadow-xs">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-javanese text-xl font-bold shadow-2xs">
               ꦲ
             </div>
             <div>
@@ -254,10 +254,10 @@ export const AksaraJawaModal: React.FC<AksaraJawaModalProps> = ({
             </div>
 
             {/* Konverter Cepat Latin -> Aksara Jawa */}
-            <div className="lg:col-span-5 p-3 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/60 space-y-2">
+            <div className="lg:col-span-5 p-3 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/60 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                   <span>Konverter Cepat Latin ➔ Aksara Jawa</span>
                 </span>
               </div>
@@ -273,39 +273,39 @@ export const AksaraJawaModal: React.FC<AksaraJawaModalProps> = ({
                     }
                   }}
                   placeholder="Ketik: mangan sega, 2025..."
-                  className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-amber-300 dark:border-amber-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 outline-none"
+                  className="flex-1 h-8 px-2.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none"
                 />
                 <button
                   type="button"
                   onClick={handleConvertLatin}
-                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+                  className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors inline-flex items-center gap-1 shrink-0 cursor-pointer"
                 >
                   <span>Konversi</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div className="flex flex-wrap items-center gap-3 text-[10.5px] text-slate-600 dark:text-slate-400">
-                <label className="flex items-center gap-1 cursor-pointer">
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 dark:text-slate-400">
+                <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={useAdegAdeg}
                     onChange={(e) => setUseAdegAdeg(e.target.checked)}
-                    className="rounded text-amber-600"
+                    className="rounded text-indigo-600"
                   />
                   <span>Awali Pada Adeg-adeg (꧋)</span>
                 </label>
-                <label className="flex items-center gap-1 cursor-pointer">
+                <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={wrapDigitsPangkat}
                     onChange={(e) => setWrapDigitsPangkat(e.target.checked)}
-                    className="rounded text-amber-600"
+                    className="rounded text-indigo-600"
                   />
                   <span>Apit Angka (꧇...꧇)</span>
                 </label>
               </div>
-              <p className="text-[10px] text-amber-800/80 dark:text-amber-300/80 leading-tight">
-                Tips: Gunakan huruf <strong>é / è</strong> untuk bunyi taling (seperti <em>lélé</em>) dan <strong>e / ê</strong> untuk bunyi pepet (seperti <em>sega</em>). Anda dapat menyempurnakan Aksara Murda secara manual lewat tab <strong>Aksara Murda</strong>.
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                Tips: Gunakan <strong>é / è</strong> untuk bunyi taling (<em>lélé</em>) dan <strong>e / ê</strong> untuk bunyi pepet (<em>sega</em>).
               </p>
             </div>
           </div>
@@ -317,11 +317,9 @@ export const AksaraJawaModal: React.FC<AksaraJawaModalProps> = ({
                 key={t.id}
                 type="button"
                 onClick={() => setActiveTab(t.id)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                className={`h-8 px-3 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
                   activeTab === t.id
-                    ? t.id === 'panduan'
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 shadow-xs'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
@@ -494,7 +492,7 @@ export const AksaraJawaModal: React.FC<AksaraJawaModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
+              className="h-9 px-4 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
             >
               Tutup
             </button>
@@ -509,7 +507,7 @@ export const AksaraJawaModal: React.FC<AksaraJawaModalProps> = ({
                     onClose();
                   }
                 }}
-                className="px-4 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
+                className="h-9 px-4 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-lg shadow-2xs inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>Sisipkan ke Soal / Opsi</span>

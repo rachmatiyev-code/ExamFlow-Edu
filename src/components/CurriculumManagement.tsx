@@ -226,18 +226,18 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
             type="button"
             onClick={handleTriggerSyncGas}
             disabled={isSyncing}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50"
+            className="h-9 inline-flex items-center gap-1.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors disabled:opacity-50 cursor-pointer"
             title="Sinkronkan data ke Google Sheets"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Sinkronisasi...' : 'Sinkronkan ke Google Sheets'}</span>
+            <span>{isSyncing ? 'Sinkronisasi...' : 'Sinkronkan ke Sheets'}</span>
           </button>
 
           {onResetDefaultTemplate && (
             <button
               type="button"
               onClick={onResetDefaultTemplate}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-700/80 hover:bg-indigo-600 text-indigo-100 text-xs font-semibold rounded-xl border border-indigo-500/50 transition-colors"
+              className="h-9 inline-flex items-center gap-1.5 px-3.5 bg-indigo-700/80 hover:bg-indigo-600 text-indigo-100 text-xs font-medium rounded-lg border border-indigo-500/50 transition-colors cursor-pointer"
               title="Muat ulang template default Kurikulum Merdeka (Pendidikan Pancasila, Bahasa Indonesia, IPAS, Matematika)"
             >
               <RotateCcw className="w-3.5 h-3.5" />
@@ -248,11 +248,11 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
           <button
             type="button"
             onClick={handleClearDummies}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600/80 hover:bg-rose-700 text-white text-xs font-semibold rounded-xl transition-colors"
+            className="h-9 inline-flex items-center gap-1.5 px-3.5 bg-white/10 hover:bg-rose-600/80 text-white text-xs font-medium rounded-lg border border-white/20 transition-colors cursor-pointer"
             title="Bersihkan data kurikulum dummy/sample (seperti data Biologi lama)"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>Bersihkan Template Dummy</span>
+            <span>Bersihkan Dummy</span>
           </button>
         </div>
       </div>
@@ -568,7 +568,7 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
                           className="flex items-start justify-between gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800/80 text-xs hover:border-slate-200 dark:hover:border-slate-700 transition-colors"
                         >
                           <div className="flex items-start gap-2 flex-1">
-                            <span className="w-5 h-5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5 font-mono">
+                            <span className="w-5 h-5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[11px] shrink-0 mt-0.5 font-mono">
                               {tpIdx + 1}
                             </span>
                             <span className="text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
@@ -580,10 +580,10 @@ export const CurriculumManagement: React.FC<CurriculumManagementProps> = ({
                             <button
                               type="button"
                               onClick={() => onUseForQuestion(item, tp)}
-                              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0 flex items-center gap-1 transition-colors"
+                              className="h-7 px-2.5 rounded-md text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0 inline-flex items-center gap-1 transition-colors cursor-pointer"
                               title="Gunakan butir TP ini untuk pembuatan soal baru"
                             >
-                              <Plus className="w-2.5 h-2.5" />
+                              <Plus className="w-3 h-3" />
                               <span>Buat Soal</span>
                             </button>
                           )}

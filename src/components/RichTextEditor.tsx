@@ -177,45 +177,45 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   return (
     <div className="space-y-2">
       {/* Label and Mode Switcher */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
           {label}
         </label>
-        <div className="flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200 dark:border-slate-700">
+        <div className="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 border border-slate-200 dark:border-slate-700">
           <button
             type="button"
             onClick={() => setActiveTab('edit')}
-            className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md transition-colors ${
+            className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
               activeTab === 'edit'
-                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
-                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-semibold shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <Edit3 className="w-3 h-3" />
+            <Edit3 className="w-3.5 h-3.5" />
             <span>Editor</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('preview')}
-            className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md transition-colors ${
+            className={`h-7 inline-flex items-center gap-1.5 px-2.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
               activeTab === 'preview'
-                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
-                : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-semibold shadow-2xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <Eye className="w-3 h-3" />
+            <Eye className="w-3.5 h-3.5" />
             <span>Pratinjau Nyata</span>
           </button>
         </div>
       </div>
 
       {/* Main Container */}
-      <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 overflow-hidden shadow-xs focus-within:ring-2 focus-within:ring-indigo-500 transition-all">
+      <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 overflow-hidden shadow-2xs focus-within:ring-2 focus-within:ring-indigo-500 transition-all">
         {/* COMPREHENSIVE TOOLBAR */}
-        <div className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-1.5 flex flex-wrap items-center gap-1 text-slate-700 dark:text-slate-300">
+        <div className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-2.5 py-2 flex flex-wrap items-center gap-1.5 text-slate-700 dark:text-slate-300">
           
           {/* 1. FONT FAMILY SELECTOR */}
-          <div className="flex items-center gap-1 pr-1 border-r border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-1 pr-1.5 border-r border-slate-200 dark:border-slate-800">
             <select
               value={selectedFont}
               onChange={(e) => {
@@ -223,10 +223,10 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                 setSelectedFont(val);
                 insertTextAtCursor(`<span class="${val}">`, '</span>', 'teks');
               }}
-              className="text-[11px] font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-800 dark:text-slate-200"
+              className="h-7 text-xs font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-400"
               title="Pilih Jenis Font"
             >
-              <option value="font-sans">Font: Inter (Sans)</option>
+              <option value="font-sans">Font: Plus Jakarta (Standar)</option>
               <option value="font-serif">Font: Times (Serif)</option>
               <option value="font-mono">Font: JetBrains (Mono)</option>
               <option value="[font-family:Arial,sans-serif]">Font: Arial</option>
@@ -236,7 +236,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           </div>
 
           {/* 2. FONT SIZE SELECTOR */}
-          <div className="flex items-center gap-1 pr-1 border-r border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-1 pr-1.5 border-r border-slate-200 dark:border-slate-800">
             <select
               value={selectedSize}
               onChange={(e) => {
@@ -244,7 +244,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                 setSelectedSize(val);
                 insertTextAtCursor(`<span class="${val}">`, '</span>', 'teks');
               }}
-              className="text-[11px] font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-slate-800 dark:text-slate-200"
+              className="h-7 text-xs font-medium bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-400"
               title="Ukuran Font"
             >
               <option value="text-xs">12px (Kecil)</option>
@@ -257,9 +257,9 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           </div>
 
           {/* 3. FONT COLOR PALETTE */}
-          <div className="flex items-center gap-0.5 pr-1 border-r border-slate-200 dark:border-slate-800">
-            <label className="cursor-pointer p-1 text-slate-500 hover:text-slate-800 dark:hover:text-white rounded hover:bg-slate-200 dark:hover:bg-slate-800 flex items-center" title="Pilih Warna Font">
-              <Palette className="w-3.5 h-3.5 mr-0.5" />
+          <div className="flex items-center gap-1 pr-1.5 border-r border-slate-200 dark:border-slate-800 h-7">
+            <label className="cursor-pointer h-7 px-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-white rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 inline-flex items-center gap-1" title="Pilih Warna Font">
+              <Palette className="w-3.5 h-3.5" />
               <input
                 type="color"
                 value={selectedColor}
@@ -284,18 +284,18 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                 type="button"
                 onClick={() => insertTextAtCursor(`<span style="color: ${c.color}">`, '</span>', 'teks')}
                 style={{ backgroundColor: c.color }}
-                className="w-3.5 h-3.5 rounded-full border border-white dark:border-slate-900 hover:scale-125 transition-transform"
+                className="w-3.5 h-3.5 rounded-full border border-white dark:border-slate-900 hover:scale-125 transition-transform cursor-pointer"
                 title={`Warna: ${c.name}`}
               />
             ))}
           </div>
 
           {/* 4. BASIC STYLES: BOLD, ITALIC, UNDERLINE, STRIKE */}
-          <div className="flex items-center gap-0.5 pr-1 border-r border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-0.5 pr-1.5 border-r border-slate-200 dark:border-slate-800">
             <button
               type="button"
               onClick={() => insertTextAtCursor('<b>', '</b>', 'teks tebal')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Cetak Tebal (Bold)"
             >
               <Bold className="w-3.5 h-3.5" />
@@ -303,7 +303,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <button
               type="button"
               onClick={() => insertTextAtCursor('<i>', '</i>', 'teks miring')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Cetak Miring (Italic)"
             >
               <Italic className="w-3.5 h-3.5" />
@@ -311,7 +311,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <button
               type="button"
               onClick={() => insertTextAtCursor('<u>', '</u>', 'garis bawah')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Garis Bawah (Underline)"
             >
               <Underline className="w-3.5 h-3.5" />
@@ -319,7 +319,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <button
               type="button"
               onClick={() => insertTextAtCursor('<s>', '</s>', 'coret')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Coret Teks (Strikethrough)"
             >
               <Strikethrough className="w-3.5 h-3.5" />
@@ -327,11 +327,11 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           </div>
 
           {/* 5. SUBSCRIPT & SUPERSCRIPT */}
-          <div className="flex items-center gap-0.5 pr-1 border-r border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-0.5 pr-1.5 border-r border-slate-200 dark:border-slate-800">
             <button
               type="button"
               onClick={() => insertTextAtCursor('<sub>', '</sub>', '2')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-0.5 text-xs font-semibold"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Subscript (Indeks Bawah, misal H₂O)"
             >
               <Subscript className="w-3.5 h-3.5" />
@@ -339,7 +339,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <button
               type="button"
               onClick={() => insertTextAtCursor('<sup>', '</sup>', '2')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-0.5 text-xs font-semibold"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Superscript (Pangkat Atas, misal x²)"
             >
               <Superscript className="w-3.5 h-3.5" />
@@ -347,11 +347,11 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           </div>
 
           {/* 6. LISTS: BULLETS & NUMBERING */}
-          <div className="flex items-center gap-0.5 pr-1 border-r border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-0.5 pr-1.5 border-r border-slate-200 dark:border-slate-800">
             <button
               type="button"
               onClick={() => insertTextAtCursor('\n<ul class="list-disc pl-5 my-2 space-y-1">\n  <li>Poin pertama</li>\n  <li>Poin kedua</li>\n</ul>\n')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Daftar Simbol (Bullet List)"
             >
               <List className="w-3.5 h-3.5" />
@@ -359,7 +359,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <button
               type="button"
               onClick={() => insertTextAtCursor('\n<ol class="list-decimal pl-5 my-2 space-y-1">\n  <li>Langkah kesatu</li>\n  <li>Langkah kedua</li>\n</ol>\n')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Daftar Bernomor (Numbered List)"
             >
               <ListOrdered className="w-3.5 h-3.5" />
@@ -367,11 +367,11 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           </div>
 
           {/* 7. INDENTASI & TAB */}
-          <div className="flex items-center gap-0.5 pr-1 border-r border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-1 pr-1.5 border-r border-slate-200 dark:border-slate-800">
             <button
               type="button"
               onClick={() => insertTextAtCursor('&emsp;&emsp;', '')}
-              className="px-2 py-1 text-[11px] font-mono font-bold rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-indigo-600 dark:text-indigo-400"
+              className="h-7 px-2 text-xs font-medium rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 inline-flex items-center cursor-pointer"
               title="Penentuan Tab (Sisipkan Indentasi Tab 4 Spasi)"
             >
               Tab ⇥
@@ -379,7 +379,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <button
               type="button"
               onClick={() => insertTextAtCursor('\n<div class="pl-8 my-2 border-l-2 border-indigo-200 dark:border-indigo-800">\n', '\n</div>\n', 'Paragraf menjorok ke dalam...')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Tambah Indentasi Paragraf (Indent)"
             >
               <Indent className="w-3.5 h-3.5" />
@@ -387,7 +387,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <button
               type="button"
               onClick={() => insertTextAtCursor('\n<p class="mb-3 leading-relaxed">\n', '\n</p>\n', 'Paragraf baru...')}
-              className="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="h-7 px-2 text-xs font-medium rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 inline-flex items-center cursor-pointer"
               title="Paragraf Baru (Multi-Paragraf)"
             >
               ¶ Paragraf
@@ -395,11 +395,11 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           </div>
 
           {/* 8. ALIGNMENT */}
-          <div className="flex items-center gap-0.5 pr-1 border-r border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-0.5 pr-1.5 border-r border-slate-200 dark:border-slate-800">
             <button
               type="button"
               onClick={() => insertTextAtCursor('<div class="text-left">', '</div>', 'teks rata kiri')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Rata Kiri"
             >
               <AlignLeft className="w-3.5 h-3.5" />
@@ -407,7 +407,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <button
               type="button"
               onClick={() => insertTextAtCursor('<div class="text-center">', '</div>', 'teks tengah')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Rata Tengah"
             >
               <AlignCenter className="w-3.5 h-3.5" />
@@ -415,7 +415,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <button
               type="button"
               onClick={() => insertTextAtCursor('<div class="text-right">', '</div>', 'teks rata kanan')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Rata Kanan"
             >
               <AlignRight className="w-3.5 h-3.5" />
@@ -423,56 +423,55 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             <button
               type="button"
               onClick={() => insertTextAtCursor('<div class="text-justify leading-relaxed">', '</div>', 'paragraf rata kanan kiri')}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
               title="Rata Kanan Kiri (Justify)"
             >
               <AlignJustify className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {/* 9. PEMBUATAN TABEL */}
-          <button
-            type="button"
-            onClick={() => setIsTableModalOpen(true)}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors"
-            title="Buat Tabel Terstruktur"
-          >
-            <TableIcon className="w-3.5 h-3.5" />
-            <span>Tabel</span>
-          </button>
+          {/* 9-12. INSERTION TOOLS (Calm, Theme-Consistent Secondary Tool Buttons) */}
+          <div className="flex flex-wrap items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setIsTableModalOpen(true)}
+              className="h-7 inline-flex items-center gap-1.5 px-2.5 text-xs font-medium rounded-md bg-white hover:bg-indigo-50/70 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors cursor-pointer"
+              title="Buat Tabel Terstruktur"
+            >
+              <TableIcon className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Tabel</span>
+            </button>
 
-          {/* 10. INSERT SIMBOL */}
-          <button
-            type="button"
-            onClick={() => setIsSymbolModalOpen(true)}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors"
-            title="Sisipkan Simbol Khusus Matematika & Sains"
-          >
-            <Omega className="w-3.5 h-3.5" />
-            <span>Simbol</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setIsSymbolModalOpen(true)}
+              className="h-7 inline-flex items-center gap-1.5 px-2.5 text-xs font-medium rounded-md bg-white hover:bg-indigo-50/70 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors cursor-pointer"
+              title="Sisipkan Simbol Khusus Matematika & Sains"
+            >
+              <Omega className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Simbol</span>
+            </button>
 
-          {/* 11. INSERT RUMUS MATEMATIKA (KATEX) */}
-          <button
-            type="button"
-            onClick={() => setIsMathModalOpen(true)}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-2xs transition-all cursor-pointer"
-            title="Sisipkan Rumus Matematika (LaTeX / KaTeX)"
-          >
-            <Sigma className="w-3.5 h-3.5" />
-            <span>Rumus Matematika</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setIsMathModalOpen(true)}
+              className="h-7 inline-flex items-center gap-1.5 px-2.5 text-xs font-semibold rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
+              title="Sisipkan Rumus Matematika (LaTeX / KaTeX)"
+            >
+              <Sigma className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Rumus</span>
+            </button>
 
-          {/* 12. INSERT AKSARA JAWA & PANDUAN */}
-          <button
-            type="button"
-            onClick={() => setIsJavaneseModalOpen(true)}
-            className="flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition-all cursor-pointer"
-            title="Editor & Panduan Penulisan Aksara Jawa (Carakan, Murda, Sandhangan, Pasangan, Pada, Angka Jawa)"
-          >
-            <span className="font-javanese text-sm leading-none">ꦲ</span>
-            <span>Aksara Jawa</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setIsJavaneseModalOpen(true)}
+              className="h-7 inline-flex items-center gap-1.5 px-2.5 text-xs font-medium rounded-md bg-white hover:bg-indigo-50/70 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors cursor-pointer"
+              title="Editor & Panduan Penulisan Aksara Jawa (Carakan, Murda, Sandhangan, Pasangan, Pada, Angka Jawa)"
+            >
+              <span className="font-javanese text-sm leading-none text-indigo-600 dark:text-indigo-400">ꦲ</span>
+              <span>Aksara Jawa</span>
+            </button>
+          </div>
         </div>
 
         {/* CONTENT AREA: EDITOR vs LIVE PREVIEW */}
@@ -484,17 +483,17 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
-            className="w-full p-3.5 text-xs font-mono leading-relaxed bg-transparent text-slate-900 dark:text-white outline-none resize-y min-h-[120px]"
+            className="w-full p-3.5 text-sm font-sans leading-relaxed bg-transparent text-slate-900 dark:text-white outline-none resize-y min-h-[120px]"
           />
         ) : (
-          <div className="p-4 min-h-[120px] max-h-[350px] overflow-y-auto bg-slate-50/60 dark:bg-slate-900/60 text-xs text-slate-900 dark:text-slate-100 leading-relaxed border-t border-slate-100 dark:border-slate-800">
+          <div className="p-4 min-h-[120px] max-h-[350px] overflow-y-auto bg-slate-50/60 dark:bg-slate-900/60 text-sm text-slate-900 dark:text-slate-100 leading-relaxed border-t border-slate-100 dark:border-slate-800">
             {value.trim() ? (
               <div 
-                className="prose dark:prose-invert max-w-none text-xs"
+                className="prose dark:prose-invert max-w-none text-sm"
                 dangerouslySetInnerHTML={{ __html: MathRenderer.renderMixedText(value) }}
               />
             ) : (
-              <p className="text-slate-400 italic">
+              <p className="text-slate-400 italic text-xs">
                 Belum ada teks soal yang ditulis. Beralih ke tab "Editor" untuk mulai mengetik.
               </p>
             )}
@@ -502,11 +501,11 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         )}
 
         {/* Footer info bar */}
-        <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+        <div className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
           <div className="flex items-center gap-2">
-            <span>Dukung: HTML, KaTeX ($...$ &amp; $$...$$), Aksara Jawa (Unicode), Tabel, Simbol</span>
+            <span>Mendukung: KaTeX ($...$ / $$...$$), Aksara Jawa, Tabel, dan Format HTML</span>
           </div>
-          <div>
+          <div className="font-mono tabular-nums">
             <span>{value.length} karakter</span>
           </div>
         </div>
@@ -619,14 +618,14 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+              <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
                 <Omega className="w-5 h-5" />
                 <h4 className="text-sm font-bold text-slate-900 dark:text-white">Sisipkan Simbol Khusus</h4>
               </div>
               <button 
                 type="button" 
                 onClick={() => setIsSymbolModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg"
+                className="w-8 h-8 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -639,7 +638,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                   key={catKey}
                   type="button"
                   onClick={() => setSymbolCategory(catKey)}
-                  className={`flex-1 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  className={`flex-1 h-8 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
                     symbolCategory === catKey
                       ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
                       : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -660,7 +659,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                     insertTextAtCursor(sym);
                     setIsSymbolModalOpen(false);
                   }}
-                  className="h-10 text-base font-medium rounded-lg bg-white dark:bg-slate-900 hover:bg-amber-100 dark:hover:bg-amber-950 hover:text-amber-700 dark:hover:text-amber-300 border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center justify-center transition-all hover:scale-110"
+                  className="h-10 text-base font-medium rounded-lg bg-white dark:bg-slate-900 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 hover:text-indigo-700 dark:hover:text-indigo-300 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 shadow-2xs flex items-center justify-center transition-colors cursor-pointer"
                   title={`Sisipkan simbol ${sym}`}
                 >
                   {sym}
@@ -668,12 +667,12 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
               ))}
             </div>
 
-            <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
-              <span>Klik simbol mana saja untuk langsung menyisipkan ke kursor soal.</span>
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-1">
+              <span>Klik simbol untuk menyisipkan ke posisi kursor.</span>
               <button
                 type="button"
                 onClick={() => setIsSymbolModalOpen(false)}
-                className="px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+                className="h-8 px-3.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
               >
                 Tutup
               </button>
@@ -780,17 +779,17 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
               <button
                 type="button"
                 onClick={() => setIsMathModalOpen(false)}
-                className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+                className="h-8 px-3.5 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
               >
                 Batal
               </button>
               <button
                 type="button"
                 onClick={handleInsertMath}
-                className="px-4 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs flex items-center gap-1.5"
+                className="h-8 px-4 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <Check className="w-3.5 h-3.5" />
-                <span>Sisipkan Rumus ke Soal</span>
+                <span>Sisipkan Rumus</span>
               </button>
             </div>
           </div>

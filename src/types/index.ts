@@ -165,6 +165,8 @@ export interface AppLog {
   details?: string;
 }
 
+export type UiPreset = 'classic_clean' | 'sidebar_workspace' | 'academic_compact';
+
 export interface AppSettings {
   gasWebAppUrl: string;
   geminiApiKey: string;
@@ -173,6 +175,7 @@ export interface AppSettings {
   offlineMode: boolean;
   theme: 'light' | 'dark' | 'system';
   enableAudioChime: boolean;
+  uiPreset?: UiPreset;
 }
 
 export interface QuestionAnalysis {

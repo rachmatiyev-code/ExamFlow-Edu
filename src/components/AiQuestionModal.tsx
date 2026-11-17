@@ -204,7 +204,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
         {/* Header (Sticky, Wide) */}
         <div className="flex items-center justify-between px-5 sm:px-7 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-950/80 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-2xs shrink-0">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
@@ -212,12 +212,12 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">
                   Generator Soal Otomatis (Gemini AI)
                 </h3>
-                <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300">
+                <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                   Kurikulum Merdeka & HOTS
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Tampilan melebar berbasis multi-kolom responsif untuk penyusunan soal berstandar tinggi
+                Penyusunan butir soal otomatis berbasis capaian & tujuan pembelajaran
               </p>
             </div>
           </div>
@@ -287,20 +287,20 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                 </div>
 
                 {/* PILIH KELAS / FASE (Requirements 1 & 2) */}
-                <div className="p-2.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800">
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
-                      <Sliders className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                       <span>Pilih Tingkat Kelas / Fase:</span>
                     </label>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold">
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-semibold">
                       {filteredCurriculumList.length} CP Sesuai
                     </span>
                   </div>
                   <select
                     value={activeGrade}
                     onChange={(e) => handleGradeChange(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-bold focus:ring-2 focus:ring-amber-500"
+                    className="w-full h-9 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-semibold focus:ring-2 focus:ring-indigo-500"
                   >
                     <option value="Semua">-- Tampilkan Semua Kelas / Fase --</option>
                     <optgroup label="Sekolah Dasar (SD) - Fase A, B, C">
@@ -325,8 +325,8 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                       <option value={targetExamObj.grade}>Kelas Ujian ({targetExamObj.grade})</option>
                     )}
                   </select>
-                  <p className="text-[10px] text-amber-800/80 dark:text-amber-300/80 mt-1 leading-tight">
-                    Capaian Pembelajaran (CP) dan Tujuan Pembelajaran (TP) di bawah akan disaring otomatis sesuai tingkat kelas ini.
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 leading-snug">
+                    Capaian Pembelajaran (CP) dan Tujuan Pembelajaran (TP) di bawah otomatis disaring sesuai tingkat kelas ini.
                   </p>
                 </div>
 
@@ -431,21 +431,21 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                           : javanesePreset
                       );
                     }}
-                    className="px-2 py-1 rounded-md bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[10.5px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                    className="h-7 px-2.5 rounded-md bg-white hover:bg-indigo-50/70 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 text-[11px] font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    <span className="font-javanese text-xs leading-none">ꦲ</span>
-                    <span>+ Mode Soal Aksara Jawa</span>
+                    <span className="font-javanese text-xs leading-none text-indigo-600 dark:text-indigo-400">ꦲ</span>
+                    <span>+ Mode Aksara Jawa</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setIsAksaraGuideOpen(true)}
-                    className="px-2 py-1 rounded-md bg-white hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10.5px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                    className="h-7 px-2.5 rounded-md bg-white hover:bg-indigo-50/70 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 text-[11px] font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    <BookOpen className="w-3 h-3 text-amber-600" />
-                    <span>Panduan & Papan Aksara Jawa</span>
+                    <BookOpen className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Panduan & Papan Aksara</span>
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
                   Gemini AI akan mematuhi prompt khusus ini saat merumuskan narasi soal, stimulus, aksara Jawa, dan tingkat berpikir kritis.
                 </p>
               </div>
@@ -854,38 +854,38 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
 
               {/* Ilustrasi Gambar & Grafik AI (Otomatis simpan ke Subfolder GDrive) */}
               {setAiIncludeMedia && (
-                <div className="p-3 rounded-xl bg-amber-50/60 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/60 space-y-2.5">
+                <div className="p-3 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/25 border border-indigo-200 dark:border-indigo-900/60 space-y-2.5">
                   <div className="flex items-start justify-between gap-2">
                     <label className="flex items-start gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={aiIncludeMedia}
                         onChange={(e) => setAiIncludeMedia(e.target.checked)}
-                        className="mt-0.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                        className="mt-0.5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
                       />
                       <div>
-                        <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                          <ImageIcon className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                          <span>Sertakan Ilustrasi Gambar & Grafik AI pada Soal</span>
+                        <span className="text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <ImageIcon className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                          <span>Sertakan Ilustrasi Gambar & Grafik AI</span>
                         </span>
-                        <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                          Gambar & grafik disimpan otomatis ke subfolder <strong>{APP_DATA_BACKUP_FOLDER_NAME} / {QUESTION_ILLUSTRATIONS_SUBFOLDER_NAME}</strong> di Google Drive & tertaut langsung ke soal.
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                          Disimpan otomatis ke subfolder <strong>{APP_DATA_BACKUP_FOLDER_NAME} / {QUESTION_ILLUSTRATIONS_SUBFOLDER_NAME}</strong> di Google Drive & tertaut ke soal.
                         </p>
                       </div>
                     </label>
                   </div>
 
                   {aiIncludeMedia && (
-                    <div className="space-y-2 pt-2 border-t border-amber-200/70 dark:border-amber-900/50">
+                    <div className="space-y-2 pt-2 border-t border-indigo-200/70 dark:border-indigo-900/50">
                       {setAiMediaPreference && (
-                        <div className="grid grid-cols-3 gap-1.5 text-[10.5px]">
+                        <div className="grid grid-cols-3 gap-1.5 text-[11px]">
                           <button
                             type="button"
                             onClick={() => setAiMediaPreference('auto')}
-                            className={`py-1 px-2 rounded-lg border font-semibold cursor-pointer ${
+                            className={`h-7 px-2 rounded-lg border font-semibold cursor-pointer transition-colors ${
                               aiMediaPreference === 'auto'
-                                ? 'bg-white dark:bg-slate-900 border-amber-500 text-amber-700 dark:text-amber-300 shadow-2xs'
-                                : 'border-amber-200/70 dark:border-amber-900 text-slate-600 dark:text-slate-400'
+                                ? 'bg-white dark:bg-slate-900 border-indigo-500 text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
                             }`}
                           >
                             Otomatis
@@ -893,10 +893,10 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                           <button
                             type="button"
                             onClick={() => setAiMediaPreference('illustration')}
-                            className={`py-1 px-2 rounded-lg border font-semibold flex items-center justify-center gap-1 cursor-pointer ${
+                            className={`h-7 px-2 rounded-lg border font-semibold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors ${
                               aiMediaPreference === 'illustration'
-                                ? 'bg-white dark:bg-slate-900 border-amber-500 text-amber-700 dark:text-amber-300 shadow-2xs'
-                                : 'border-amber-200/70 dark:border-amber-900 text-slate-600 dark:text-slate-400'
+                                ? 'bg-white dark:bg-slate-900 border-indigo-500 text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
                             }`}
                           >
                             <ImageIcon className="w-3 h-3" />
@@ -905,10 +905,10 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                           <button
                             type="button"
                             onClick={() => setAiMediaPreference('chart')}
-                            className={`py-1 px-2 rounded-lg border font-semibold flex items-center justify-center gap-1 cursor-pointer ${
+                            className={`h-7 px-2 rounded-lg border font-semibold inline-flex items-center justify-center gap-1 cursor-pointer transition-colors ${
                               aiMediaPreference === 'chart'
-                                ? 'bg-white dark:bg-slate-900 border-amber-500 text-amber-700 dark:text-amber-300 shadow-2xs'
-                                : 'border-amber-200/70 dark:border-amber-900 text-slate-600 dark:text-slate-400'
+                                ? 'bg-white dark:bg-slate-900 border-indigo-500 text-indigo-700 dark:text-indigo-300 shadow-2xs'
+                                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'
                             }`}
                           >
                             <BarChart3 className="w-3 h-3" />
@@ -917,7 +917,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                         </div>
                       )}
 
-                      <div className="flex items-center justify-between gap-2 text-[10.5px]">
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
                         {isDriveConnected || Boolean(StorageService.getSettings().gasWebAppUrl?.trim()) ? (
                           <span className="text-emerald-700 dark:text-emerald-300 font-semibold flex items-center gap-1">
                             <CheckCircle2 className="w-3.5 h-3.5" />
@@ -925,7 +925,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                           </span>
                         ) : (
                           <>
-                            <span className="text-amber-800 dark:text-amber-200">
+                            <span className="text-slate-600 dark:text-slate-300">
                               Hubungkan Google Drive agar link tersimpan di Drive:
                             </span>
                             <button
@@ -942,7 +942,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
                                   setIsConnectingDrive(false);
                                 }
                               }}
-                              className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-semibold flex items-center gap-1 shrink-0 cursor-pointer"
+                              className="h-7 px-2.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white font-semibold inline-flex items-center gap-1 shrink-0 cursor-pointer"
                             >
                               <CloudUpload className="w-3 h-3" />
                               <span>{isConnectingDrive ? 'Menghubungkan...' : 'Hubungkan GDrive'}</span>
@@ -1016,7 +1016,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
               type="button"
               disabled={isGeneratingAi}
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-xl transition-colors disabled:opacity-50"
+              className="h-9 px-4 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
             >
               Batal (Esc)
             </button>
@@ -1024,7 +1024,7 @@ export const AiQuestionModal: React.FC<AiQuestionModalProps> = ({
               type="button"
               disabled={isGeneratingAi}
               onClick={onGenerate}
-              className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-xs disabled:opacity-50 transition-all cursor-pointer"
+              className="h-9 px-5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg inline-flex items-center gap-2 shadow-2xs disabled:opacity-50 transition-colors cursor-pointer"
             >
               {isGeneratingAi ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               <span>{isGeneratingAi ? 'Menghasilkan & Menyimpan Soal...' : `Generate & Simpan (${aiCount} Soal AI)`}</span>

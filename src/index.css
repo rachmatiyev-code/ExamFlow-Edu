@@ -3,8 +3,14 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
-  body {
+  html, body {
     font-family: 'Plus Jakarta Sans', 'Noto Sans Javanese', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button, input, select, textarea {
+    font-family: inherit;
   }
   
   .font-mono, code, kbd, samp, pre {
@@ -20,6 +26,32 @@
 
   .font-javanese .font-javanese {
     font-size: 1em;
+  }
+}
+
+@media screen {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  [data-ui-preset="academic_compact"] {
+    background-color: #f6f5f0;
+  }
+
+  .dark [data-ui-preset="academic_compact"] {
+    background-color: #090d16;
+  }
+
+  .thin-scrollbar::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+  }
+  .thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .thin-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(148, 163, 184, 0.35);
+    border-radius: 9999px;
   }
 }
 

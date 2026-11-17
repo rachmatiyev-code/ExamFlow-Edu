@@ -10,6 +10,7 @@ import {
   SoloLevel,
   CurriculumItem,
   QuestionOption,
+  UiPreset,
   normalizeQuestionOptions,
   normalizeLearningObjectives
 } from '../types';
@@ -113,11 +114,13 @@ interface TeacherDashboardProps {
   exams: Exam[];
   students: Student[];
   submissions: Submission[];
+  uiPreset?: UiPreset;
   onUpdateProfile: (p: SchoolProfile) => void;
   onRefreshData: () => void;
   onSelectTab: (tab: any, examId?: string, extra?: { reportMode?: 'klasikal' | 'individu'; studentNis?: string }) => void;
   onOpenSettings?: () => void;
   initialSubTab?: 'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'students' | 'users' | 'profile' | 'gas' | 'chat';
+  onSubTabChange?: (subTab: 'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'students' | 'users' | 'profile' | 'gas' | 'chat') => void;
 }
 
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
@@ -125,11 +128,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   exams,
   students,
   submissions,
+  uiPreset = 'classic_clean',
   onUpdateProfile,
   onRefreshData,
   onSelectTab,
   onOpenSettings,
-  initialSubTab
+  initialSubTab,
+  onSubTabChange
 }) => {
   // Auth State
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => StorageService.getCurrentUser());
@@ -141,12 +146,17 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>(initialSubTab || 'exams');
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
-  // Sync activeTab when initialSubTab changes
+  // Sync activeTab when initialSubTab changes from sidebar/floating chat
   useEffect(() => {
-    if (initialSubTab) {
+    if (initialSubTab && initialSubTab !== activeTab) {
       setActiveTab(initialSubTab);
     }
   }, [initialSubTab]);
+
+  // Notify parent when activeTab changes internally (e.g. clicking "Kelola Soal" on a card)
+  useEffect(() => {
+    onSubTabChange?.(activeTab);
+  }, [activeTab]);
 
   // Initialize teacher chat & subscribe to live incoming student messages for unread badge
   useEffect(() => {
@@ -2375,86 +2385,196 @@ const rekapDistinctGrades = useMemo(() => {
   const renderExamCard = (exam: Exam) => {
     const qCount = StorageService.getQuestionsByExamId(exam.id).length;
     const subCount = submissions.filter(s => s.examId === exam.id).length;
+    const isSelected = selectedExamId === exam.id;
 
-    return (
-      <div
-        key={exam.id}
-        className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between"
-      >
-        <div>
-          <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span className="font-semibold text-indigo-600 dark:text-indigo-400">
-              {exam.subject} · Kelas {exam.grade}
-            </span>
-            <span className="font-mono">{qCount} Butir Soal</span>
-          </div>
+    const renderSessionBadge = () => {
+      if (exam.sessionStatus === 'stopped' || exam.status === 'stopped') {
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+            <StopCircle className="w-3 h-3 text-rose-600" />
+            <span>Dihentikan Permanen</span>
+          </span>
+        );
+      }
+      if (exam.sessionStatus === 'active') {
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Sesi Berlangsung</span>
+          </span>
+        );
+      }
+      if (exam.sessionStatus === 'ended') {
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+            <StopCircle className="w-3 h-3 text-slate-500" />
+            <span>Sesi Ditutup</span>
+          </span>
+        );
+      }
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+          <Clock className="w-3 h-3 text-blue-500" />
+          <span>Dijadwalkan</span>
+        </span>
+      );
+    };
 
-          {/* Scheduled Banner if startsAt is present */}
-          {exam.startsAt && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 mb-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300">
-              <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-              <span className="truncate">Jadwal: {exam.startsAt}{exam.endsAt ? ` s.d. ${exam.endsAt}` : ''}</span>
-            </div>
-          )}
-
-          {/* Kode Exam ID Badge with one-click copy */}
-          <div className="flex items-center justify-between gap-2 px-2.5 py-1 mb-2.5 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-[11px] font-mono">
-            <div className="flex items-center gap-1.5 truncate">
-              <span className="text-slate-400 font-sans font-bold">Exam ID:</span>
-              <span className="font-bold text-indigo-700 dark:text-indigo-400 truncate">{exam.id}</span>
-            </div>
+    const renderSessionControls = () => {
+      if (exam.sessionStatus === 'stopped' || exam.status === 'stopped') {
+        return (
+          <button
+            type="button"
+            onClick={() => handleResumeExamPermanently(exam)}
+            className="w-full px-2.5 py-1.5 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            title="Buka kembali sesi ujian yang dihentikan secara permanen"
+          >
+            <Play className="w-3 h-3 fill-current" />
+            <span>Lanjutkan Sesi Ujian (Buka Akses)</span>
+          </button>
+        );
+      }
+      if (exam.sessionStatus === 'active') {
+        return (
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
-              onClick={() => {
-                navigator.clipboard.writeText(exam.id);
-                setSessionToast(`Kode Exam ID "${exam.id}" berhasil disalin ke clipboard!`);
-              }}
-              className="px-1.5 py-0.5 rounded text-[10px] bg-white dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 flex items-center gap-1 shrink-0 cursor-pointer"
-              title="Salin Exam ID"
+              onClick={() => handleStopExamPermanently(exam)}
+              className="px-2.5 py-1.5 text-[11px] font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              title="Hentikan sesi ujian secara permanen (Siswa terputus)"
             >
-              <Copy className="w-3 h-3 text-indigo-500" />
-              <span>Salin ID</span>
+              <StopCircle className="w-3 h-3" />
+              <span>Hentikan Ujian</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOpenLateExtension(exam)}
+              className="px-2 py-1.5 text-[11px] font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              title="Perpanjang sesi untuk siswa terlambat"
+            >
+              <FastForward className="w-3 h-3 text-amber-600" />
+              <span>Perpanjang</span>
             </button>
           </div>
+        );
+      }
+      return (
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={() => handleStartExamSession(exam)}
+            className="px-2.5 py-1.5 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+            title="Buka dan mulai sesi ujian sekarang"
+          >
+            <Play className="w-3 h-3 fill-current" />
+            <span>Mulai Sesi</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleOpenLateExtension(exam)}
+            className="px-2 py-1.5 text-[11px] font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+            title="Lanjutkan sesi untuk siswa terlambat"
+          >
+            <FastForward className="w-3 h-3 text-amber-600" />
+            <span>Terlambat</span>
+          </button>
+          {exam.sessionStatus === 'ended' && (
+            <button
+              type="button"
+              onClick={() => handleStopExamPermanently(exam)}
+              className="col-span-2 px-2.5 py-1.5 text-[11px] font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Hentikan ujian secara permanen & beri nilai 0 untuk siswa yang belum mengerjakan"
+            >
+              <StopCircle className="w-3 h-3" />
+              <span>Hentikan Permanen (Nilai 0 Belum Ujian)</span>
+            </button>
+          )}
+        </div>
+      );
+    };
 
-          <h4 className="text-base font-bold text-slate-900 dark:text-white mb-2 line-clamp-2">
-            {exam.title}
-          </h4>
+    const openShareExam = () => {
+      setSharingExam(exam);
+      setHasCopiedShareLink(false);
+      setHasCopiedShareMsg(false);
+      const qs = StorageService.getQuestionsByExamId(exam.id);
+      if (qs.length > 0) {
+        GasClient.pushExam(exam, qs);
+      }
+    };
 
-          <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400 mb-4 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg font-mono">
-            <div className="flex justify-between">
-              <span>Durasi:</span>
-              <span className="font-semibold text-slate-700 dark:text-slate-300">{exam.durationMinutes} Menit</span>
-            </div>
-            <div className="flex justify-between">
-              <span>KKM:</span>
-              <span className="font-semibold text-slate-700 dark:text-slate-300">{exam.passingScore}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Jawaban Siswa Masuk:</span>
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400">{subCount} Siswa</span>
-            </div>
-            {exam.redeployCount && exam.redeployCount > 0 ? (
-              <div className="flex justify-between text-indigo-600 dark:text-indigo-400">
-                <span>Dideploy Ulang:</span>
-                <span>{exam.redeployCount}x</span>
-              </div>
-            ) : null}
-
-            {/* Token Row with Quick Randomizer & Copy */}
-            <div className="flex items-center justify-between pt-1.5 mt-1 border-t border-slate-200 dark:border-slate-700/80">
-              <div className="flex items-center gap-1.5">
-                <Key className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="font-sans text-slate-400">Token:</span>
-                <span className="font-bold text-slate-900 dark:text-white">
-                  {exam.token || 'Tanpa Token'}
+    // =========================================================================
+    // ALTERNATIF 3: AKADEMIK KOMPAK (Horizontal Split-Row Card)
+    // =========================================================================
+    if (uiPreset === 'academic_compact') {
+      return (
+        <div
+          key={exam.id}
+          className={`bg-white dark:bg-slate-900 rounded-xl p-4 border transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4 ${
+            isSelected
+              ? 'border-indigo-500 ring-1 ring-indigo-500/40'
+              : 'border-stone-200 dark:border-slate-800 hover:border-stone-300 dark:hover:border-slate-700'
+          }`}
+        >
+          {/* Left: Subject, Title, Unboxed Metadata, ID & Token */}
+          <div className="flex-1 min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
+              <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                {exam.subject} · Kelas {exam.grade}
+              </span>
+              <span className="text-slate-300 dark:text-slate-700">·</span>
+              {renderSessionBadge()}
+              {exam.allowLateSubmission && (
+                <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                  +{exam.lateExtensionMinutes || 30}m Terlambat
                 </span>
+              )}
+            </div>
+
+            <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-snug">
+              {exam.title}
+            </h4>
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+              <span>{qCount} Soal</span>
+              <span>Durasi {exam.durationMinutes}m</span>
+              <span>KKM {exam.passingScore}</span>
+              <span className="font-medium text-emerald-600 dark:text-emerald-400">{subCount} Masuk</span>
+              {exam.redeployCount ? <span>Deploy {exam.redeployCount}x</span> : null}
+              {exam.startsAt && (
+                <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-medium">
+                  <Calendar className="w-3 h-3" />
+                  {exam.startsAt}{exam.endsAt ? ` s.d. ${exam.endsAt}` : ''}
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] font-mono">
+              <div className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                <span>ID:</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200">{exam.id}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(exam.id);
+                    setSessionToast(`Kode Exam ID "${exam.id}" berhasil disalin ke clipboard!`);
+                  }}
+                  className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-indigo-600 dark:text-indigo-400 cursor-pointer"
+                  title="Salin Exam ID"
+                >
+                  <Copy className="w-3 h-3" />
+                </button>
               </div>
-              <div className="flex items-center gap-1">
+
+              <span className="text-slate-300 dark:text-slate-700">|</span>
+
+              <div className="inline-flex items-center gap-1.5">
+                <Key className="w-3 h-3 text-amber-500" />
+                <span className="font-bold text-slate-800 dark:text-white">{exam.token || 'Tanpa Token'}</span>
                 <button
                   type="button"
                   onClick={() => handleRandomizeExamToken(exam)}
-                  className="px-2 py-0.5 rounded text-[11px] font-sans font-medium bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1 cursor-pointer"
+                  className="px-1.5 py-0.5 rounded font-sans text-[10px] font-medium bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 cursor-pointer"
                   title="Acak token baru"
                 >
                   <Dices className="w-3 h-3" />
@@ -2467,7 +2587,7 @@ const rekapDistinctGrades = useMemo(() => {
                       navigator.clipboard.writeText(exam.token || '');
                       alert(`Token "${exam.token}" disalin!`);
                     }}
-                    className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+                    className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 cursor-pointer"
                     title="Salin token"
                   >
                     <Copy className="w-3 h-3" />
@@ -2475,257 +2595,353 @@ const rekapDistinctGrades = useMemo(() => {
                 )}
               </div>
             </div>
+          </div>
 
-            {/* Live Exam Session Control Section */}
-            <div className="pt-2 mt-2 border-t border-slate-200 dark:border-slate-700/80">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5 text-xs">
-                  <span className="font-sans text-slate-400 font-semibold">Sesi:</span>
-                  {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
-                      <StopCircle className="w-3.5 h-3.5 text-rose-600" />
-                      Sesi Dihentikan Permanen
-                    </span>
-                  ) : exam.sessionStatus === 'active' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 animate-pulse">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      Sesi Berlangsung
-                    </span>
-                  ) : exam.sessionStatus === 'ended' ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                      <StopCircle className="w-3.5 h-3.5 text-slate-500" />
-                      Sesi Ditutup
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300">
-                      <Clock className="w-3.5 h-3.5 text-blue-500" />
-                      Dijadwalkan
-                    </span>
-                  )}
-                </div>
+          {/* Right: Session Controls + Compact Actions */}
+          <div className="lg:w-[340px] shrink-0 space-y-2 pt-3 lg:pt-0 border-t lg:border-t-0 lg:border-l border-stone-200 dark:border-slate-800 lg:pl-4">
+            {renderSessionControls()}
 
-                {exam.allowLateSubmission && (
-                  <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700" title="Toleransi perpanjangan sesi untuk siswa terlambat">
-                    +{exam.lateExtensionMinutes || 30}m Terlambat
-                  </span>
-                )}
-              </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedExamId(exam.id);
+                  setSessionToast(`Paket ujian "${exam.title}" terpilih sebagai paket aktif.`);
+                }}
+                className={`px-2 py-1.5 text-[11px] font-semibold rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer ${
+                  isSelected
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <Check className="w-3 h-3" />
+                <span>{isSelected ? 'Aktif' : 'Pilih'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedExamId(exam.id);
+                  setActiveTab('questions');
+                }}
+                className="px-2 py-1.5 text-[11px] font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <Edit3 className="w-3 h-3" />
+                <span>Soal</span>
+              </button>
+              <button
+                type="button"
+                onClick={openShareExam}
+                className="px-2 py-1.5 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                title="Dapatkan Link Langsung Siswa & QR Code ujian ini"
+              >
+                <Share2 className="w-3 h-3" />
+                <span>Bagikan</span>
+              </button>
+            </div>
 
-              {/* Session Control Buttons */}
-              <div className="grid grid-cols-2 gap-1.5">
-                {exam.sessionStatus === 'stopped' || exam.status === 'stopped' ? (
-                  <button
-                    type="button"
-                    onClick={() => handleResumeExamPermanently(exam)}
-                    className="col-span-2 px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                    title="Buka kembali sesi ujian yang dihentikan secara permanen"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Lanjutkan Sesi Ujian (Buka Akses)</span>
-                  </button>
-                ) : exam.sessionStatus === 'active' ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => handleStopExamPermanently(exam)}
-                      className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
-                      title="Hentikan sesi ujian secara permanen (Siswa terputus)"
-                    >
-                      <StopCircle className="w-3.5 h-3.5" />
-                      <span>Hentikan Ujian</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenLateExtension(exam)}
-                      className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
-                      title="Perpanjang sesi untuk siswa terlambat"
-                    >
-                      <FastForward className="w-3 h-3 text-amber-600" />
-                      <span>Perpanjang Waktu</span>
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => handleStartExamSession(exam)}
-                      className="col-span-1 px-2.5 py-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
-                      title="Buka dan mulai sesi ujian sekarang"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>Mulai Sesi Ujian</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenLateExtension(exam)}
-                      className="col-span-1 px-2 py-1.5 text-[11px] font-bold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
-                      title="Lanjutkan sesi untuk siswa terlambat"
-                    >
-                      <FastForward className="w-3 h-3 text-amber-600" />
-                      <span>Lanjutkan (Terlambat)</span>
-                    </button>
-                    {exam.sessionStatus === 'ended' && (
-                      <button
-                        type="button"
-                        onClick={() => handleStopExamPermanently(exam)}
-                        className="col-span-2 px-2.5 py-1.5 text-[11px] font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
-                        title="Hentikan ujian secara permanen & beri nilai 0 untuk siswa yang belum mengerjakan"
-                      >
-                        <StopCircle className="w-3.5 h-3.5" />
-                        <span>Hentikan Permanen (Nilai 0 Belum Ujian)</span>
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
+            <div className="flex flex-wrap items-center gap-1 pt-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingExam(exam);
+                  setIsExamModalOpen(true);
+                }}
+                className="px-2 py-1 text-[11px] font-medium rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+              >
+                <Edit3 className="w-3 h-3 text-amber-600" />
+                <span>Edit</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOpenScheduleModal(exam)}
+                className="px-2 py-1 text-[11px] font-medium rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+              >
+                <Calendar className="w-3 h-3 text-indigo-600" />
+                <span>Jadwal</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedExamId(exam.id);
+                  onSelectTab('naskah-soal', exam.id);
+                }}
+                className="px-2 py-1 text-[11px] font-medium rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+              >
+                <Printer className="w-3 h-3 text-indigo-600" />
+                <span>Naskah</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedExamId(exam.id);
+                  onSelectTab('analisis-butir', exam.id);
+                }}
+                className="px-2 py-1 text-[11px] font-medium rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3 h-3 text-amber-600" />
+                <span>Analisis</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRedeployExam(exam)}
+                className="px-2 py-1 text-[11px] font-medium rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3 text-emerald-600" />
+                <span>Deploy</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setClassroomSyncExamId(exam.id);
+                  setIsClassroomModalOpen(true);
+                }}
+                className="px-2 py-1 text-[11px] font-medium rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
+              >
+                <GraduationCap className="w-3 h-3 text-emerald-600" />
+                <span>Classroom</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteExam(exam.id)}
+                className="px-2 py-1 text-[11px] font-medium rounded-md text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/60 flex items-center gap-1 ml-auto cursor-pointer"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Hapus</span>
+              </button>
             </div>
           </div>
         </div>
+      );
+    }
 
-        {/* Tombol Aksi Pokok */}
-        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
-          {/* Baris 1: Pilih & Edit */}
-          <div className="grid grid-cols-2 gap-2">
+    // =========================================================================
+    // ALTERNATIF 1 & 2: MINIMALIS RAPI / SIDEBAR WORKSPACE (Clean Unboxed Cards)
+    // =========================================================================
+    return (
+      <div
+        key={exam.id}
+        className={`bg-white dark:bg-slate-900 rounded-xl p-5 border flex flex-col justify-between transition-colors ${
+          isSelected
+            ? 'border-indigo-500 ring-1 ring-indigo-500/40 shadow-sm'
+            : 'border-slate-200 dark:border-slate-800 shadow-2xs hover:border-slate-300 dark:hover:border-slate-700'
+        }`}
+      >
+        <div className="space-y-3">
+          {/* Eyebrow & Status */}
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+              {exam.subject} · Kelas {exam.grade}
+            </div>
+            {renderSessionBadge()}
+          </div>
+
+          {/* Title */}
+          <div>
+            <h4 className="text-base font-bold text-slate-900 dark:text-white line-clamp-2 leading-snug">
+              {exam.title}
+            </h4>
+            {exam.startsAt && (
+              <div className="flex items-center gap-1.5 mt-1.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
+                <Calendar className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{exam.startsAt}{exam.endsAt ? ` s.d. ${exam.endsAt}` : ''}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Unboxed Numeric Summary */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 tabular-nums pb-2 border-b border-slate-100 dark:border-slate-800">
+            <span><strong className="text-slate-800 dark:text-slate-200">{qCount}</strong> Soal</span>
+            <span aria-hidden="true">·</span>
+            <span><strong className="text-slate-800 dark:text-slate-200">{exam.durationMinutes}</strong> Menit</span>
+            <span aria-hidden="true">·</span>
+            <span>KKM <strong className="text-slate-800 dark:text-slate-200">{exam.passingScore}</strong></span>
+            <span aria-hidden="true">·</span>
+            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">{subCount} Masuk</span>
+            {exam.allowLateSubmission && (
+              <span className="text-[11px] font-semibold font-mono px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                +{exam.lateExtensionMinutes || 30}m Terlambat
+              </span>
+            )}
+          </div>
+
+          {/* Clean ID & Token Strip */}
+          <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-1 truncate">
+              <span className="font-sans">ID:</span>
+              <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">{exam.id}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(exam.id);
+                  setSessionToast(`Kode Exam ID "${exam.id}" berhasil disalin ke clipboard!`);
+                }}
+                className="p-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-indigo-600 dark:text-indigo-400 cursor-pointer shrink-0"
+                title="Salin Exam ID"
+              >
+                <Copy className="w-3 h-3" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              <Key className="w-3 h-3 text-amber-500" />
+              <span className="font-bold text-slate-900 dark:text-white">
+                {exam.token || 'Tanpa Token'}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleRandomizeExamToken(exam)}
+                className="h-6 px-2 rounded text-[11px] font-sans font-medium bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 inline-flex items-center gap-1 cursor-pointer transition-colors"
+                title="Acak token baru"
+              >
+                <Dices className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                <span>Acak</span>
+              </button>
+              {exam.token && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(exam.token || '');
+                    alert(`Token "${exam.token}" disalin!`);
+                  }}
+                  className="p-0.5 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                  title="Salin token"
+                >
+                  <Copy className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Live Session Control */}
+          <div className="pt-1">
+            {renderSessionControls()}
+          </div>
+        </div>
+
+        {/* Clean Grouped Action Footer */}
+        <div className="pt-3 mt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
+          {/* Primary Row */}
+          <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
               onClick={() => {
                 setSelectedExamId(exam.id);
                 setSessionToast(`Paket ujian "${exam.title}" terpilih sebagai paket aktif.`);
               }}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                selectedExamId === exam.id
-                  ? 'bg-indigo-600 text-white shadow-xs ring-2 ring-indigo-400'
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer ${
+                isSelected
+                  ? 'bg-indigo-600 text-white'
                   : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
               }`}
-              title="Pilih ujian ini sebagai paket aktif di sistem"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>{selectedExamId === exam.id ? 'Ujian Terpilih' : 'Pilih Ujian'}</span>
+              <span>{isSelected ? 'Ujian Terpilih' : 'Pilih Ujian'}</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setEditingExam(exam);
-                setIsExamModalOpen(true);
-              }}
-              className="px-3 py-1.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              title="Edit pengaturan, durasi, KKM, atau token ujian ini"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-              <span>Edit Ujian</span>
-            </button>
-          </div>
-
-          {/* Baris 2: Jadwalkan Waktu Ujian & Hapus */}
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleOpenScheduleModal(exam)}
-              className="px-3 py-1.5 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              title="Atur jadwal buka & tutup ujian pada tanggal dan jam tertentu"
-            >
-              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
-              <span>{exam.startsAt ? 'Ubah Jadwal' : 'Jadwalkan'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleDeleteExam(exam.id)}
-              className="px-3 py-1.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              title="Hapus ujian dan seluruh butir soalnya"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Hapus</span>
-            </button>
-          </div>
-
-          {/* Baris 3: Cetak Dokumen Resmi & Analisis Butir Soal */}
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedExamId(exam.id);
-                onSelectTab('naskah-soal', exam.id);
-              }}
-              className="px-3 py-1.5 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              title="Cetak format naskah soal resmi berstandar sekolah"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Cetak Naskah</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedExamId(exam.id);
-                onSelectTab('analisis-butir', exam.id);
-              }}
-              className="px-3 py-1.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-              title="Buka analisis butir soal per siswa format lampiran PDF"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span>Analisis Butir</span>
-            </button>
-          </div>
-
-          {/* Baris 4: Kelola Butir Soal & Deploy Ulang */}
-          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => {
                 setSelectedExamId(exam.id);
                 setActiveTab('questions');
               }}
-              className="px-3 py-1.5 text-xs font-semibold bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              className="px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Edit3 className="w-3.5 h-3.5" />
               <span>Kelola Soal</span>
             </button>
+          </div>
 
+          {/* Clean Secondary Tools Grid */}
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setEditingExam(exam);
+                setIsExamModalOpen(true);
+              }}
+              className="px-2 py-1.5 text-[11px] font-medium bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              title="Edit pengaturan, durasi, KKM, atau token ujian ini"
+            >
+              <Edit3 className="w-3 h-3 text-amber-600" />
+              <span>Edit</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOpenScheduleModal(exam)}
+              className="px-2 py-1.5 text-[11px] font-medium bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              title="Atur jadwal buka & tutup ujian"
+            >
+              <Calendar className="w-3 h-3 text-indigo-600" />
+              <span>{exam.startsAt ? 'Jadwal' : 'Jadwalkan'}</span>
+            </button>
             <button
               type="button"
               onClick={() => handleRedeployExam(exam)}
-              className="px-3 py-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              className="px-2 py-1.5 text-[11px] font-medium bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
               title="Perbarui jadwal aktif ujian untuk hari ini"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Deploy Ulang</span>
+              <RefreshCw className="w-3 h-3 text-emerald-600" />
+              <span>Deploy</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedExamId(exam.id);
+                onSelectTab('naskah-soal', exam.id);
+              }}
+              className="px-2 py-1.5 text-[11px] font-medium bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              title="Cetak format naskah soal resmi"
+            >
+              <Printer className="w-3 h-3 text-indigo-600" />
+              <span>Naskah</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedExamId(exam.id);
+                onSelectTab('analisis-butir', exam.id);
+              }}
+              className="px-2 py-1.5 text-[11px] font-medium bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/80 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              title="Buka analisis butir soal per siswa"
+            >
+              <FileSpreadsheet className="w-3 h-3 text-amber-600" />
+              <span>Analisis</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteExam(exam.id)}
+              className="px-2 py-1.5 text-[11px] font-medium bg-rose-50/70 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/80 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              title="Hapus ujian dan seluruh butir soalnya"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Hapus</span>
             </button>
           </div>
 
-          {/* Baris 5: Bagikan ke Siswa */}
-          <button
-            type="button"
-            onClick={() => {
-              setSharingExam(exam);
-              setHasCopiedShareLink(false);
-              setHasCopiedShareMsg(false);
-              const qs = StorageService.getQuestionsByExamId(exam.id);
-              if (qs.length > 0) {
-                GasClient.pushExam(exam, qs);
-              }
-            }}
-            className="w-full px-3 py-2 text-xs font-bold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-            title="Dapatkan Link Langsung Siswa & QR Code ujian ini"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span>Bagikan ke Siswa (Link Langsung & QR Code)</span>
-          </button>
-
-          {/* Baris 6: Kirim Nilai ke Google Classroom */}
-          <button
-            type="button"
-            onClick={() => {
-              setClassroomSyncExamId(exam.id);
-              setIsClassroomModalOpen(true);
-            }}
-            className="w-full px-3 py-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-            title="Kirim dan cantumkan nilai ujian siswa langsung ke Google Classroom"
-          >
-            <GraduationCap className="w-3.5 h-3.5" />
-            <span>Kirim Nilai ke Google Classroom</span>
-          </button>
+          {/* Share & Google Classroom Row */}
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={openShareExam}
+              className="px-2.5 py-1.5 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              title="Dapatkan Link Langsung Siswa & QR Code ujian ini"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Bagikan Link & QR</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setClassroomSyncExamId(exam.id);
+                setIsClassroomModalOpen(true);
+              }}
+              className="px-2.5 py-1.5 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors flex items-center justify-center gap-1 cursor-pointer"
+              title="Kirim dan cantumkan nilai ujian siswa langsung ke Google Classroom"
+            >
+              <GraduationCap className="w-3.5 h-3.5" />
+              <span>Classroom</span>
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -2809,15 +3025,15 @@ const rekapDistinctGrades = useMemo(() => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
+    <div className="max-w-7xl mx-auto py-5 px-4 sm:px-6 lg:px-8 space-y-5">
       {/* Teacher Top Info & User Bar */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:px-5 sm:py-4 border border-slate-200 dark:border-slate-800 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-sm shrink-0">
             {(profile.teacherName || currentUser.fullName).charAt(0)}
           </div>
           <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex flex-wrap items-center gap-2">
               <span>{profile.teacherName || currentUser.fullName}</span>
               <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
                 {profile.teacherTitle || (currentUser.role === 'admin' ? 'Administrator' : 'Guru Pengampu')}
@@ -2832,7 +3048,7 @@ const rekapDistinctGrades = useMemo(() => {
         <div className="flex items-center gap-2 self-end sm:self-auto">
           <button
             onClick={handleLogout}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 rounded-lg transition-colors cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Keluar</span>
@@ -2840,26 +3056,30 @@ const rekapDistinctGrades = useMemo(() => {
         </div>
       </div>
 
-      {/* Main Tabs Navigation (Clean Segmented Design) */}
-      <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold">
+      {/* Main Tabs Navigation (Hidden on desktop when using Alternatif 2 Sidebar Workspace because already in left panel) */}
+      <div
+        className={`${
+          uiPreset === 'sidebar_workspace' ? 'lg:hidden' : ''
+        } flex items-center gap-1 overflow-x-auto thin-scrollbar pb-1.5 border-b border-slate-200 dark:border-slate-800 text-xs font-medium`}
+      >
         <button
           onClick={() => setActiveTab('exams')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'exams'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <Calendar className="w-3.5 h-3.5" />
-          <span>Riwayat & Manajemen Ujian ({exams.length})</span>
+          <span>Ujian ({exams.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('questions')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'questions'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <Edit3 className="w-3.5 h-3.5" />
@@ -2868,101 +3088,98 @@ const rekapDistinctGrades = useMemo(() => {
 
         <button
           onClick={() => setActiveTab('curriculum')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'curriculum'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <Target className="w-3.5 h-3.5" />
-          <span>Capaian & TP (CP/TP) ({curriculumList.length})</span>
+          <span>Capaian & TP ({curriculumList.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('analytics')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'analytics'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <BarChart3 className="w-3.5 h-3.5" />
-          <span>Dasbor Nilai Siswa ({submissions.length})</span>
+          <span>Nilai Siswa ({submissions.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('rekap')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'rekap'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400 font-bold'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Rekap Nilai (Mapel &amp; Kelas)</span>
+          <span>Rekap Nilai</span>
         </button>
 
         <button
           onClick={() => setActiveTab('tp_mastery')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'tp_mastery'
-              ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 border-b-2 border-purple-600 dark:border-purple-400 font-bold'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-purple-50 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <Target className="w-3.5 h-3.5 text-purple-500" />
-          <span>Analisis Capaian TP</span>
-          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
-            Dikuasai &amp; Belum
-          </span>
+          <span>Analisis TP</span>
         </button>
 
         <button
           onClick={() => setActiveTab('students')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'students'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <Users className="w-3.5 h-3.5" />
-          <span>Data Siswa ({students.length})</span>
+          <span>Siswa ({students.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('users')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'users'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <UserCog className="w-3.5 h-3.5" />
-          <span>Kelola Pengguna ({systemUsers.length})</span>
+          <span>Pengguna ({systemUsers.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('profile')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'profile'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <Building2 className="w-3.5 h-3.5" />
-          <span>Profil Sekolah & Logo</span>
+          <span>Profil Sekolah</span>
         </button>
 
         <button
           onClick={() => setActiveTab('gas')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'gas'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-600 dark:border-indigo-400'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <Code className="w-3.5 h-3.5" />
-          <span>Kode Google Apps Script</span>
+          <span>Apps Script</span>
         </button>
 
         <button
@@ -2970,16 +3187,16 @@ const rekapDistinctGrades = useMemo(() => {
             setActiveTab('chat');
             setChatUnreadCount(0);
           }}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-t-lg transition-colors whitespace-nowrap relative ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap relative cursor-pointer ${
             activeTab === 'chat'
-              ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 border-b-2 border-emerald-600 dark:border-emerald-400 font-bold'
-              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              ? 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
           <MessageSquare className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-          <span>Chat & Bantuan Siswa</span>
+          <span>Chat Siswa</span>
           {chatUnreadCount > 0 && (
-            <span className="bg-red-500 text-white font-extrabold text-[10px] px-1.5 py-0.2 rounded-full animate-bounce">
+            <span className="bg-rose-500 text-white font-bold text-[11px] px-1.5 rounded-full">
               {chatUnreadCount}
             </span>
           )}
@@ -3193,7 +3410,13 @@ const rekapDistinctGrades = useMemo(() => {
                   </div>
 
                   {/* Cards inside Cluster */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  <div
+                    className={
+                      uiPreset === 'academic_compact'
+                        ? 'space-y-3'
+                        : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'
+                    }
+                  >
                     {cluster.exams.map(exam => renderExamCard(exam))}
                   </div>
                 </div>
@@ -3201,7 +3424,13 @@ const rekapDistinctGrades = useMemo(() => {
             </div>
           ) : (
             /* Mode Grid Sederhana */
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div
+              className={
+                uiPreset === 'academic_compact'
+                  ? 'space-y-3'
+                  : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'
+              }
+            >
               {filteredExams.map(exam => renderExamCard(exam))}
             </div>
           )}
@@ -3213,99 +3442,120 @@ const rekapDistinctGrades = useMemo(() => {
          --------------------------------------------------------- */}
       {activeTab === 'questions' && (
         <div className="space-y-6 animate-fadeIn">
-          {/* Exam Selector & Actions Bar */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                Mata Pelajaran & Kelas:
-              </label>
-              <select
-                value={selectedExamId || exams[0]?.id || ''}
-                onChange={(e) => setSelectedExamId(e.target.value)}
-                className="text-xs font-bold px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none"
-              >
-                {exams.map(e => (
-                  <option key={e.id} value={e.id}>
-                    {e.subject} — Kelas {e.grade} ({e.title})
-                  </option>
-                ))}
-              </select>
-              {currentExam && (
-                <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                  {currentExam.subject} · Kelas {currentExam.grade}
-                </span>
-              )}
+          {/* Exam Selector & Clean 2-Row Workspace Bar */}
+          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3.5">
+            {/* Row 1: Exam Selector + Primary Creation Actions */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
+                  Paket Ujian:
+                </label>
+                <select
+                  value={selectedExamId || exams[0]?.id || ''}
+                  onChange={(e) => setSelectedExamId(e.target.value)}
+                  className="h-9 max-w-full sm:max-w-md text-xs font-semibold px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                >
+                  {exams.map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.subject} — Kelas {e.grade} ({e.title})
+                    </option>
+                  ))}
+                </select>
+                {currentExam && (
+                  <span className="h-7 px-2.5 text-[11px] font-semibold rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 inline-flex items-center">
+                    {currentExam.subject} · Kelas {currentExam.grade}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selectedExamId && exams.length > 0) {
+                      setSelectedExamId(exams[0].id);
+                    }
+                    setIsAiModalOpen(true);
+                  }}
+                  className="h-9 inline-flex items-center gap-1.5 px-3.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Buat Soal AI (Gemini)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingQuestion({
+                      prompt: '',
+                      type: 'multiple_choice',
+                      mediaType: 'none',
+                      mediaUrl: '',
+                      points: 20,
+                      bloomLevel: 'C3 - Menerapkan',
+                      soloLevel: 'Multistructural',
+                      options: [
+                        { id: 'opt_a', text: '' },
+                        { id: 'opt_b', text: '' },
+                        { id: 'opt_c', text: '' },
+                        { id: 'opt_d', text: '' }
+                      ],
+                      correctKey: 'opt_a'
+                    });
+                    setIsQuestionModalOpen(true);
+                  }}
+                  className="h-9 inline-flex items-center gap-1.5 px-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg shadow-2xs transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Soal Manual</span>
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  if (!selectedExamId && exams.length > 0) {
-                    setSelectedExamId(exams[0].id);
-                  }
-                  setIsAiModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-all"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Buat Soal Otomatis (Gemini AI)</span>
-              </button>
+            {/* Row 2: Secondary Utilities + Google Sheets Sync */}
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!selectedExamId && exams.length > 0) {
+                      setSelectedExamId(exams[0].id);
+                    }
+                    setIsScoreModalOpen(true);
+                  }}
+                  className="h-8 inline-flex items-center gap-1.5 px-3 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-medium text-xs rounded-lg transition-colors cursor-pointer"
+                  title="Tentukan bobot skor butir soal secara umum atau skor per jenis soal"
+                >
+                  <Sliders className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span>Atur Bobot & Skor</span>
+                </button>
 
-              <button
-                onClick={() => {
-                  setEditingQuestion({
-                    prompt: '',
-                    type: 'multiple_choice',
-                    mediaType: 'none',
-                    mediaUrl: '',
-                    points: 20,
-                    bloomLevel: 'C3 - Menerapkan',
-                    soloLevel: 'Multistructural',
-                    options: [
-                      { id: 'opt_a', text: '' },
-                      { id: 'opt_b', text: '' },
-                      { id: 'opt_c', text: '' },
-                      { id: 'opt_d', text: '' }
-                    ],
-                    correctKey: 'opt_a'
-                  });
-                  setIsQuestionModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Tambah Soal Manual</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setIsStandaloneJavaneseModalOpen(true)}
+                  className="h-8 inline-flex items-center gap-1.5 px-3 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-medium text-xs rounded-lg transition-colors cursor-pointer"
+                  title="Buka Panduan & Editor Aksara Jawa (Carakan, Murda, Sandhangan, Pasangan, Pada, Angka)"
+                >
+                  <span className="font-javanese text-sm leading-none text-indigo-600 dark:text-indigo-400">ꦲ</span>
+                  <span>Panduan Aksara Jawa</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setIsStandaloneJavaneseModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800 font-semibold text-xs rounded-xl shadow-2xs transition-colors cursor-pointer"
-                title="Buka Panduan & Editor Aksara Jawa (Carakan, Murda, Sandhangan, Pasangan, Pada, Angka)"
-              >
-                <span className="font-javanese text-sm leading-none">ꦲ</span>
-                <span className="hidden xl:inline">Panduan Aksara Jawa</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectTab('naskah-soal', selectedExamId)}
+                  className="h-8 inline-flex items-center gap-1.5 px-3 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-medium text-xs rounded-lg transition-colors cursor-pointer"
+                  title="Cetak Naskah Ujian Resmi Berstandar Sekolah"
+                >
+                  <Printer className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                  <span>Cetak Naskah</span>
+                </button>
+              </div>
 
               <button
                 type="button"
-                onClick={() => {
-                  if (!selectedExamId && exams.length > 0) {
-                    setSelectedExamId(exams[0].id);
-                  }
-                  setIsScoreModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
-                title="Tentukan bobot skor butir soal secara umum atau skor per jenis soal"
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                <span>Atur Bobot & Skor Soal</span>
-              </button>
-
-              <button
                 disabled={isSyncingQuestionsToSheets || currentQuestions.length === 0}
                 onClick={handleSyncQuestionsToSheets}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                className="h-8 inline-flex items-center gap-1.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs rounded-lg shadow-2xs transition-colors cursor-pointer"
                 title="Simpan seluruh butir soal ujian ini langsung ke Google Sheets"
               >
                 {isSyncingQuestionsToSheets ? (
@@ -3314,15 +3564,6 @@ const rekapDistinctGrades = useMemo(() => {
                   <CloudUpload className="w-3.5 h-3.5" />
                 )}
                 <span>{isSyncingQuestionsToSheets ? 'Menyimpan ke Sheets...' : `Simpan ke Sheets (${currentQuestions.length} Soal)`}</span>
-              </button>
-
-              <button
-                onClick={() => onSelectTab('naskah-soal', selectedExamId)}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
-                title="Cetak Naskah Ujian Resmi Berstandar Sekolah"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Cetak Naskah</span>
               </button>
             </div>
           </div>
@@ -3346,14 +3587,15 @@ const rekapDistinctGrades = useMemo(() => {
                     <span className="text-slate-400">·</span>
                     <span className="text-slate-500 font-mono">Bobot: {q.points || 10} Poin</span>
                     {q.mediaType !== 'none' && (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-semibold uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                         {q.mediaType}
                       </span>
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
                     <button
+                      type="button"
                       onClick={() => {
                         const safeOptions = normalizeQuestionOptions(q.options);
                         setEditingQuestion({
@@ -3371,14 +3613,15 @@ const rekapDistinctGrades = useMemo(() => {
                         });
                         setIsQuestionModalOpen(true);
                       }}
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      className="w-8 h-8 inline-flex items-center justify-center text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                       title="Edit Soal"
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleDeleteQuestion(q.id)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      className="w-8 h-8 inline-flex items-center justify-center text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                       title="Hapus Soal"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -3464,8 +3707,8 @@ const rekapDistinctGrades = useMemo(() => {
                           </div>
                           {Boolean(pair.mediaUrl && pair.mediaUrl.trim() !== '') && (
                             <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800/60">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
-                                {pair.mediaType === 'audio' ? '🎵 Audio' : pair.mediaType === 'video' ? '🎬 Video' : '📷 Foto / Gambar'}
+                              <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 inline-flex items-center gap-1">
+                                {pair.mediaType === 'audio' ? 'Audio' : pair.mediaType === 'video' ? 'Video' : 'Gambar'}
                               </span>
                               {(pair.mediaType === 'image' || !pair.mediaType || pair.mediaType === 'none') && (
                                 <img
@@ -3591,7 +3834,7 @@ const rekapDistinctGrades = useMemo(() => {
               <button
                 type="button"
                 onClick={handleClearDummySubmissions}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-xs font-semibold rounded-lg transition-colors no-print"
+                className="h-8 inline-flex items-center gap-1.5 px-3 bg-white hover:bg-rose-50 dark:bg-slate-900 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 text-xs font-medium rounded-lg transition-colors no-print cursor-pointer"
                 title="Hapus data nilai dummy bawaan sistem"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -3601,51 +3844,51 @@ const rekapDistinctGrades = useMemo(() => {
               <button
                 type="button"
                 onClick={() => onSelectTab('analisis-butir', analyticsExamFilter !== 'all' ? analyticsExamFilter : undefined)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-lg transition-colors shadow-xs no-print cursor-pointer"
+                className="h-8 inline-flex items-center gap-1.5 px-3 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-medium rounded-lg transition-colors no-print cursor-pointer"
                 title="Buka matriks analisis butir soal per siswa format lampiran PDF"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                <span>Analisis Butir Soal (Matriks PDF)</span>
+                <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>Analisis Butir (PDF)</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleExportGradeRecapWord}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs no-print cursor-pointer"
+                className="h-8 inline-flex items-center gap-1.5 px-3 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-medium rounded-lg transition-colors no-print cursor-pointer"
                 title="Simpan rekapitulasi nilai kelas dalam format Microsoft Word (.docx)"
               >
-                <FileText className="w-3.5 h-3.5" />
+                <FileText className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                 <span>Simpan .docx</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleExportGradeRecapExcel}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs no-print cursor-pointer"
+                className="h-8 inline-flex items-center gap-1.5 px-3 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-medium rounded-lg transition-colors no-print cursor-pointer"
                 title="Simpan rekapitulasi nilai kelas dalam format Microsoft Excel (.xlsx)"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 <span>Simpan .xlsx</span>
               </button>
 
               <button
                 type="button"
-                onClick={handlePrintOfficialReport}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs no-print cursor-pointer"
-                title="Cetak lembar laporan resmi (SDN Pisangcandi 1) tanpa screenshot aplikasi"
+                onClick={handleExportCsv}
+                className="h-8 inline-flex items-center gap-1.5 px-3 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-medium rounded-lg transition-colors no-print cursor-pointer"
+                title="Unduh seluruh rekaman nilai dalam format CSV"
               >
-                <Printer className="w-3.5 h-3.5" />
-                <span>{reportMode === 'klasikal' ? 'Cetak Laporan Rekap' : 'Cetak Rapor Individu'}</span>
+                <Download className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                <span>Unduh CSV</span>
               </button>
 
               <button
                 type="button"
-                onClick={handleExportCsv}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold rounded-lg transition-colors no-print"
-                title="Unduh seluruh rekaman nilai dalam format CSV"
+                onClick={handlePrintOfficialReport}
+                className="h-8 inline-flex items-center gap-1.5 px-3.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-2xs no-print cursor-pointer"
+                title="Cetak lembar laporan resmi (SDN Pisangcandi 1) tanpa screenshot aplikasi"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>Unduh CSV</span>
+                <Printer className="w-3.5 h-3.5" />
+                <span>{reportMode === 'klasikal' ? 'Cetak Laporan Rekap' : 'Cetak Rapor Individu'}</span>
               </button>
             </div>
           </div>
@@ -3655,15 +3898,15 @@ const rekapDistinctGrades = useMemo(() => {
             <button
               type="button"
               onClick={() => setAnalyticsViewMode('rekap')}
-              className={`px-3.5 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 shrink-0 ${
+              className={`h-8 px-3.5 text-xs font-semibold rounded-lg transition-all inline-flex items-center gap-2 shrink-0 cursor-pointer ${
                 analyticsViewMode === 'rekap'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+                  ? 'bg-indigo-600 text-white shadow-2xs'
                   : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
               <span>Rekapitulasi Nilai Siswa</span>
-              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${analyticsViewMode === 'rekap' ? 'bg-indigo-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+              <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded ${analyticsViewMode === 'rekap' ? 'bg-indigo-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
                 {safeSubmissions.length}
               </span>
             </button>
@@ -7034,7 +7277,7 @@ const rekapDistinctGrades = useMemo(() => {
                 {editingQuestion.id ? 'Edit Butir Soal' : 'Tambah Butir Soal Baru'}
               </h3>
               <div className="flex items-center gap-2">
-                <span className="hidden sm:inline-block text-[10px] text-slate-400 bg-slate-200/60 dark:bg-slate-800 px-2 py-0.5 rounded font-mono">
+                <span className="hidden sm:inline-block text-[11px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded font-mono">
                   ESC untuk menutup
                 </span>
                 <button
@@ -7127,7 +7370,7 @@ const rekapDistinctGrades = useMemo(() => {
                       });
                     }
                   }}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-semibold"
+                  className="w-full h-9 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-semibold"
                 >
                   <option value="multiple_choice">Pilihan Ganda Biasa (1 Jawaban Benar)</option>
                   <option value="checkbox">Pilihan Ganda Kompleks (Multi Jawaban Benar)</option>
@@ -7184,9 +7427,10 @@ const rekapDistinctGrades = useMemo(() => {
                             options: [...currentOpts, { id: nextId, text: '' }]
                           });
                         }}
-                        className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 shrink-0"
+                        className="h-8 text-xs text-indigo-700 dark:text-indigo-300 font-semibold px-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 shrink-0 inline-flex items-center gap-1 transition-colors cursor-pointer"
                       >
-                        + Tambah Opsi {String.fromCharCode(65 + currentOpts.length)}
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Tambah Opsi {String.fromCharCode(65 + currentOpts.length)}</span>
                       </button>
                     </div>
 
@@ -7247,9 +7491,10 @@ const rekapDistinctGrades = useMemo(() => {
                             options: [...currentOpts, { id: nextId, text: '' }]
                           });
                         }}
-                        className="text-[11px] text-indigo-600 hover:text-indigo-700 font-semibold px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 shrink-0"
+                        className="h-8 text-xs text-indigo-700 dark:text-indigo-300 font-semibold px-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 shrink-0 inline-flex items-center gap-1 transition-colors cursor-pointer"
                       >
-                        + Tambah Opsi {String.fromCharCode(65 + currentOpts.length)}
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Tambah Opsi {String.fromCharCode(65 + currentOpts.length)}</span>
                       </button>
                     </div>
 
@@ -7360,7 +7605,7 @@ const rekapDistinctGrades = useMemo(() => {
                             correctKey: JSON.stringify(updated.reduce((acc, p) => ({ ...acc, [p.id]: p.match }), {}))
                           });
                         }}
-                        className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-700 shadow-2xs hover:bg-indigo-50 transition-colors shrink-0 flex items-center gap-1 cursor-pointer"
+                        className="h-8 text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-white dark:bg-slate-800 px-3 rounded-lg border border-indigo-200 dark:border-indigo-700 shadow-2xs hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors shrink-0 inline-flex items-center gap-1 cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Tambah Pasangan</span>
@@ -7376,17 +7621,17 @@ const rekapDistinctGrades = useMemo(() => {
                             </span>
 
                             <div className="flex-1">
-                              <div className="flex items-center justify-between mb-0.5">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
                                   Premis / Pernyataan Kiri #{idx + 1}
                                 </label>
                                 <button
                                   type="button"
                                   onClick={() => setMatchingJavaneseTarget({ index: idx, field: 'premise' })}
-                                  className="px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                                  className="h-6 px-2 rounded-md bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer transition-colors"
                                   title="Sisipkan Aksara Jawa ke Premis ini"
                                 >
-                                  <span className="font-javanese text-xs leading-none">ꦲ</span>
+                                  <span className="font-javanese text-xs leading-none text-indigo-600 dark:text-indigo-400">ꦲ</span>
                                   <span>Jawa</span>
                                 </button>
                               </div>
@@ -7403,24 +7648,24 @@ const rekapDistinctGrades = useMemo(() => {
                                     correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
                                   });
                                 }}
-                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                                className="w-full h-9 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium"
                               />
                             </div>
 
                             <div className="text-slate-400 font-bold hidden sm:block shrink-0 px-1">➔</div>
 
                             <div className="flex-1">
-                              <div className="flex items-center justify-between mb-0.5">
-                                <label className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
                                   Pasangan Benar (Kanan) #{idx + 1}
                                 </label>
                                 <button
                                   type="button"
                                   onClick={() => setMatchingJavaneseTarget({ index: idx, field: 'match' })}
-                                  className="px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                                  className="h-6 px-2 rounded-md bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer transition-colors"
                                   title="Sisipkan Aksara Jawa ke Pasangan Benar ini"
                                 >
-                                  <span className="font-javanese text-xs leading-none">ꦲ</span>
+                                  <span className="font-javanese text-xs leading-none text-indigo-600 dark:text-indigo-400">ꦲ</span>
                                   <span>Jawa</span>
                                 </button>
                               </div>
@@ -7437,7 +7682,7 @@ const rekapDistinctGrades = useMemo(() => {
                                     correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
                                   });
                                 }}
-                                className="w-full px-3 py-1.5 text-xs rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-bold"
+                                className="w-full h-9 px-3 text-xs rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-200 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 font-semibold"
                               />
                             </div>
 
@@ -7452,7 +7697,7 @@ const rekapDistinctGrades = useMemo(() => {
                                     correctKey: JSON.stringify(updated.reduce((acc, pair) => ({ ...acc, [pair.id]: pair.match }), {}))
                                   });
                                 }}
-                                className="p-1.5 text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg transition-colors self-end sm:self-center cursor-pointer shrink-0"
+                                className="w-8 h-8 inline-flex items-center justify-center text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg transition-colors self-end sm:self-center cursor-pointer shrink-0"
                                 title="Hapus baris pasangan ini"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -7498,18 +7743,18 @@ const rekapDistinctGrades = useMemo(() => {
                     min={1}
                     value={editingQuestion.points || 20}
                     onChange={(e) => setEditingQuestion({ ...editingQuestion, points: Math.max(1, Number(e.target.value)) })}
-                    className="w-24 px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
+                    className="w-24 h-8 px-3 text-xs font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
                   />
-                  <div className="flex flex-wrap items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {[1, 2, 3, 4, 5, 10, 20, 25].map(pt => (
                       <button
                         key={pt}
                         type="button"
                         onClick={() => setEditingQuestion({ ...editingQuestion, points: pt })}
-                        className={`px-2 py-1 text-[11px] font-mono font-semibold rounded-md border transition-colors cursor-pointer ${
+                        className={`h-8 px-2.5 text-xs font-mono font-semibold rounded-lg border transition-colors cursor-pointer ${
                           editingQuestion.points === pt
                             ? 'bg-indigo-600 text-white border-indigo-600'
-                            : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                            : 'bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
                         }`}
                       >
                         {pt} pt
@@ -7580,7 +7825,7 @@ const rekapDistinctGrades = useMemo(() => {
                       <select
                         value={editingQuestion.bloomLevel || 'C3 - Menerapkan'}
                         onChange={(e) => setEditingQuestion({ ...editingQuestion, bloomLevel: e.target.value as BloomLevel })}
-                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        className="w-full h-9 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                       >
                         <option value="C1 - Mengingat">C1 - Mengingat</option>
                         <option value="C2 - Memahami">C2 - Memahami</option>
@@ -7600,7 +7845,7 @@ const rekapDistinctGrades = useMemo(() => {
                       <select
                         value={editingQuestion.soloLevel || 'Multistructural'}
                         onChange={(e) => setEditingQuestion({ ...editingQuestion, soloLevel: e.target.value as SoloLevel })}
-                        className="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                        className="w-full h-9 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                       >
                         <option value="Prestructural">1. Prestructural (Belum paham konsep)</option>
                         <option value="Unistructural">2. Unistructural (1 aspek tunggal)</option>
@@ -7619,7 +7864,7 @@ const rekapDistinctGrades = useMemo(() => {
                       <Target className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                       <span>Pilih dari Capaian Pembelajaran (CP) & Elemen Tersimpan:</span>
                     </span>
-                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400">
+                    <span className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400">
                       {curriculumList.length} CP Tersedia
                     </span>
                   </div>
@@ -7639,7 +7884,7 @@ const rekapDistinctGrades = useMemo(() => {
                         });
                       }
                     }}
-                    className="w-full px-3 py-1.5 text-xs rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
+                    className="w-full h-9 px-3 text-xs rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-white font-medium"
                   >
                     <option value="">-- Pilih Elemen & Capaian Pembelajaran (CP) --</option>
                     {curriculumList.map((cur) => (
@@ -7651,7 +7896,7 @@ const rekapDistinctGrades = useMemo(() => {
 
                   {/* Dropdown specific TP */}
                   <div>
-                    <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
                       Pilih Tujuan Pembelajaran (TP) Spesifik:
                     </label>
                     <select
@@ -7664,7 +7909,7 @@ const rekapDistinctGrades = useMemo(() => {
                           });
                         }
                       }}
-                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      className="w-full h-9 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                     >
                       <option value="">-- Pilih Tujuan Pembelajaran (TP) dari Database --</option>
                       {curriculumList.flatMap(c => {
@@ -7689,7 +7934,7 @@ const rekapDistinctGrades = useMemo(() => {
                       placeholder="Contoh: Peserta didik mampu menganalisis keanekaragaman hayati..."
                       value={editingQuestion.basicCompetency || ''}
                       onChange={(e) => setEditingQuestion({ ...editingQuestion, basicCompetency: e.target.value, learningOutcome: e.target.value })}
-                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      className="w-full h-9 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                     />
                   </div>
                   <div>
@@ -7701,7 +7946,7 @@ const rekapDistinctGrades = useMemo(() => {
                       placeholder="Contoh: Siswa dapat mengidentifikasi struktur organel..."
                       value={editingQuestion.indicator || ''}
                       onChange={(e) => setEditingQuestion({ ...editingQuestion, indicator: e.target.value })}
-                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                      className="w-full h-9 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                     />
                   </div>
                 </div>
@@ -7717,7 +7962,7 @@ const rekapDistinctGrades = useMemo(() => {
                       const examTps = normalizeLearningObjectives(examObj?.learningObjectives);
                       if (examTps.length > 0) {
                         return (
-                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
+                          <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold">
                             Tersedia {examTps.length} TP Ujian
                           </span>
                         );
@@ -7739,7 +7984,7 @@ const rekapDistinctGrades = useMemo(() => {
                                 setEditingQuestion({ ...editingQuestion, learningObjective: e.target.value });
                               }
                             }}
-                            className="w-full px-3 py-1.5 text-xs rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/40 dark:bg-indigo-950/30 text-slate-900 dark:text-white"
+                            className="w-full h-9 px-3 text-xs rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/40 dark:bg-indigo-950/30 text-slate-900 dark:text-white"
                           >
                             <option value="__custom__">-- Pilih dari TP Ujian atau Ketik Bebas di Bawah --</option>
                             {examTps.map((tp, idx) => (
@@ -7754,7 +7999,7 @@ const rekapDistinctGrades = useMemo(() => {
                           placeholder="Ketik Tujuan Pembelajaran butir soal ini (misal: Siswa mampu menghitung nilai hambatan pengganti)"
                           value={editingQuestion.learningObjective || ''}
                           onChange={(e) => setEditingQuestion({ ...editingQuestion, learningObjective: e.target.value })}
-                          className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                          className="w-full h-9 px-3 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                         />
                       </div>
                     );
@@ -7773,55 +8018,57 @@ const rekapDistinctGrades = useMemo(() => {
                 />
               </div>
 
-              <div className="pt-4 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="pt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsQuestionModalOpen(false)}
-                  className="px-4 py-2.5 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium transition-colors"
+                  className="h-9 px-3.5 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg font-medium transition-colors cursor-pointer"
                 >
                   Batal
                 </button>
-                <button
-                  type="button"
-                  onClick={handleSaveDraftQuestion}
-                  className="px-4 py-2.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
-                  title="Simpan butir soal ini sebagai draft sementara tanpa validasi ketat"
-                >
-                  <Bookmark className="w-3.5 h-3.5" />
-                  <span>Simpan Draft</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => handleSaveQuestion(e, false)}
-                  className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
-                  title="Simpan soal ini dan langsung buka form kosong untuk butir soal berikutnya"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Simpan & Tambah Baru</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={isSyncingQuestionsToSheets}
-                  onClick={(e) => handleSaveQuestion(e, false, true)}
-                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="Simpan butir soal ini dan langsung sinkronkan seluruh bank soal ujian ini ke Google Sheets"
-                >
-                  {isSyncingQuestionsToSheets ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <CloudUpload className="w-3.5 h-3.5" />
-                  )}
-                  <span>{isSyncingQuestionsToSheets ? 'Menyimpan...' : 'Simpan ke Sheets'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => handleSaveQuestion(e, true)}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
-                  title="Simpan soal ke bank soal dan langsung tutup menu pembuatan soal"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Simpan dan Tutup</span>
-                </button>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveDraftQuestion}
+                    className="h-9 px-3.5 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-medium text-xs rounded-lg inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                    title="Simpan butir soal ini sebagai draft sementara tanpa validasi ketat"
+                  >
+                    <Bookmark className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                    <span>Simpan Draft</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleSaveQuestion(e, false)}
+                    className="h-9 px-3.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-semibold text-xs rounded-lg transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                    title="Simpan soal ini dan langsung buka form kosong untuk butir soal berikutnya"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Simpan & Tambah Baru</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSyncingQuestionsToSheets}
+                    onClick={(e) => handleSaveQuestion(e, false, true)}
+                    className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow-2xs transition-colors inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="Simpan butir soal ini dan langsung sinkronkan seluruh bank soal ujian ini ke Google Sheets"
+                  >
+                    {isSyncingQuestionsToSheets ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CloudUpload className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isSyncingQuestionsToSheets ? 'Menyimpan...' : 'Simpan ke Sheets'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleSaveQuestion(e, true)}
+                    className="h-9 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg shadow-2xs transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                    title="Simpan soal ke bank soal dan langsung tutup menu pembuatan soal"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Simpan dan Tutup</span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -8823,10 +9070,10 @@ const rekapDistinctGrades = useMemo(() => {
                       key={mins}
                       type="button"
                       onClick={() => setLateExtensionMinutes(mins)}
-                      className={`py-2 text-xs font-bold font-mono rounded-lg border transition-all ${
+                      className={`h-9 text-xs font-semibold font-mono rounded-lg border transition-colors cursor-pointer ${
                         lateExtensionMinutes === mins
-                          ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
-                          : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                          : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
                       }`}
                     >
                       +{mins} Menit
@@ -8842,28 +9089,28 @@ const rekapDistinctGrades = useMemo(() => {
                     max={180}
                     value={lateExtensionMinutes}
                     onChange={(e) => setLateExtensionMinutes(Math.max(5, Math.min(180, Number(e.target.value) || 30)))}
-                    className="w-24 px-3 py-1.5 text-xs font-bold font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                    className="w-24 h-8 px-3 text-xs font-bold font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
                   />
                   <span className="text-xs text-slate-500 dark:text-slate-400">menit dari sekarang</span>
                 </div>
               </div>
 
               <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
-                💡 <strong>Catatan:</strong> Tombol ini akan otomatis mengaktifkan status sesi dan mengizinkan siswa yang terlambat atau belum selesai untuk login kembali tanpa terblokir.
+                <strong>Catatan:</strong> Tombol ini akan otomatis mengaktifkan status sesi dan mengizinkan siswa yang terlambat atau belum selesai untuk login kembali tanpa terblokir.
               </p>
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setLateExtensionExam(null)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
+                  className="h-9 px-3.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="button"
                   onClick={handleApplyLateExtension}
-                  className="px-4 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  className="h-9 px-4 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-2xs transition-colors inline-flex items-center gap-1.5 cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5 fill-current" />
                   <span>Aktifkan Sesi (+{lateExtensionMinutes} Menit)</span>
@@ -9018,7 +9265,7 @@ const rekapDistinctGrades = useMemo(() => {
             {/* Header */}
             <div className="flex items-start justify-between pb-3.5 mb-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-200 dark:border-indigo-800">
                   <Sliders className="w-5 h-5" />
                 </div>
                 <div>
@@ -9103,20 +9350,20 @@ const rekapDistinctGrades = useMemo(() => {
                     <button
                       type="button"
                       onClick={() => setUniformScoreInput(Math.max(1, Math.round(100 / Math.max(1, currentQuestions.length))))}
-                      className="px-2.5 py-1 text-xs font-bold rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors"
+                      className="h-8 px-2.5 text-xs font-semibold rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
                       title="Hitung otomatis agar perkalian jumlah soal mendekati total 100 poin"
                     >
-                      🎯 Target Total 100 ({Math.round(100 / Math.max(1, currentQuestions.length))} pt/soal)
+                      Target Total 100 ({Math.round(100 / Math.max(1, currentQuestions.length))} pt/soal)
                     </button>
                     {[2, 4, 5, 10, 20, 25].map(pt => (
                       <button
                         key={pt}
                         type="button"
                         onClick={() => setUniformScoreInput(pt)}
-                        className={`px-2.5 py-1 text-xs font-mono font-semibold rounded-lg border transition-colors ${
+                        className={`h-8 px-2.5 text-xs font-mono font-semibold rounded-lg border transition-colors cursor-pointer ${
                           uniformScoreInput === pt
-                            ? 'bg-amber-600 text-white border-amber-600 font-bold'
-                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100'
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
                         }`}
                       >
                         {pt} Poin
@@ -9154,7 +9401,7 @@ const rekapDistinctGrades = useMemo(() => {
                     <div>
                       <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                         <span>Pilihan Ganda (PG Biasa)</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono">
                           {currentQuestions.filter(q => q.type === 'multiple_choice' && !(normalizeQuestionOptions(q.options).length === 2 && normalizeQuestionOptions(q.options)[0]?.text === 'Benar')).length} soal
                         </span>
                       </div>
@@ -9166,7 +9413,7 @@ const rekapDistinctGrades = useMemo(() => {
                         min={1}
                         value={typeScoreInputs.multipleChoice}
                         onChange={(e) => setTypeScoreInputs({ ...typeScoreInputs, multipleChoice: Math.max(1, Number(e.target.value)) })}
-                        className="w-20 px-2.5 py-1.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                        className="w-20 h-8 px-2.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                       />
                       <span className="text-xs text-slate-500">pt</span>
                     </div>
@@ -9177,7 +9424,7 @@ const rekapDistinctGrades = useMemo(() => {
                     <div>
                       <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                         <span>Pilihan Ganda Kompleks (Checkbox)</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-mono">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono">
                           {currentQuestions.filter(q => q.type === 'checkbox').length} soal
                         </span>
                       </div>
@@ -9189,7 +9436,7 @@ const rekapDistinctGrades = useMemo(() => {
                         min={1}
                         value={typeScoreInputs.checkbox}
                         onChange={(e) => setTypeScoreInputs({ ...typeScoreInputs, checkbox: Math.max(1, Number(e.target.value)) })}
-                        className="w-20 px-2.5 py-1.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                        className="w-20 h-8 px-2.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                       />
                       <span className="text-xs text-slate-500">pt</span>
                     </div>
@@ -9200,7 +9447,7 @@ const rekapDistinctGrades = useMemo(() => {
                     <div>
                       <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                         <span>Benar / Salah (True/False)</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-mono">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">
                           {currentQuestions.filter(q => q.type === 'multiple_choice' && normalizeQuestionOptions(q.options).length === 2 && normalizeQuestionOptions(q.options)[0]?.text === 'Benar').length} soal
                         </span>
                       </div>
@@ -9212,7 +9459,7 @@ const rekapDistinctGrades = useMemo(() => {
                         min={1}
                         value={typeScoreInputs.trueFalse}
                         onChange={(e) => setTypeScoreInputs({ ...typeScoreInputs, trueFalse: Math.max(1, Number(e.target.value)) })}
-                        className="w-20 px-2.5 py-1.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                        className="w-20 h-8 px-2.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                       />
                       <span className="text-xs text-slate-500">pt</span>
                     </div>
@@ -9223,7 +9470,7 @@ const rekapDistinctGrades = useMemo(() => {
                     <div>
                       <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                         <span>Isian Pendek / Singkat</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 font-mono">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-mono">
                           {currentQuestions.filter(q => q.type === 'short_answer').length} soal
                         </span>
                       </div>
@@ -9235,7 +9482,7 @@ const rekapDistinctGrades = useMemo(() => {
                         min={1}
                         value={typeScoreInputs.shortAnswer}
                         onChange={(e) => setTypeScoreInputs({ ...typeScoreInputs, shortAnswer: Math.max(1, Number(e.target.value)) })}
-                        className="w-20 px-2.5 py-1.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                        className="w-20 h-8 px-2.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                       />
                       <span className="text-xs text-slate-500">pt</span>
                     </div>
@@ -9246,7 +9493,7 @@ const rekapDistinctGrades = useMemo(() => {
                     <div>
                       <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                         <span>Uraian / Esai (Jawaban Panjang)</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono">
+                        <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-mono">
                           {currentQuestions.filter(q => q.type === 'essay').length} soal
                         </span>
                       </div>
@@ -9258,7 +9505,7 @@ const rekapDistinctGrades = useMemo(() => {
                         min={1}
                         value={typeScoreInputs.essay}
                         onChange={(e) => setTypeScoreInputs({ ...typeScoreInputs, essay: Math.max(1, Number(e.target.value)) })}
-                        className="w-20 px-2.5 py-1.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
+                        className="w-20 h-8 px-2.5 text-xs font-mono font-bold text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                       />
                       <span className="text-xs text-slate-500">pt</span>
                     </div>
@@ -9307,11 +9554,11 @@ const rekapDistinctGrades = useMemo(() => {
             </div>
 
             {/* Action Buttons */}
-            <div className="mt-5 flex justify-end gap-2.5">
+            <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setIsScoreModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                className="h-9 px-3.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
               >
                 Batal
               </button>
@@ -9319,14 +9566,14 @@ const rekapDistinctGrades = useMemo(() => {
                 type="button"
                 onClick={handleApplyQuestionScores}
                 disabled={isApplyingScores || currentQuestions.length === 0}
-                className="flex items-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                className="h-9 inline-flex items-center gap-1.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-xs rounded-lg shadow-2xs transition-colors cursor-pointer"
               >
                 {isApplyingScores ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <Check className="w-4 h-4" />
+                  <Check className="w-3.5 h-3.5" />
                 )}
-                <span>{isApplyingScores ? 'Menerapkan Bobot...' : 'Terapkan Bobot Skor ke Soal'}</span>
+                <span>{isApplyingScores ? 'Menerapkan Bobot...' : 'Terapkan Bobot Skor'}</span>
               </button>
             </div>
           </div>

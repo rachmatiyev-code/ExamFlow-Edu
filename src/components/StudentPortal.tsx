@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Exam, Question, SchoolProfile, Student, Submission, normalizeQuestionOptions } from '../types';
+import { Exam, Question, SchoolProfile, Student, Submission, UiPreset, normalizeQuestionOptions } from '../types';
 import { StorageService } from '../services/storage';
 import { AnalysisService } from '../services/analysisService';
 import { GasClient } from '../services/gasClient';
@@ -55,6 +55,7 @@ interface StudentPortalProps {
   profile: SchoolProfile;
   exams: Exam[];
   students: Student[];
+  uiPreset?: UiPreset;
   onSubmissionComplete: (sub: Submission) => void;
   initialExamId?: string | null;
   initialToken?: string | null;
@@ -64,6 +65,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   profile,
   exams,
   students,
+  uiPreset = 'classic_clean',
   onSubmissionComplete,
   initialExamId,
   initialToken
@@ -2376,37 +2378,67 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       )}
 
       {/* School Kop & Branding Banner */}
-      <div className="bg-gradient-to-r from-indigo-700 via-indigo-800 to-indigo-900 rounded-2xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
-        <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-center justify-between gap-5 text-center sm:text-left">
-          {/* Logo Pemda (Kiri) */}
-          <img
-            src={sanitizeLogoUrl(profile.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG)}
-            alt="Logo Pemda"
-            referrerPolicy="no-referrer"
-            className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-contain bg-white p-1.5 border-2 border-white/20 shadow-md shrink-0"
-          />
-
-          <div className="flex-1 space-y-1">
-            <div className="text-[11px] sm:text-xs uppercase font-bold tracking-widest text-indigo-200">
-              {profile.regionalGovName || 'PEMERINTAH KOTA MALANG'} · {profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'}
+      {uiPreset === 'academic_compact' ? (
+        <div className="bg-white dark:bg-slate-900 rounded-xl px-5 py-4 border border-stone-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <img
+              src={sanitizeLogoUrl(profile.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG)}
+              alt="Logo Pemda"
+              referrerPolicy="no-referrer"
+              className="w-11 h-11 rounded-lg object-contain bg-slate-50 dark:bg-slate-800 p-1 border border-stone-200 dark:border-slate-700 shrink-0"
+            />
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase font-bold tracking-wider text-indigo-600 dark:text-indigo-400 truncate">
+                {profile.regionalGovName || 'PEMERINTAH KOTA MALANG'} · {profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'}
+              </div>
+              <h1 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white tracking-tight truncate">
+                {profile.name || 'SDN PISANGCANDI 1'}
+              </h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                {profile.address} · NPSN: {profile.npsn} · TP {profile.academicYear} ({profile.semester})
+              </p>
             </div>
-            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-              {profile.name || 'SDN PISANGCANDI 1'}
-            </h1>
-            <p className="text-xs sm:text-sm text-indigo-100 max-w-2xl">
-              {profile.address} · NPSN: {profile.npsn} · TP: {profile.academicYear} ({profile.semester})
-            </p>
           </div>
-
-          {/* Logo Sekolah (Kanan) */}
           <img
             src={sanitizeLogoUrl(profile.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)}
             alt={profile.name}
             referrerPolicy="no-referrer"
-            className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-contain bg-white p-1.5 border-2 border-white/20 shadow-md shrink-0"
+            className="hidden sm:block w-11 h-11 rounded-lg object-contain bg-slate-50 dark:bg-slate-800 p-1 border border-stone-200 dark:border-slate-700 shrink-0"
           />
         </div>
-      </div>
+      ) : (
+        <div className="bg-gradient-to-r from-indigo-700 via-indigo-800 to-indigo-900 rounded-2xl p-6 sm:p-7 text-white shadow-sm relative overflow-hidden">
+          <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-center justify-between gap-5 text-center sm:text-left">
+            {/* Logo Pemda (Kiri) */}
+            <img
+              src={sanitizeLogoUrl(profile.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG)}
+              alt="Logo Pemda"
+              referrerPolicy="no-referrer"
+              className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-contain bg-white p-1.5 border border-white/20 shadow-sm shrink-0"
+            />
+
+            <div className="flex-1 space-y-1">
+              <div className="text-[11px] uppercase font-bold tracking-widest text-indigo-200">
+                {profile.regionalGovName || 'PEMERINTAH KOTA MALANG'} · {profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'}
+              </div>
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+                {profile.name || 'SDN PISANGCANDI 1'}
+              </h1>
+              <p className="text-xs sm:text-sm text-indigo-100 max-w-2xl">
+                {profile.address} · NPSN: {profile.npsn} · TP: {profile.academicYear} ({profile.semester})
+              </p>
+            </div>
+
+            {/* Logo Sekolah (Kanan) */}
+            <img
+              src={sanitizeLogoUrl(profile.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)}
+              alt={profile.name}
+              referrerPolicy="no-referrer"
+              className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-contain bg-white p-1.5 border border-white/20 shadow-sm shrink-0"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Helper Lookup Function & Today's Schedule Header */}
       {(() => {
@@ -2600,8 +2632,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             <span>Cek Nilai Saya</span>
           </button>
 
-          <div className="text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 font-mono">
-            Tanggal: {new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          <div className="h-8 inline-flex items-center text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 rounded-lg border border-slate-200 dark:border-slate-700">
+            {new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </div>
         </div>
       </div>
@@ -2647,14 +2679,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         return (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="inline-flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80">
               <button
                 type="button"
                 onClick={() => setPortalFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                className={`h-8 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   portalFilter === 'all'
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 Semua Ujian ({examCardsData.length})
@@ -2662,10 +2694,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setPortalFilter('pending')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                className={`h-8 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   portalFilter === 'pending'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 Belum Dikerjakan ({pendingCardsCount})
@@ -2673,10 +2705,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               <button
                 type="button"
                 onClick={() => setPortalFilter('completed')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                className={`h-8 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   portalFilter === 'completed'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs'
+                    : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 Sudah Dikerjakan ({completedCardsCount})
@@ -2685,109 +2717,283 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           </div>
 
           {visibleExamCards.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div
+          className={
+            uiPreset === 'academic_compact'
+              ? 'space-y-3'
+              : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5'
+          }
+        >
           {visibleExamCards.map(({ exam, matchedSub, isStudentCompleted, isStudentNeedsRetake }) => {
+            const isStopped = StorageService.isExamStopped(exam);
+            const isLate = Boolean(exam.allowLateSubmission) || (Number(exam.lateExtensionMinutes) || 0) > 0;
+            const isSessionActive = exam.sessionStatus === 'active';
+            const isAutoZero = Boolean(
+              matchedSub &&
+              (String(matchedSub.id || '').startsWith('SUB-STOP0-') ||
+                String(matchedSub.statusNote || '').toLowerCase().includes('dihentikan'))
+            );
+
+            const renderSessionPill = () => {
+              if (isStopped) {
+                return (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
+                    <StopCircle className="w-3 h-3 text-rose-500" />
+                    <span>Dihentikan Permanen</span>
+                  </span>
+                );
+              }
+              if (exam.sessionStatus === 'ended') {
+                return (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 inline-flex items-center gap-1">
+                    <StopCircle className="w-3 h-3 text-slate-500" />
+                    <span>Sesi Ditutup</span>
+                  </span>
+                );
+              }
+              if (isLate) {
+                return (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-amber-600" />
+                    <span>Toleransi (+{exam.lateExtensionMinutes || 30}m)</span>
+                  </span>
+                );
+              }
+              if (!isSessionActive) {
+                return (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 inline-flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-blue-600" />
+                    <span>Menunggu Dimulai</span>
+                  </span>
+                );
+              }
+              return (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                  <span>Sesi Aktif</span>
+                </span>
+              );
+            };
+
+            const renderActionBtn = (compactWidth = false) => {
+              const widthClass = compactWidth ? 'w-full sm:w-auto sm:min-w-[210px]' : 'w-full';
+              if (isStudentCompleted && exam.attemptMode !== 'unlimited') {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const fn = (window as any).__examflowTriggerLookup;
+                      const query = studentNo.trim() || studentName.trim();
+                      if (typeof fn === 'function' && query) {
+                        fn(query, 'completed');
+                      } else {
+                        setIsScoreLookupOpen(true);
+                      }
+                    }}
+                    className={`${widthClass} py-2.5 px-4 text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer ${
+                      isAutoZero
+                        ? 'bg-rose-600 hover:bg-rose-700'
+                        : 'bg-emerald-600 hover:bg-emerald-700'
+                    }`}
+                  >
+                    {isAutoZero ? <StopCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
+                    <span>
+                      {isAutoZero
+                        ? `Dihentikan (Nilai: ${matchedSub?.percentage ?? 0}%) · Lihat Rincian`
+                        : `Sudah Dikerjakan${exam.allowReview && matchedSub ? ` (${matchedSub.percentage}%)` : ''} · Lihat Hasil`}
+                    </span>
+                  </button>
+                );
+              }
+
+              if (isStopped) {
+                return (
+                  <button
+                    type="button"
+                    disabled
+                    className={`${widthClass} py-2.5 px-4 bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-semibold text-xs rounded-xl cursor-not-allowed flex items-center justify-center gap-2`}
+                  >
+                    <StopCircle className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Sesi Dihentikan Pengawas</span>
+                  </button>
+                );
+              }
+
+              if (exam.sessionStatus === 'ended') {
+                return (
+                  <button
+                    type="button"
+                    disabled
+                    className={`${widthClass} py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold text-xs rounded-xl cursor-not-allowed flex items-center justify-center gap-2`}
+                  >
+                    <StopCircle className="w-3.5 h-3.5" />
+                    <span>Sesi Ujian Telah Ditutup</span>
+                  </button>
+                );
+              }
+
+              if (isLate) {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => handleStartExamClick(exam)}
+                    className={`${widthClass} py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer`}
+                    title="Toleransi keterlambatan aktif oleh guru pengawas"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Lanjutkan (Siswa Terlambat)</span>
+                  </button>
+                );
+              }
+
+              if (!isSessionActive) {
+                return (
+                  <button
+                    type="button"
+                    disabled
+                    className={`${widthClass} py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-semibold text-xs rounded-xl cursor-not-allowed flex items-center justify-center gap-2`}
+                    title="Guru pengawas belum menekan tombol Mulai Sesi Ujian"
+                  >
+                    <Clock className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Menunggu Guru Memulai</span>
+                  </button>
+                );
+              }
+
+              return (
+                <button
+                  type="button"
+                  onClick={() => handleStartExamClick(exam)}
+                  className={`${widthClass} py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2 cursor-pointer`}
+                >
+                  {isStudentCompleted ? <RotateCcw className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                  <span>{isStudentCompleted ? 'Kerjakan Ulang Ujian' : 'Mulai Kerjakan Ujian'}</span>
+                </button>
+              );
+            };
+
+            // =========================================================================
+            // ALTERNATIF 3: AKADEMIK KOMPAK (Horizontal Split-Row Schedule Item)
+            // =========================================================================
+            if (uiPreset === 'academic_compact') {
+              return (
+                <div
+                  key={exam.id}
+                  className="bg-white dark:bg-slate-900 rounded-xl border border-stone-200 dark:border-slate-800 p-4 sm:px-5 hover:border-stone-300 dark:hover:border-slate-700 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                >
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                        {exam.subject} · Kelas {exam.grade}
+                      </span>
+                      <span className="text-slate-300 dark:text-slate-700">·</span>
+                      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        {exam.attemptMode === 'unlimited' ? 'Berulang' : '1x Kesempatan'}
+                      </span>
+                      {renderSessionPill()}
+                    </div>
+
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white leading-snug">
+                      {exam.title}
+                    </h3>
+
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                      <span>{exam.durationMinutes} Menit</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{exam.totalQuestions} Soal</span>
+                      <span aria-hidden="true">·</span>
+                      <span>KKM {exam.passingScore}</span>
+                      {exam.startsAt && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="text-indigo-600 dark:text-indigo-400 font-medium">
+                            {new Date(exam.startsAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}{' '}
+                            {new Date(exam.startsAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                            {exam.endsAt ? ` - ${new Date(exam.endsAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                          </span>
+                        </>
+                      )}
+                      <span aria-hidden="true">·</span>
+                      <span className={exam.token ? 'text-indigo-600 dark:text-indigo-400 font-medium' : 'text-emerald-600 dark:text-emerald-400 font-medium'}>
+                        {exam.token ? 'Pakai Token' : 'Tanpa Token'}
+                      </span>
+                      {exam.isStrict && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="text-amber-600 dark:text-amber-400 font-medium">Mode Ketat</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-stretch sm:items-end gap-2 shrink-0">
+                    {isStudentNeedsRetake && (
+                      <div className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Diizinkan Mengulang</span>
+                      </div>
+                    )}
+                    {renderActionBtn(true)}
+                  </div>
+                </div>
+              );
+            }
+
+            // =========================================================================
+            // ALTERNATIF 1 & 2: MINIMALIS RAPI / SIDEBAR WORKSPACE (Clean Unboxed Card)
+            // =========================================================================
             return (
               <div
                 key={exam.id}
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-2xs hover:border-slate-300 dark:hover:border-slate-700 transition-all flex flex-col justify-between"
               >
-                <div>
-                  {/* Subject & Grade unboxed metadata */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
-                      <span className="font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">
+                <div className="space-y-3">
+                  {/* Subject, Grade & Status */}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <span className="font-semibold text-indigo-600 dark:text-indigo-400">
                         {exam.subject}
                       </span>
                       <span aria-hidden="true">·</span>
                       <span>Kelas {exam.grade}</span>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        exam.attemptMode === 'unlimited'
-                          ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
-                          : 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
-                      }`}>
-                        {exam.attemptMode === 'unlimited' ? 'Mode: Berulang' : 'Mode: Sekali (1x)'}
-                      </span>
-
-                      {(() => {
-                        const isStopped = StorageService.isExamStopped(exam);
-                        const isLate = Boolean(exam.allowLateSubmission) || (Number(exam.lateExtensionMinutes) || 0) > 0;
-                        const isSessionActive = exam.sessionStatus === 'active';
-
-                        if (isStopped) {
-                          return (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 flex items-center gap-1">
-                              <StopCircle className="w-3 h-3 text-rose-500" />
-                              <span>Sesi Dihentikan Permanen</span>
-                            </span>
-                          );
-                        }
-
-                        if (exam.sessionStatus === 'ended') {
-                          return (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 flex items-center gap-1">
-                              <StopCircle className="w-3 h-3 text-slate-500" />
-                              <span>Sesi Ditutup</span>
-                            </span>
-                          );
-                        }
-
-                        if (isLate) {
-                          return (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-amber-600" />
-                              <span>Toleransi Terlambat (+{exam.lateExtensionMinutes || 30}m)</span>
-                            </span>
-                          );
-                        }
-
-                        if (!isSessionActive) {
-                          return (
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800 flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-blue-600" />
-                              <span>Menunggu Guru Memulai</span>
-                            </span>
-                          );
-                        }
-
-                        return (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                            <span>Sesi Aktif</span>
-                          </span>
-                        );
-                      })()}
-                    </div>
+                    {renderSessionPill()}
                   </div>
 
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2 line-clamp-2">
-                    {exam.title}
-                  </h3>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white line-clamp-2 leading-snug">
+                      {exam.title}
+                    </h3>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                      <span>{exam.attemptMode === 'unlimited' ? 'Mode: Berulang' : 'Mode: Sekali (1x)'}</span>
+                      {profile.teacherName && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span className="truncate max-w-[180px]">{profile.teacherName}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
 
                   {/* Badge Status Pengerjaan Siswa di Perangkat */}
                   {(() => {
                     if (!isStudentCompleted || !matchedSub) return null;
-                    const isAutoZero =
-                      String(matchedSub.id || '').startsWith('SUB-STOP0-') ||
-                      String(matchedSub.statusNote || '').toLowerCase().includes('dihentikan');
                     if (isAutoZero) {
                       return (
-                        <div className="mb-3 px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center justify-between gap-2 text-xs">
+                        <div className="px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center justify-between gap-2 text-xs">
                           <span className="font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
                             <StopCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
-                            <span>Nilai 0 (Belum Ujian Saat Dihentikan)</span>
+                            <span>Nilai 0 (Dihentikan)</span>
                           </span>
                           <span className="font-mono font-extrabold text-rose-800 dark:text-rose-200">
-                            Nilai: {matchedSub.percentage}%
+                            {matchedSub.percentage}%
                           </span>
                         </div>
                       );
                     }
                     return (
-                      <div className="mb-3 px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
+                      <div className="px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
                         <span className="font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
                           <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                           <span>Sudah Dikerjakan</span>
@@ -2801,166 +3007,58 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     );
                   })()}
                   {isStudentNeedsRetake && (
-                    <div className="mb-3 px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-200">
+                    <div className="px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-200">
                       <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                       <span>Diizinkan Mengulang Ujian</span>
                     </div>
                   )}
 
-                  {/* Info Metadata */}
-                  <div className="space-y-2 text-xs text-slate-600 dark:text-slate-300 mb-5 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Durasi Pengerjaan:</span>
-                      <span className="font-semibold font-mono">{exam.durationMinutes} Menit</span>
+                  {/* Unboxed Metadata Line */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 tabular-nums">
+                      <span><strong className="text-slate-800 dark:text-slate-200">{exam.durationMinutes}</strong> Menit</span>
+                      <span className="text-slate-300 dark:text-slate-700">·</span>
+                      <span><strong className="text-slate-800 dark:text-slate-200">{exam.totalQuestions}</strong> Soal</span>
+                      <span className="text-slate-300 dark:text-slate-700">·</span>
+                      <span>KKM <strong className="text-slate-800 dark:text-slate-200">{exam.passingScore}</strong></span>
                     </div>
+
                     {exam.startsAt && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Jadwal Pelaksanaan:</span>
-                        <span className="font-semibold font-mono text-indigo-600 dark:text-indigo-400">
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 tabular-nums">
+                        <Calendar className="w-3.5 h-3.5 shrink-0" />
+                        <span>
                           {new Date(exam.startsAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })} {new Date(exam.startsAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                           {exam.endsAt ? ` - ${new Date(exam.endsAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}` : ''}
                         </span>
                       </div>
                     )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Jumlah Soal:</span>
-                      <span className="font-semibold font-mono">{exam.totalQuestions} Butir</span>
+
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] pt-0.5">
+                      {exam.token ? (
+                        <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-medium">
+                          <Key className="w-3.5 h-3.5 shrink-0" />
+                          <span>Memerlukan Token</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                          <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>Tanpa Token</span>
+                        </span>
+                      )}
+                      {exam.isStrict && (
+                        <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
+                          <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                          <span>Deteksi Tab Aktif</span>
+                        </span>
+                      )}
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Nilai Ketuntasan (KKM):</span>
-                      <span className="font-semibold font-mono">{exam.passingScore}</span>
-                    </div>
-                    {profile.teacherName && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400">Pengampu:</span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[170px]">{profile.teacherName}</span>
-                      </div>
-                    )}
-                    {exam.token ? (
-                      <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-medium pt-1 border-t border-slate-200 dark:border-slate-700">
-                        <Key className="w-3.5 h-3.5 shrink-0" />
-                        <span>Memerlukan Token Ujian Pengawas</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium pt-1 border-t border-slate-200 dark:border-slate-700">
-                        <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-                        <span>Masuk Langsung (Tanpa Token)</span>
-                      </div>
-                    )}
-                    {exam.isStrict && (
-                      <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium pt-1 border-t border-slate-200 dark:border-slate-700">
-                        <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-                        <span>Mode Ketat: Deteksi Pindah Tab Aktif</span>
-                      </div>
-                    )}
                   </div>
                 </div>
 
                 {/* Action button */}
-                {(() => {
-                  const isStopped = StorageService.isExamStopped(exam);
-                  const isLate = Boolean(exam.allowLateSubmission) || (Number(exam.lateExtensionMinutes) || 0) > 0;
-                  const isSessionActive = exam.sessionStatus === 'active';
-                  const isAutoZero = Boolean(
-                    matchedSub &&
-                    (String(matchedSub.id || '').startsWith('SUB-STOP0-') ||
-                      String(matchedSub.statusNote || '').toLowerCase().includes('dihentikan'))
-                  );
-
-                  if (isStudentCompleted && exam.attemptMode !== 'unlimited') {
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const fn = (window as any).__examflowTriggerLookup;
-                          const query = studentNo.trim() || studentName.trim();
-                          if (typeof fn === 'function' && query) {
-                            fn(query, 'completed');
-                          } else {
-                            setIsScoreLookupOpen(true);
-                          }
-                        }}
-                        className={`w-full py-2.5 px-4 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer ${
-                          isAutoZero
-                            ? 'bg-rose-600 hover:bg-rose-700'
-                            : 'bg-emerald-600 hover:bg-emerald-700'
-                        }`}
-                      >
-                        {isAutoZero ? <StopCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                        <span>
-                          {isAutoZero
-                            ? `Dihentikan (Nilai: ${matchedSub?.percentage ?? 0}%) · Lihat Rincian`
-                            : `Sudah Dikerjakan${exam.allowReview && matchedSub ? ` (Nilai: ${matchedSub.percentage}%)` : ''} · Lihat Hasil`}
-                        </span>
-                      </button>
-                    );
-                  }
-
-                  if (isStopped) {
-                    return (
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full py-2.5 px-4 bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
-                      >
-                        <StopCircle className="w-3.5 h-3.5 text-rose-600" />
-                        <span>Sesi Ujian Dihentikan oleh Pengawas</span>
-                      </button>
-                    );
-                  }
-
-                  if (exam.sessionStatus === 'ended') {
-                    return (
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
-                      >
-                        <StopCircle className="w-3.5 h-3.5" />
-                        <span>Sesi Ujian Telah Ditutup</span>
-                      </button>
-                    );
-                  }
-
-                  if (isLate) {
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => handleStartExamClick(exam)}
-                        className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                        title="Toleransi keterlambatan aktif oleh guru pengawas"
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>Lanjutkan (Siswa Terlambat)</span>
-                      </button>
-                    );
-                  }
-
-                  if (!isSessionActive) {
-                    return (
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full py-2.5 px-4 bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-semibold text-xs rounded-xl shadow-xs cursor-not-allowed flex items-center justify-center gap-2"
-                        title="Guru pengawas belum menekan tombol Mulai Sesi Ujian"
-                      >
-                        <Clock className="w-3.5 h-3.5 text-blue-500" />
-                        <span>Menunggu Guru Memulai Ujian</span>
-                      </button>
-                    );
-                  }
-
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => handleStartExamClick(exam)}
-                      className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      {isStudentCompleted ? <RotateCcw className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                      <span>{isStudentCompleted ? 'Kerjakan Ulang Ujian' : 'Mulai Kerjakan Ujian'}</span>
-                    </button>
-                  );
-                })()}
+                <div className="pt-4 mt-4 border-t border-slate-100 dark:border-slate-800">
+                  {renderActionBtn(false)}
+                </div>
               </div>
             );
           })}
@@ -3375,36 +3473,36 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                                 >
                                   <div className="space-y-1 min-w-0">
                                     <div className="flex flex-wrap items-center gap-1.5">
-                                      <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
+                                      <span className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-400">
                                         {exam.subject} · Kelas {exam.grade}
                                       </span>
                                       {needsRetake ? (
-                                        <span className="px-2 py-0.5 rounded bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 text-[10px] font-bold border border-orange-200 dark:border-orange-800">
+                                        <span className="px-2 py-0.5 rounded bg-orange-100 dark:bg-orange-950 text-orange-700 dark:text-orange-300 text-[11px] font-semibold border border-orange-200 dark:border-orange-800">
                                           Perlu Mengulang Ujian
                                         </span>
                                       ) : (
-                                        <span className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
+                                        <span className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[11px] font-semibold">
                                           Belum Dikerjakan
                                         </span>
                                       )}
                                       {isStopped ? (
-                                        <span className="px-2 py-0.5 rounded bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 text-[10px] font-bold">
+                                        <span className="px-2 py-0.5 rounded bg-rose-100 dark:bg-rose-950 text-rose-700 dark:text-rose-300 text-[11px] font-semibold">
                                           Dihentikan
                                         </span>
                                       ) : isEnded ? (
-                                        <span className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-bold">
+                                        <span className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-semibold">
                                           Sesi Ditutup
                                         </span>
                                       ) : isLate ? (
-                                        <span className="px-2 py-0.5 rounded bg-amber-200/70 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 text-[10px] font-bold">
+                                        <span className="px-2 py-0.5 rounded bg-amber-200/70 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 text-[11px] font-semibold">
                                           Toleransi Terlambat
                                         </span>
                                       ) : !isSessionActive ? (
-                                        <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[10px] font-bold">
+                                        <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[11px] font-semibold">
                                           Menunggu Guru
                                         </span>
                                       ) : (
-                                        <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
+                                        <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold">
                                           Sesi Aktif
                                         </span>
                                       )}

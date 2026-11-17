@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { AppSettings } from '../types';
+import React, { useState, useEffect } from 'react';
+import { AppSettings, UiPreset } from '../types';
 import { StorageService } from '../services/storage';
 import { GasClient, PingResult } from '../services/gasClient';
 import { AiGeneratorService } from '../services/aiGenerator';
@@ -16,7 +16,10 @@ import {
   Moon, 
   Sun,
   ShieldCheck,
-  RotateCcw
+  RotateCcw,
+  Layout,
+  PanelLeft,
+  Rows3
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -43,6 +46,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [isValidatingGemini, setIsValidatingGemini] = useState(false);
   const [geminiResult, setGeminiResult] = useState<{ valid: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setFormData(settings);
+    }
+  }, [isOpen, settings]);
 
   if (!isOpen) return null;
 
@@ -231,6 +240,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
               Preferensi Tampilan & Suara
             </h4>
+
+            {/* UI Layout Preset Selector (3 Alternatif Tampilan) */}
+            <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
+              <div>
+                <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  Gaya Tata Letak & Tampilan Aplikasi (3 Alternatif)
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  Mengubah kerapian tata letak tanpa mengubah alur kerja, fitur, maupun menu yang ada.
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {([
+                  {
+                    id: 'classic_clean' as UiPreset,
+                    title: '1. Minimalis Rapi',
+                    desc: 'Header atas bersih, metadata ringkas tanpa kotak bertumpuk.',
+                    icon: Layout
+                  },
+                  {
+                    id: 'sidebar_workspace' as UiPreset,
+                    title: '2. Sidebar Workspace',
+                    desc: 'Menu utama & sub-menu guru terkelompok di panel kiri 2 kolom.',
+                    icon: PanelLeft
+                  },
+                  {
+                    id: 'academic_compact' as UiPreset,
+                    title: '3. Akademik Kompak',
+                    desc: 'Bernuansa kertas hangat & baris horizontal padat agar cepat dipindai.',
+                    icon: Rows3
+                  }
+                ]).map((preset) => {
+                  const Icon = preset.icon;
+                  const active = (formData.uiPreset || 'sidebar_workspace') === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, uiPreset: preset.id })}
+                      className={`text-left p-3 rounded-xl border transition-all cursor-pointer ${
+                        active
+                          ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 ring-1 ring-indigo-500'
+                          : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <Icon className={`w-4 h-4 ${active ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`} />
+                        {active && (
+                          <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">Aktif</span>
+                        )}
+                      </div>
+                      <div className={`text-xs font-bold ${active ? 'text-indigo-900 dark:text-indigo-200' : 'text-slate-800 dark:text-slate-200'}`}>
+                        {preset.title}
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                        {preset.desc}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* Theme Selector */}
             <div className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-800">

@@ -203,14 +203,14 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
           <span>Sisipkan Media Soal:</span>
         </span>
 
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
           {(['none', 'image', 'audio', 'video'] as const).map(m => (
             <label
               key={m}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg cursor-pointer transition-colors ${
+              className={`h-8 inline-flex items-center gap-1.5 px-2.5 rounded-lg cursor-pointer transition-colors border ${
                 mediaType === m 
-                  ? 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold' 
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-700/40'
+                  ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 font-semibold' 
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100/70 dark:hover:bg-slate-800'
               }`}
             >
               <input
@@ -250,10 +250,10 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
                 onChange('image', '');
                 setActiveTab('ai_image');
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold transition-colors cursor-pointer"
+              className="h-8 inline-flex items-center gap-1.5 px-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-semibold transition-colors cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Generate Gambar/Grafik AI</span>
+              <span>Generate Gambar AI</span>
             </button>
           )}
         </div>
@@ -261,15 +261,15 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
 
       {/* 2. Media Source Tabs (Upload PC vs URL Link vs AI Generate Gambar/Grafik) */}
       {mediaType !== 'none' && (
-        <div className="space-y-3 pt-1 border-t border-slate-200 dark:border-slate-700/60">
+        <div className="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-700/60">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="inline-flex flex-wrap p-1 bg-slate-200/70 dark:bg-slate-900 rounded-lg text-xs font-medium gap-1">
               <button
                 type="button"
                 onClick={() => setActiveTab('upload')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                className={`h-7 inline-flex items-center gap-1.5 px-2.5 rounded-md transition-all cursor-pointer ${
                   activeTab === 'upload'
-                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold'
+                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-2xs font-semibold'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
@@ -280,9 +280,9 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveTab('url')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                className={`h-7 inline-flex items-center gap-1.5 px-2.5 rounded-md transition-all cursor-pointer ${
                   activeTab === 'url'
-                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold'
+                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-2xs font-semibold'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
@@ -294,10 +294,10 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveTab('ai_image')}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                  className={`h-7 inline-flex items-center gap-1.5 px-2.5 rounded-md transition-all cursor-pointer ${
                     activeTab === 'ai_image'
-                      ? 'bg-gradient-to-r from-amber-500 to-indigo-600 text-white shadow-xs font-semibold'
-                      : 'text-amber-700 dark:text-amber-300 hover:bg-amber-100/60 dark:hover:bg-amber-950/40'
+                      ? 'bg-indigo-600 text-white shadow-2xs font-semibold'
+                      : 'text-indigo-700 dark:text-indigo-300 hover:bg-white/70 dark:hover:bg-slate-800'
                   }`}
                 >
                   <Sparkles className="w-3.5 h-3.5" />
@@ -310,7 +310,7 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
               <button
                 type="button"
                 onClick={handleRemoveMedia}
-                className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 dark:text-rose-400 transition-colors p-1 cursor-pointer"
+                className="h-7 inline-flex items-center gap-1.5 px-2.5 rounded-md text-xs font-medium text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                 title="Hapus media dari soal"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -364,11 +364,11 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
                   <div className="flex items-center gap-2 truncate">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                     <span className="font-semibold truncate">{fileDetails.name}</span>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">
+                    <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono">
                       ({fileDetails.sizeFormatted})
                     </span>
                   </div>
-                  <span className="text-[10px] bg-emerald-200 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100 px-1.5 py-0.5 rounded font-semibold shrink-0">
+                  <span className="text-[11px] bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-100 px-2 py-0.5 rounded font-semibold shrink-0">
                     Siap Disimpan
                   </span>
                 </div>
@@ -419,11 +419,11 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
 
           {/* TAB 3: GENERATE GAMBAR / GRAFIK AI -> SIMPAN SUBFOLDER GDRIVE */}
           {activeTab === 'ai_image' && mediaType === 'image' && (
-            <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/60 space-y-3">
+            <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-900/60 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                     <span>Generator Ilustrasi & Grafik Soal AI</span>
                   </h4>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -433,8 +433,8 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
 
                 <div className="flex items-center gap-2">
                   {isDriveConnected || hasGasUrl ? (
-                    <span className="px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[10.5px] font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
+                    <span className="h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 inline-flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
                       <span>{isDriveConnected ? 'GDrive Terhubung' : 'Via GDrive GAS'}</span>
                     </span>
                   ) : (
@@ -442,9 +442,9 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
                       type="button"
                       disabled={isConnectingDrive}
                       onClick={handleConnectDrive}
-                      className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold flex items-center gap-1.5 shadow-2xs disabled:opacity-50 cursor-pointer"
+                      className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs disabled:opacity-50 cursor-pointer"
                     >
-                      {isConnectingDrive ? <Loader2 className="w-3 h-3 animate-spin" /> : <CloudUpload className="w-3 h-3" />}
+                      {isConnectingDrive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudUpload className="w-3.5 h-3.5" />}
                       <span>Hubungkan Google Drive</span>
                     </button>
                   )}
@@ -452,14 +452,14 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
               </div>
 
               {/* Pilihan Jenis Visual */}
-              <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+              <div className="grid grid-cols-3 gap-1.5 text-xs">
                 <button
                   type="button"
                   onClick={() => setAiVisualType('auto')}
-                  className={`py-1.5 px-2 rounded-lg border font-semibold transition-all cursor-pointer ${
+                  className={`h-8 px-2.5 rounded-lg border font-medium transition-all cursor-pointer ${
                     aiVisualType === 'auto'
-                      ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-500 text-indigo-700 dark:text-indigo-300'
-                      : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                      ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-400 text-indigo-700 dark:text-indigo-300 font-semibold'
+                      : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
                   Otomatis Sesuai Soal
@@ -467,25 +467,25 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
                 <button
                   type="button"
                   onClick={() => setAiVisualType('illustration')}
-                  className={`py-1.5 px-2 rounded-lg border font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                  className={`h-8 px-2.5 rounded-lg border font-medium inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                     aiVisualType === 'illustration'
-                      ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-500 text-indigo-700 dark:text-indigo-300'
-                      : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                      ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-400 text-indigo-700 dark:text-indigo-300 font-semibold'
+                      : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
-                  <ImageIcon className="w-3 h-3" />
+                  <ImageIcon className="w-3.5 h-3.5" />
                   <span>Ilustrasi / Diagram</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setAiVisualType('chart')}
-                  className={`py-1.5 px-2 rounded-lg border font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                  className={`h-8 px-2.5 rounded-lg border font-medium inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                     aiVisualType === 'chart'
-                      ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-500 text-indigo-700 dark:text-indigo-300'
-                      : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                      ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-400 text-indigo-700 dark:text-indigo-300 font-semibold'
+                      : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
-                  <BarChart3 className="w-3 h-3" />
+                  <BarChart3 className="w-3.5 h-3.5" />
                   <span>Grafik / Bagan Data</span>
                 </button>
               </div>
@@ -493,14 +493,14 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
               {/* Deskripsi Visual */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                     Deskripsi Gambar atau Data Grafik:
                   </label>
                   {questionPrompt && (
                     <button
                       type="button"
                       onClick={() => setAiVisualPrompt(questionPrompt.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400))}
-                      className="text-[10.5px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                      className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
                     >
                       Salin dari Teks Soal
                     </button>
@@ -510,20 +510,20 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
                   rows={3}
                   value={aiVisualPrompt}
                   onChange={(e) => setAiVisualPrompt(e.target.value)}
-                  placeholder="Contoh: Grafik batang jumlah panen padi Desa Sukamaju tahun 2021 (40 ton), 2022 (55 ton), 2023 (50 ton), 2024 (70 ton) — ATAU: Diagram siklus daur air lengkap dengan tanda panah evaporasi, kondensasi, presipitasi..."
+                  placeholder="Contoh: Grafik batang jumlah panen padi Desa Sukamaju tahun 2021 (40 ton), 2022 (55 ton), 2023 (50 ton), 2024 (70 ton)..."
                   className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[10.5px] text-slate-400">
-                  Tip: Jika kolom deskripsi dikosongkan, AI akan membaca teks pertanyaan soal di atas secara otomatis.
+                <span className="text-[11px] text-slate-400">
+                  Tip: Jika dikosongkan, AI membaca teks pertanyaan soal di atas secara otomatis.
                 </span>
                 <button
                   type="button"
                   disabled={isGeneratingVisual}
                   onClick={handleGenerateAiVisual}
-                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
+                  className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-2xs disabled:opacity-50 cursor-pointer transition-colors"
                 >
                   {isGeneratingVisual ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
                   <span>{isGeneratingVisual ? 'Membuat & Menyimpan ke GDrive...' : 'Generate Gambar & Simpan ke GDrive'}</span>
@@ -565,7 +565,7 @@ export const MediaUploaderInput: React.FC<MediaUploaderInputProps> = ({
                   <span>Pratinjau Media yang Disematkan:</span>
                 </div>
                 {mediaUrl.includes('drive.google.com') && (
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                     Link Google Drive Aktif
                   </span>
                 )}

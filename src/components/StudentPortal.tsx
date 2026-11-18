@@ -1498,7 +1498,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // -------------------------------------------------------------
   if (completedSubmission && selectedExam) {
     return (
-      <div className="max-w-3xl mx-auto py-8 px-4 sm:px-6">
+      <div key="student-view-results" className="max-w-3xl mx-auto py-8 px-4 sm:px-6">
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-6 sm:p-8 text-center animate-fadeIn">
           {/* School Header */}
           <div className="flex flex-col items-center justify-center gap-2 mb-6 pb-6 border-b border-slate-100 dark:border-slate-800">
@@ -1788,7 +1788,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     const answeredCount = answeredQuestionsCount;
 
     return (
-      <div className="min-h-screen pb-16 bg-slate-100 dark:bg-slate-950 transition-colors">
+      <div key="student-view-active-exam" className="min-h-screen pb-16 bg-slate-100 dark:bg-slate-950 transition-colors">
         {/* Floating Notification for Revision Quota & Locked Answers */}
         {revisionAlertMessage && (
           <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[92%] p-4 bg-rose-600 text-white rounded-2xl shadow-2xl flex items-start gap-3 animate-fadeIn border border-white/20">
@@ -2628,7 +2628,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // VIEW 3: TODAY'S EXAM SCHEDULE LANDING (Default Student View)
   // -------------------------------------------------------------
   return (
-    <div className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8 animate-fadeIn">
+    <div key="student-view-landing" className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8 animate-fadeIn">
       {/* Notice Banner / Modal untuk Status Henti Permanen atau Belum Dimulai */}
       {serverStoppedNotice && (
         <div className="bg-rose-50 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-800 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-md animate-fadeIn">
@@ -2658,7 +2658,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
       {!isPortalLoggedIn ? (
         /* STUDENT PORTAL LOGIN SCREEN (Before Today's Schedule) */
-        <div className="max-w-md mx-auto py-4 sm:py-8">
+        <div key="portal-login-gate" className="max-w-md mx-auto py-4 sm:py-8">
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 shadow-xl border border-slate-200 dark:border-slate-800 animate-fadeIn">
             <div className="text-center pb-5 mb-5 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center justify-center gap-3 mb-3">
@@ -2766,15 +2766,15 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   className="w-full py-2.5 px-5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                 >
                   {isPortalLoggingIn ? (
-                    <>
+                    <span key="login-busy" className="inline-flex items-center gap-2">
                       <RefreshCw className="w-4 h-4 animate-spin" />
                       <span>Menyinkronkan Jadwal & Nilai...</span>
-                    </>
+                    </span>
                   ) : (
-                    <>
+                    <span key="login-idle" className="inline-flex items-center gap-2">
                       <Play className="w-3.5 h-3.5 fill-current" />
                       <span>Masuk & Lihat Jadwal Ujian</span>
-                    </>
+                    </span>
                   )}
                 </button>
 
@@ -2792,14 +2792,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                   className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingSchedule ? 'animate-spin' : ''}`} />
-                  <span>{isRefreshingSchedule ? 'Menyegarkan Data...' : 'Sinkronkan Data Siswa & Ujian Terbaru'}</span>
+                  {isRefreshingSchedule ? (
+                    <span key="sync-busy">Menyegarkan Data...</span>
+                  ) : (
+                    <span key="sync-idle">Sinkronkan Data Siswa & Ujian Terbaru</span>
+                  )}
                 </button>
               </div>
             </form>
           </div>
         </div>
       ) : (
-      <>
+      <div key="portal-schedule-view" className="space-y-8">
       {/* School Kop & Branding Banner */}
       {uiPreset === 'academic_compact' ? (
         <div className="bg-white dark:bg-slate-900 rounded-xl px-5 py-4 border border-stone-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -2908,7 +2912,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             title="Periksa ulang status ujian dan katalog ujian terbaru dari guru pengawas"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingSchedule ? 'animate-spin' : ''}`} />
-            <span>{isRefreshingSchedule ? 'Menyegarkan...' : 'Segarkan Jadwal'}</span>
+            {isRefreshingSchedule ? (
+              <span key="hdr-sync-busy">Menyegarkan...</span>
+            ) : (
+              <span key="hdr-sync-idle">Segarkan Jadwal</span>
+            )}
           </button>
 
           <button
@@ -3424,7 +3432,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           </p>
         </div>
       )}
-      </>
+      </div>
       )}
 
       {/* STUDENT LOGIN / VERIFICATION MODAL */}

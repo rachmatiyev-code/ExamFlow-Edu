@@ -106,6 +106,18 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   });
   const [examToken, setExamToken] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [portalLoginError, setPortalLoginError] = useState<string | null>(null);
+  const [isPortalLoggingIn, setIsPortalLoggingIn] = useState(false);
+  const [isPortalLoggedIn, setIsPortalLoggedIn] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('examflow_student_identity');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return Boolean(String(parsed?.studentNo || '').trim() && String(parsed?.studentName || '').trim());
+      }
+    } catch {}
+    return false;
+  });
   const [isDownloadingQuestions, setIsDownloadingQuestions] = useState(false);
   const [serverStudentAttempts, setServerStudentAttempts] = useState<Submission[]>([]);
   const [submissionVersion, setSubmissionVersion] = useState(0);
@@ -1018,6 +1030,73 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }
   }, [isExamActive, selectedExam, userAnswers, flaggedQuestions, currentQuestionIndex, timeRemainingSeconds, studentNo, studentName, studentClass, unlockedExplanationIds, initialLockedAnswers]);
 
+  const handlePortalLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPortalLoginError(null);
+    const cleanNo = studentNo.trim();
+    const cleanName = studentName.trim();
+    const cleanClass = studentClass.trim();
+
+    if (!cleanNo) {
+      setPortalLoginError('Nomor Induk Siswa (NIS / NISN) wajib diisi.');
+      return;
+    }
+    if (!cleanName) {
+      setPortalLoginError('Nama lengkap siswa wajib diisi.');
+      return;
+    }
+
+    setIsPortalLoggingIn(true);
+    try {
+      await performFullStudentSync();
+
+      const roster = getLatestStudentsList();
+      const qNum = normalizeNumericStr(cleanNo);
+      const matchedRoster = roster.find(s => {
+        const sNo = normalizeNumericStr(s.studentNo);
+        const sNis = normalizeNumericStr(s.nis);
+        const sNisn = normalizeNumericStr(s.nisn);
+        return Boolean(qNum && ((sNo && sNo === qNum) || (sNis && sNis === qNum) || (sNisn && sNisn === qNum)));
+      });
+
+      const finalNo = cleanNo;
+      const finalName = matchedRoster?.fullName ? matchedRoster.fullName : cleanName;
+      const finalClass = cleanClass || matchedRoster?.classGrade || '';
+
+      setStudentNo(finalNo);
+      setStudentName(finalName);
+      if (finalClass) setStudentClass(finalClass);
+
+      persistStudentIdentity(finalNo, finalName, finalClass);
+
+      const attempts = await GasClient.fetchStudentAttemptsFromServer(finalNo, finalName);
+      if (Array.isArray(attempts)) {
+        setServerStudentAttempts(prev => mergeSubmissionsSources(prev, attempts));
+      }
+
+      setSubmissionVersion(v => v + 1);
+      setIsPortalLoggedIn(true);
+    } catch {
+      persistStudentIdentity(cleanNo, cleanName, cleanClass);
+      setIsPortalLoggedIn(true);
+    } finally {
+      setIsPortalLoggingIn(false);
+    }
+  };
+
+  const handlePortalLogout = () => {
+    setIsPortalLoggedIn(false);
+    setStudentNo('');
+    setStudentName('');
+    setStudentClass('');
+    setPortalLoginError(null);
+    setServerStudentAttempts([]);
+    setPortalFilter('all');
+    try {
+      localStorage.removeItem('examflow_student_identity');
+    } catch {}
+  };
+
   const handleConfirmLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanNo = studentNo.trim();
@@ -1039,6 +1118,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }
 
     if (!selectedExam) return;
+
+    persistStudentIdentity(cleanNo, cleanName, studentClass);
+    setIsPortalLoggedIn(true);
 
     // Tarik status kontrol sesi terbaru dari server lokal (dan Sheets jika terhubung)
     const controls = await GasClient.fetchExamControlsFromServer();
@@ -2574,6 +2656,150 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         </div>
       )}
 
+      {!isPortalLoggedIn ? (
+        /* STUDENT PORTAL LOGIN SCREEN (Before Today's Schedule) */
+        <div className="max-w-md mx-auto py-4 sm:py-8">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 sm:p-8 shadow-xl border border-slate-200 dark:border-slate-800 animate-fadeIn">
+            <div className="text-center pb-5 mb-5 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-center gap-3 mb-3">
+                <img
+                  src={sanitizeLogoUrl(profile.regionalGovLogoUrl, PEMKOT_MALANG_LOGO_SVG)}
+                  alt="Logo Pemda"
+                  referrerPolicy="no-referrer"
+                  className="w-12 h-12 rounded-xl object-contain bg-slate-50 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700"
+                />
+                <img
+                  src={sanitizeLogoUrl(profile.logoUrl, SDN_PISANGCANDI_1_LOGO_SVG)}
+                  alt={profile.name}
+                  referrerPolicy="no-referrer"
+                  className="w-12 h-12 rounded-xl object-contain bg-slate-50 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700"
+                />
+              </div>
+              <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                {profile.name || 'SDN PISANGCANDI 1'}
+              </h4>
+              <h2 className="text-lg font-extrabold text-slate-900 dark:text-white mt-1">
+                Login Peserta Ujian
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Masuk terlebih dahulu untuk melihat Jadwal Ujian Tersedia Hari Ini sesuai status pengerjaan dan nilai ujian Anda.
+              </p>
+            </div>
+
+            {portalLoginError && (
+              <div className="mb-4 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-xs text-rose-600 dark:text-rose-400">
+                {portalLoginError}
+              </div>
+            )}
+
+            <form onSubmit={handlePortalLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nomor Induk Siswa (NIS / NISN)
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: 1001"
+                    value={studentNo}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setStudentNo(val);
+                      setPortalLoginError(null);
+                      const roster = getLatestStudentsList();
+                      const qNum = normalizeNumericStr(val);
+                      const found = roster.find(s => {
+                        const sNo = normalizeNumericStr(s.studentNo);
+                        const sNis = normalizeNumericStr(s.nis);
+                        const sNisn = normalizeNumericStr(s.nisn);
+                        return Boolean(qNum && ((sNo && sNo === qNum) || (sNis && sNis === qNum) || (sNisn && sNisn === qNum)));
+                      });
+                      if (found) {
+                        setStudentName(found.fullName);
+                        if (found.classGrade) setStudentClass(found.classGrade);
+                      }
+                    }}
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                </div>
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Masukkan NIS / NISN terdaftar agar nama & kelas terisi otomatis.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nama Lengkap Siswa
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Masukkan nama lengkap Anda"
+                  value={studentName}
+                  onChange={(e) => {
+                    setStudentName(e.target.value);
+                    setPortalLoginError(null);
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Kelas / Rombel
+                </label>
+                <input
+                  type="text"
+                  placeholder="Contoh: Kelas 4A"
+                  value={studentClass}
+                  onChange={(e) => setStudentClass(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-2 space-y-2.5">
+                <button
+                  type="submit"
+                  disabled={isPortalLoggingIn}
+                  className="w-full py-2.5 px-5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  {isPortalLoggingIn ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Menyinkronkan Jadwal & Nilai...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Masuk & Lihat Jadwal Ujian</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isRefreshingSchedule}
+                  onClick={async () => {
+                    setIsRefreshingSchedule(true);
+                    try {
+                      await performFullStudentSync();
+                    } finally {
+                      setIsRefreshingSchedule(false);
+                    }
+                  }}
+                  className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingSchedule ? 'animate-spin' : ''}`} />
+                  <span>{isRefreshingSchedule ? 'Menyegarkan Data...' : 'Sinkronkan Data Siswa & Ujian Terbaru'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : (
+      <>
       {/* School Kop & Branding Banner */}
       {uiPreset === 'academic_compact' ? (
         <div className="bg-white dark:bg-slate-900 rounded-xl px-5 py-4 border border-stone-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -2645,28 +2871,24 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             <span>Jadwal Ujian Tersedia Hari Ini</span>
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Pilih mata pelajaran yang sedang diujikan sesuai instruksi pengawas ruangan.
+            Daftar ujian dan nilai ditampilkan sesuai hasil pengerjaan <strong>{studentName || 'Siswa'}</strong> ({studentNo || '-'}).
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
           {(studentNo.trim() || studentName.trim()) && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-xs font-semibold rounded-lg border border-emerald-200 dark:border-emerald-800">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-xs font-semibold rounded-lg border border-emerald-200 dark:border-emerald-800">
               <User className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>{studentName || 'Siswa'} ({studentNo || '-'})</span>
+              <span>
+                {studentName || 'Siswa'} ({studentNo || '-'}){studentClass ? ` · ${studentClass}` : ''}
+              </span>
               <button
                 type="button"
-                onClick={() => {
-                  setStudentNo('');
-                  setStudentName('');
-                  setStudentClass('');
-                  setServerStudentAttempts([]);
-                  try { localStorage.removeItem('examflow_student_identity'); } catch {}
-                }}
-                className="ml-1 text-emerald-600 hover:text-rose-600 dark:text-emerald-300 dark:hover:text-rose-400 cursor-pointer"
-                title="Ganti identitas peserta di perangkat ini"
+                onClick={handlePortalLogout}
+                className="ml-1 px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950 text-[11px] font-bold border border-rose-200 dark:border-rose-800 transition-colors cursor-pointer"
+                title="Keluar dan ganti peserta ujian"
               >
-                <X className="w-3.5 h-3.5" />
+                Ganti Siswa
               </button>
             </div>
           )}
@@ -2711,12 +2933,34 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       {activeExams.length > 0 ? (() => {
         const cleanCurrentNo = normalizeNumericStr(studentNo);
         const cleanCurrentName = studentName.trim().toLowerCase().replace(/\s+/g, ' ');
+        const matchedRosterStudent = getLatestStudentsList().find(s => {
+          const sNo = normalizeNumericStr(s.studentNo);
+          const sNis = normalizeNumericStr(s.nis);
+          const sNisn = normalizeNumericStr(s.nisn);
+          const sName = String(s.fullName || '').trim().toLowerCase().replace(/\s+/g, ' ');
+          return (
+            (Boolean(cleanCurrentNo) && ((sNo && sNo === cleanCurrentNo) || (sNis && sNis === cleanCurrentNo) || (sNisn && sNisn === cleanCurrentNo))) ||
+            (Boolean(cleanCurrentName) && sName === cleanCurrentName)
+          );
+        });
+        const rosterNo = normalizeNumericStr(matchedRosterStudent?.studentNo);
+        const rosterNis = normalizeNumericStr(matchedRosterStudent?.nis);
+        const rosterNisn = normalizeNumericStr(matchedRosterStudent?.nisn);
+        const rosterName = String(matchedRosterStudent?.fullName || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
         const combinedDeviceSubs = mergeSubmissionsSources(StorageService.getSubmissions(), serverStudentAttempts);
         const currentStudentSubs = (cleanCurrentNo || cleanCurrentName)
           ? combinedDeviceSubs.filter(s => {
               const sNo = normalizeNumericStr(s.studentNo);
               const sName = String(s.studentName || '').trim().toLowerCase().replace(/\s+/g, ' ');
-              return (Boolean(cleanCurrentNo) && sNo === cleanCurrentNo) || (Boolean(cleanCurrentName) && sName === cleanCurrentName);
+              return (
+                (Boolean(cleanCurrentNo) && sNo === cleanCurrentNo) ||
+                (Boolean(cleanCurrentName) && sName === cleanCurrentName) ||
+                (Boolean(rosterNo) && sNo === rosterNo) ||
+                (Boolean(rosterNis) && sNo === rosterNis) ||
+                (Boolean(rosterNisn) && sNo === rosterNisn) ||
+                (Boolean(rosterName) && sName === rosterName)
+              );
             })
           : [];
 
@@ -2846,6 +3090,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             const renderActionBtn = (compactWidth = false) => {
               const widthClass = compactWidth ? 'w-full sm:w-auto sm:min-w-[210px]' : 'w-full';
               if (isStudentCompleted && exam.attemptMode !== 'unlimited') {
+                const roundedPct = Math.round(Number(matchedSub?.percentage) || 0);
                 return (
                   <button
                     type="button"
@@ -2862,8 +3107,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     {isAutoZero ? <StopCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                     <span>
                       {isAutoZero
-                        ? `Dihentikan (Nilai: ${matchedSub?.percentage ?? 0}%) · Lihat Rincian`
-                        : `Sudah Dikerjakan${exam.allowReview && matchedSub ? ` (${matchedSub.percentage}%)` : ''} · Lihat Hasil`}
+                        ? `Dihentikan (Nilai: ${roundedPct}%) · Lihat Rincian`
+                        : `Sudah Dikerjakan${matchedSub ? ` (Nilai: ${roundedPct}%)` : ''} · Lihat Hasil`}
                     </span>
                   </button>
                 );
@@ -2939,6 +3184,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             // ALTERNATIF 3: AKADEMIK KOMPAK (Horizontal Split-Row Schedule Item)
             // =========================================================================
             if (uiPreset === 'academic_compact') {
+              const roundedPct = Math.round(Number(matchedSub?.percentage) || 0);
               return (
                 <div
                   key={exam.id}
@@ -2954,6 +3200,20 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         {exam.attemptMode === 'unlimited' ? 'Berulang' : '1x Kesempatan'}
                       </span>
                       {renderSessionPill()}
+                      {isStudentCompleted && matchedSub ? (
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border inline-flex items-center gap-1 ${
+                          isAutoZero
+                            ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                            : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                        }`}>
+                          {isAutoZero ? <StopCircle className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
+                          <span>Sudah Dikerjakan · Nilai: {roundedPct}%</span>
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1">
+                          <span>Belum Dikerjakan</span>
+                        </span>
+                      )}
                     </div>
 
                     <h3 className="text-base font-bold text-slate-900 dark:text-white leading-snug">
@@ -3039,33 +3299,44 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                     </div>
                   </div>
 
-                  {/* Badge Status Pengerjaan Siswa di Perangkat */}
+                  {/* Badge Status Pengerjaan & Nilai Siswa yang Login */}
                   {(() => {
-                    if (!isStudentCompleted || !matchedSub) return null;
-                    if (isAutoZero) {
+                    if (isStudentCompleted && matchedSub) {
+                      const roundedPct = Math.round(Number(matchedSub.percentage) || 0);
+                      if (isAutoZero) {
+                        return (
+                          <div className="px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center justify-between gap-2 text-xs">
+                            <span className="font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                              <StopCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                              <span>Nilai 0 (Dihentikan)</span>
+                            </span>
+                            <span className="font-mono font-extrabold text-rose-800 dark:text-rose-200">
+                              Nilai: {roundedPct}%
+                            </span>
+                          </div>
+                        );
+                      }
                       return (
-                        <div className="px-3 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center justify-between gap-2 text-xs">
-                          <span className="font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
-                            <StopCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
-                            <span>Nilai 0 (Dihentikan)</span>
+                        <div className="px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
+                          <span className="font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            <span>Sudah Dikerjakan</span>
                           </span>
-                          <span className="font-mono font-extrabold text-rose-800 dark:text-rose-200">
-                            {matchedSub.percentage}%
+                          <span className="font-mono font-extrabold text-emerald-800 dark:text-emerald-200">
+                            Nilai: {roundedPct}%
                           </span>
                         </div>
                       );
                     }
                     return (
-                      <div className="px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
-                        <span className="font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                          <span>Sudah Dikerjakan</span>
+                      <div className="px-3 py-2 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/70 flex items-center justify-between gap-2 text-xs">
+                        <span className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                          <span>Belum Dikerjakan</span>
                         </span>
-                        {exam.allowReview && (
-                          <span className="font-mono font-extrabold text-emerald-800 dark:text-emerald-200">
-                            Nilai: {matchedSub.percentage}%
-                          </span>
-                        )}
+                        <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+                          {isStudentNeedsRetake ? 'Perlu Ulang' : 'Belum Ada Nilai'}
+                        </span>
                       </div>
                     );
                   })()}
@@ -3152,6 +3423,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
             Silakan hubungi guru mata pelajaran atau buka tab Portal Guru untuk membuat dan mengaktifkan ujian baru.
           </p>
         </div>
+      )}
+      </>
       )}
 
       {/* STUDENT LOGIN / VERIFICATION MODAL */}

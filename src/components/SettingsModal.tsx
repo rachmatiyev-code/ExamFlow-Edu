@@ -74,6 +74,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     StorageService.saveSettings(formData);
+    if (formData.gasWebAppUrl && formData.gasWebAppUrl.trim().startsWith('http')) {
+      GasClient.pushSharedStateToServer({
+        gasWebAppUrl: formData.gasWebAppUrl.trim()
+      }).catch(() => {});
+    }
     onUpdateSettings(formData);
     onClose();
   };

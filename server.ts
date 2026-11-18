@@ -1433,6 +1433,172 @@ apiRouter.post('/exam-attempts/reset', (req, res) => {
   }
 });
 
+/**
+ * -------------------------------------------------------------
+ * SHARED APP CATALOG & CONFIG CACHE (Cross-Device Student Sync)
+ * Menyimpan URL GAS (tanpa API Key rahasia), daftar ujian, soal,
+ * data siswa, dan profil sekolah agar perangkat siswa otomatis sinkron.
+ * -------------------------------------------------------------
+ */
+interface ServerSharedState {
+  gasWebAppUrl?: string;
+  profile?: Record<string, any> | null;
+  exams?: any[];
+  questions?: any[];
+  students?: any[];
+  examsAuthoritative?: boolean;
+  updatedAt?: number;
+}
+
+const SHARED_STATE_FILE = path.join(__dirname, '.shared_state_cache.json');
+
+function loadSharedState(): ServerSharedState {
+  try {
+    if (fs.existsSync(SHARED_STATE_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(SHARED_STATE_FILE, 'utf-8'));
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch (err) {
+    console.warn('Error reading shared state cache:', err);
+  }
+  return {};
+}
+
+const serverSharedState: ServerSharedState = loadSharedState();
+
+function saveSharedStateToDisk() {
+  try {
+    fs.writeFileSync(SHARED_STATE_FILE, JSON.stringify(serverSharedState, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Error saving shared state cache:', err);
+  }
+}
+
+function mergeExamsWithServerControls(examsList: any[]): any[] {
+  if (!Array.isArray(examsList)) return [];
+  return examsList.map(ex => {
+    if (!ex || typeof ex !== 'object') return ex;
+    const ctrl = examControlsMap[String(ex.id || '').trim().toLowerCase()];
+    if (!ctrl) return ex;
+    const ctrlStatus = String(ctrl.status || ex.status || 'active').toLowerCase();
+    const ctrlSession = String(ctrl.sessionStatus || ex.sessionStatus || 'scheduled').toLowerCase();
+    const isStopped = ctrlStatus === 'stopped' || ctrlSession === 'stopped';
+    return {
+      ...ex,
+      status: ctrl.status || ex.status,
+      sessionStatus: isStopped ? 'stopped' : (ctrl.sessionStatus || ex.sessionStatus),
+      attemptMode: ctrl.attemptMode || ex.attemptMode,
+      allowLateSubmission: isStopped ? false : (ctrl.allowLateSubmission ?? ex.allowLateSubmission),
+      lateExtensionMinutes: ctrl.lateExtensionMinutes ?? ex.lateExtensionMinutes,
+      startsAt: ctrl.startsAt ?? ex.startsAt,
+      endsAt: ctrl.endsAt ?? ex.endsAt,
+      sessionStartedAt: ctrl.sessionStartedAt ?? ex.sessionStartedAt,
+      sessionEndedAt: ctrl.sessionEndedAt ?? ex.sessionEndedAt
+    };
+  });
+}
+
+function broadcastSharedCatalog() {
+  const payload = JSON.stringify({
+    type: 'exam:catalog_update',
+    data: {
+      gasWebAppUrl: serverSharedState.gasWebAppUrl || '',
+      exams: mergeExamsWithServerControls(serverSharedState.exams || []),
+      examsAuthoritative: Boolean(serverSharedState.examsAuthoritative),
+      updatedAt: serverSharedState.updatedAt || Date.now()
+    }
+  });
+  connectedClients.forEach(c => {
+    if (c.ws.readyState === WebSocket.OPEN) {
+      try { c.ws.send(payload); } catch {}
+    }
+  });
+}
+
+// GET /api/shared-state
+apiRouter.get('/shared-state', (_req, res) => {
+  return res.json({
+    success: true,
+    state: {
+      gasWebAppUrl: serverSharedState.gasWebAppUrl || '',
+      profile: serverSharedState.profile || null,
+      exams: mergeExamsWithServerControls(serverSharedState.exams || []),
+      questions: Array.isArray(serverSharedState.questions) ? serverSharedState.questions : [],
+      students: Array.isArray(serverSharedState.students) ? serverSharedState.students : [],
+      examsAuthoritative: Boolean(serverSharedState.examsAuthoritative),
+      updatedAt: serverSharedState.updatedAt || 0
+    }
+  });
+});
+
+// POST /api/shared-state
+apiRouter.post('/shared-state', (req, res) => {
+  try {
+    const b = req.body || {};
+    let catalogChanged = false;
+
+    if (typeof b.gasWebAppUrl === 'string' && b.gasWebAppUrl.trim().startsWith('http')) {
+      serverSharedState.gasWebAppUrl = b.gasWebAppUrl.trim();
+      catalogChanged = true;
+    }
+
+    if (b.profile && typeof b.profile === 'object' && b.profile.name) {
+      serverSharedState.profile = b.profile;
+    }
+
+    if (Array.isArray(b.exams)) {
+      const cleanExams = b.exams.filter((e: any) => e && e.id && (e.title || e.examTitle || e.subject));
+      if (cleanExams.length > 0 || b.allowEmptyExams === true) {
+        serverSharedState.exams = cleanExams;
+        serverSharedState.examsAuthoritative = true;
+        catalogChanged = true;
+        cleanExams.forEach((ex: any) => {
+          const key = String(ex.id || '').trim().toLowerCase();
+          if (!key) return;
+          if (!examControlsMap[key]) {
+            const rawStatus = String(ex.status || 'active').trim().toLowerCase();
+            const rawSession = String(ex.sessionStatus || 'scheduled').trim().toLowerCase();
+            const isStopped = rawStatus === 'stopped' || rawSession === 'stopped';
+            examControlsMap[key] = {
+              examId: String(ex.id).trim(),
+              status: isStopped ? 'stopped' : rawStatus === 'archived' ? 'archived' : rawStatus === 'draft' ? 'draft' : 'active',
+              sessionStatus: isStopped ? 'stopped' : rawSession === 'active' ? 'active' : rawSession === 'ended' ? 'ended' : 'scheduled',
+              attemptMode: String(ex.attemptMode || 'single').toLowerCase() === 'unlimited' ? 'unlimited' : 'single',
+              allowLateSubmission: isStopped ? false : Boolean(ex.allowLateSubmission),
+              lateExtensionMinutes: Number(ex.lateExtensionMinutes || 0),
+              startsAt: ex.startsAt,
+              endsAt: ex.endsAt,
+              sessionStartedAt: ex.sessionStartedAt,
+              sessionEndedAt: ex.sessionEndedAt,
+              updatedAt: Date.now()
+            };
+          }
+        });
+        saveExamControlsToDisk();
+      }
+    }
+
+    if (Array.isArray(b.questions) && b.questions.length > 0) {
+      serverSharedState.questions = b.questions;
+    }
+
+    if (Array.isArray(b.students) && b.students.length > 0) {
+      serverSharedState.students = b.students;
+    }
+
+    serverSharedState.updatedAt = Date.now();
+    saveSharedStateToDisk();
+
+    if (catalogChanged) {
+      broadcastSharedCatalog();
+    }
+
+    return res.json({ success: true, updatedAt: serverSharedState.updatedAt });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Gagal memperbarui state bersama.' });
+  }
+});
+
 // Mount router on both /api and root /
 app.use('/api', apiRouter);
 app.use('/', apiRouter);

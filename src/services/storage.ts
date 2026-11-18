@@ -399,12 +399,22 @@ export class StorageService {
       return Boolean(val);
     };
 
+    const resolvedTitle = String(
+      e?.title || e?.examTitle || e?.['Judul Ujian'] || e?.['Nama Paket Ujian'] || e?.['Paket Ujian'] || ''
+    ).trim();
+    const resolvedSubject = String(
+      e?.subject || e?.['Mata Pelajaran'] || e?.mapel || e?.['Mapel'] || ''
+    ).trim();
+    const resolvedGrade = String(
+      e?.grade || e?.classGrade || e?.['Kelas'] || e?.kelas || ''
+    ).trim();
+
     return {
       ...e,
-      id: String(e?.id || ''),
-      title: String(e?.title || ''),
-      subject: String(e?.subject || ''),
-      grade: String(e?.grade || ''),
+      id: String(e?.id || '').trim(),
+      title: resolvedTitle,
+      subject: resolvedSubject,
+      grade: resolvedGrade,
       durationMinutes: Number(e?.durationMinutes) || 60,
       passingScore: Number(e?.passingScore) || 75,
       isStrict: parseBool(e?.isStrict, false),

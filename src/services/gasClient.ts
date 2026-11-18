@@ -217,8 +217,12 @@ export class GasClient {
         });
       };
 
-      if (Array.isArray(exams) && exams.length > 0) {
-        const syncedExams = exams.map(applyServerControl);
+      const validExamsRaw = Array.isArray(exams)
+        ? exams.filter((raw: any) => raw && String(raw.id || '').trim() !== '' && String(raw.title || raw.examTitle || raw['Judul Ujian'] || raw.subject || '').trim() !== '')
+        : [];
+
+      if (validExamsRaw.length > 0) {
+        const syncedExams = validExamsRaw.map(applyServerControl);
         StorageService.saveExams(syncedExams);
         count += syncedExams.length;
       } else if (Object.keys(controlsMap).length > 0) {
@@ -357,7 +361,8 @@ export class GasClient {
           const matchedEx = allLatestExams.find(
             e => String(e.id || '').trim().toLowerCase() === String(sub.examId || '').trim().toLowerCase()
           );
-          return Boolean(matchedEx && StorageService.isExamSessionOpen(matchedEx));
+          if (!matchedEx) return false;
+          return !StorageService.isExamStopped(matchedEx) && matchedEx.status === 'active' && matchedEx.sessionStatus !== 'ended';
         };
 
         // Selalu bersihkan submission dummy & nilai 0 otomatis pada ujian yang sudah dibuka kembali
@@ -492,6 +497,15 @@ export class GasClient {
         }
       }
 
+      // Publikasikan katalog terbaru ke Express shared-state agar perangkat siswa yang baru terbuka otomatis sinkron
+      this.pushSharedStateToServer({
+        gasWebAppUrl: url,
+        profile: StorageService.getProfile(),
+        exams: StorageService.getExams(),
+        questions: StorageService.getQuestions(),
+        students: StorageService.getStudents()
+      }).catch(() => {});
+
       StorageService.addLog('SYNC', `Sinkronisasi sukses! Data berhasil dimuat dari Google Sheets.`, undefined, 'success');
       return {
         success: true,
@@ -593,6 +607,130 @@ export class GasClient {
         })
       });
     } catch {}
+  }
+
+  /**
+   * Publikasikan konfigurasi URL GAS, daftar ujian, soal, data siswa, dan profil ke server Express
+   * agar perangkat siswa lain otomatis mendeteksi ujian yang belum dikerjakan tanpa setup manual.
+   */
+  static async pushSharedStateToServer(partial: {
+    gasWebAppUrl?: string;
+    profile?: SchoolProfile;
+    exams?: Exam[];
+    questions?: Question[];
+    students?: Student[];
+    allowEmptyExams?: boolean;
+  }): Promise<void> {
+    try {
+      await fetch('/api/shared-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(partial)
+      });
+    } catch {}
+  }
+
+  /**
+   * Tarik state bersama (URL GAS, katalog ujian, soal, data siswa, profil) dari server Express
+   */
+  static async pullSharedStateFromServer(): Promise<{
+    success: boolean;
+    hasGasUrl: boolean;
+    updatedExams: boolean;
+    updatedStudents: boolean;
+  }> {
+    try {
+      const res = await fetch(`/api/shared-state?_t=${Date.now()}`);
+      if (!res.ok) {
+        return { success: false, hasGasUrl: false, updatedExams: false, updatedStudents: false };
+      }
+      const json = await res.json();
+      const state = json?.state;
+      if (!json?.success || !state) {
+        return { success: false, hasGasUrl: false, updatedExams: false, updatedStudents: false };
+      }
+
+      let hasGasUrl = false;
+      const remoteGasUrl = String(state.gasWebAppUrl || '').trim();
+      if (remoteGasUrl.startsWith('http')) {
+        const currentSettings = StorageService.getSettings();
+        if (!currentSettings.gasWebAppUrl || !currentSettings.gasWebAppUrl.trim().startsWith('http')) {
+          StorageService.saveSettings({ ...currentSettings, gasWebAppUrl: remoteGasUrl });
+        }
+        hasGasUrl = Boolean(StorageService.getSettings().gasWebAppUrl?.trim().startsWith('http'));
+      }
+
+      if (state.profile && typeof state.profile === 'object' && state.profile.name) {
+        StorageService.saveProfile(state.profile);
+      }
+
+      let updatedExams = false;
+      if (Array.isArray(state.exams) && state.exams.length > 0) {
+        const controlsMap = await this.fetchExamControlsFromServer();
+        const remoteNormalized: Exam[] = state.exams
+          .filter((e: any) => e && String(e.id || '').trim() !== '')
+          .map((e: any) => {
+            const norm = StorageService.normalizeExamRecord(e);
+            const ctrl = controlsMap[norm.id.toLowerCase()];
+            if (!ctrl) return norm;
+            const ctrlStatus = String(ctrl.status || norm.status).toLowerCase();
+            const ctrlSession = String(ctrl.sessionStatus || norm.sessionStatus).toLowerCase();
+            const isStopped = ctrlStatus === 'stopped' || ctrlSession === 'stopped';
+            return StorageService.normalizeExamRecord({
+              ...norm,
+              status: ctrl.status || norm.status,
+              sessionStatus: isStopped ? 'stopped' : (ctrl.sessionStatus || norm.sessionStatus),
+              attemptMode: ctrl.attemptMode || norm.attemptMode,
+              allowLateSubmission: isStopped ? false : (ctrl.allowLateSubmission ?? norm.allowLateSubmission),
+              lateExtensionMinutes: ctrl.lateExtensionMinutes ?? norm.lateExtensionMinutes,
+              startsAt: ctrl.startsAt ?? norm.startsAt,
+              endsAt: ctrl.endsAt ?? norm.endsAt,
+              sessionStartedAt: ctrl.sessionStartedAt ?? norm.sessionStartedAt,
+              sessionEndedAt: ctrl.sessionEndedAt ?? norm.sessionEndedAt
+            });
+          });
+
+        if (remoteNormalized.length > 0) {
+          const defaultSeedIds = new Set(['EXAM-2026-001', 'EXAM-2026-002', 'EXAM-2026-003']);
+          const localExams = StorageService.getExams();
+          const remoteIds = new Set(remoteNormalized.map(e => e.id.toLowerCase()));
+          // Pertahankan ujian lokal non-bawaan yang belum ada di server (jika ada)
+          const extraLocalNonSeed = localExams.filter(
+            e => !defaultSeedIds.has(e.id) && !remoteIds.has(e.id.toLowerCase())
+          );
+          const mergedExams = [...remoteNormalized, ...extraLocalNonSeed];
+          StorageService.saveExams(mergedExams);
+          updatedExams = true;
+        }
+      }
+
+      if (Array.isArray(state.questions) && state.questions.length > 0) {
+        const cleanRemoteQs = state.questions.filter((q: any) => q && q.id && !StorageService.isDummyQuestion(q.id));
+        if (cleanRemoteQs.length > 0) {
+          const localQs = StorageService.getQuestions().filter(q => !StorageService.isDummyQuestion(q.id));
+          const qMap = new Map<string, Question>();
+          localQs.forEach(q => qMap.set(q.id, q));
+          cleanRemoteQs.forEach((q: Question) => qMap.set(q.id, q));
+          StorageService.saveQuestions(Array.from(qMap.values()));
+        }
+      }
+
+      let updatedStudents = false;
+      if (Array.isArray(state.students) && state.students.length > 0) {
+        const dummyNisList = ['1001', '1002', '1003', '1004', '1005', '1006'];
+        const localStudents = StorageService.getStudents();
+        const isLocalPurelyDummy = localStudents.length === 0 || localStudents.every(s => dummyNisList.includes(String(s.studentNo).trim()));
+        const isRemoteHasCustom = state.students.some((s: any) => !dummyNisList.includes(String(s?.studentNo || '').trim()));
+        if (isRemoteHasCustom || isLocalPurelyDummy) {
+          StorageService.saveStudents(state.students);
+          updatedStudents = true;
+        }
+      }
+
+      return { success: true, hasGasUrl, updatedExams, updatedStudents };
+    } catch {
+      return { success: false, hasGasUrl: false, updatedExams: false, updatedStudents: false };
+    }
   }
 
   /**
@@ -789,10 +927,15 @@ export class GasClient {
     });
     StorageService.upsertExam(updatedExam);
     StorageService.saveQuestionsForExam(updatedExam.id, questions);
-    if (StorageService.isExamSessionOpen(updatedExam)) {
+    if (StorageService.isExamSessionOpen(updatedExam) || (!StorageService.isExamStopped(updatedExam) && updatedExam.status === 'active' && updatedExam.sessionStatus !== 'ended')) {
       await this.clearAutoZeroForReopenedExam(updatedExam.id);
     }
     await this.pushExamControlToServer(updatedExam);
+    this.pushSharedStateToServer({
+      gasWebAppUrl: this.getWebAppUrl() || undefined,
+      exams: StorageService.getExams(),
+      questions: StorageService.getQuestions()
+    }).catch(() => {});
 
     const url = this.getWebAppUrl();
     if (!url) {
@@ -839,6 +982,10 @@ export class GasClient {
       exam.totalQuestions = questions.length;
       StorageService.upsertExam(exam);
     }
+    this.pushSharedStateToServer({
+      exams: StorageService.getExams(),
+      questions: StorageService.getQuestions()
+    }).catch(() => {});
 
     const url = this.getWebAppUrl();
     if (!url) {
@@ -1200,6 +1347,11 @@ export class GasClient {
    */
   static async deleteExam(examId: string): Promise<{ success: boolean; message: string }> {
     StorageService.deleteExam(examId);
+    this.pushSharedStateToServer({
+      exams: StorageService.getExams(),
+      questions: StorageService.getQuestions(),
+      allowEmptyExams: true
+    }).catch(() => {});
 
     const url = this.getWebAppUrl();
     if (!url) return { success: true, message: 'Ujian dihapus dari penyimpanan lokal.' };
@@ -1218,6 +1370,7 @@ export class GasClient {
    */
   static async pushSchoolProfile(profile: SchoolProfile): Promise<{ success: boolean; message: string }> {
     StorageService.saveProfile(profile);
+    this.pushSharedStateToServer({ profile }).catch(() => {});
     const url = this.getWebAppUrl();
     if (!url) return { success: true, message: 'Profil disimpan di lokal.' };
 
@@ -1237,6 +1390,7 @@ export class GasClient {
    */
   static async pushStudents(students: Student[]): Promise<{ success: boolean; message: string; count?: number }> {
     StorageService.saveStudents(students);
+    this.pushSharedStateToServer({ students }).catch(() => {});
     const url = this.getWebAppUrl();
     if (!url) {
       return { 

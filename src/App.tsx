@@ -106,6 +106,7 @@ export default function App() {
           setSettings(updated);
           StorageService.addLog('SYNC', 'URL Google Apps Script berhasil dikonfigurasi otomatis dari Tautan Ujian Siswa.', undefined, 'info');
         }
+        GasClient.pushSharedStateToServer({ gasWebAppUrl: gasParam }).catch(() => {});
 
         // Always sync exam questions and student roster in background when student opens link
         GasClient.fetchAllFromSheets().then((res) => {
@@ -116,18 +117,23 @@ export default function App() {
           }
         });
       } else {
-        // Penting: Jika URL GAS sudah tersimpan di Pengaturan aplikasi, selalu otomatis muat data terbaru dari Google Sheets saat aplikasi dibuka
-        const savedSettings = StorageService.getSettings();
-        if (savedSettings.gasWebAppUrl && savedSettings.gasWebAppUrl.trim().startsWith('http')) {
-          GasClient.fetchAllFromSheets().then((res) => {
-            if (res.success) {
-              refreshAllData();
-              StorageService.addLog('SYNC', 'Data pengguna, ujian, dan soal berhasil dimuat otomatis dari Google Sheets saat aplikasi dibuka.', undefined, 'success');
+        // Tarik state bersama (URL GAS, katalog ujian, soal, siswa) dari server Express lebih dulu agar perangkat siswa yang baru terbuka otomatis terhubung
+        GasClient.pullSharedStateFromServer()
+          .then(() => {
+            refreshAllData();
+            const savedSettings = StorageService.getSettings();
+            if (savedSettings.gasWebAppUrl && savedSettings.gasWebAppUrl.trim().startsWith('http')) {
+              return GasClient.fetchAllFromSheets().then((res) => {
+                if (res.success) {
+                  refreshAllData();
+                  StorageService.addLog('SYNC', 'Data pengguna, ujian, dan soal berhasil dimuat otomatis dari Google Sheets saat aplikasi dibuka.', undefined, 'success');
+                }
+              });
             }
-          }).catch((err) => {
+          })
+          .catch((err) => {
             console.warn('Gagal sinkronisasi otomatis saat buka app:', err);
           });
-        }
       }
     } catch (err) {
       console.warn('Gagal membaca parameter URL:', err);
@@ -176,6 +182,15 @@ export default function App() {
 
     // 4. Pull latest data from sheets
     const pullResult = await GasClient.fetchAllFromSheets();
+
+    // 5. Pastikan shared-state server ikut diperbarui untuk seluruh perangkat siswa
+    GasClient.pushSharedStateToServer({
+      gasWebAppUrl: settings.gasWebAppUrl,
+      profile: StorageService.getProfile(),
+      exams: StorageService.getExams(),
+      questions: StorageService.getQuestions(),
+      students: StorageService.getStudents()
+    }).catch(() => {});
 
     setIsSyncing(false);
     refreshAllData();
@@ -307,6 +322,7 @@ export default function App() {
               uiPreset={activeUiPreset}
               initialExamId={directExamId}
               initialToken={directToken}
+              onRefreshData={refreshAllData}
               onSubmissionComplete={(newSub) => {
                 refreshAllData();
               }}

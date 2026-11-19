@@ -2633,7 +2633,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   // VIEW 3: TODAY'S EXAM SCHEDULE LANDING (Default Student View)
   // -------------------------------------------------------------
   return (
-    <div key="student-view-landing" className="max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-8 animate-fadeIn">
+    <div key="student-view-landing" className="max-w-6xl mx-auto py-8 pb-24 px-4 sm:px-6 lg:px-8 space-y-8 animate-fadeIn">
       {/* Notice Banner / Modal untuk Status Henti Permanen atau Belum Dimulai */}
       {serverStoppedNotice && (
         <div className="bg-rose-50 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-800 rounded-2xl p-4 sm:p-5 flex items-start justify-between gap-3 shadow-md animate-fadeIn">
@@ -3567,8 +3567,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 
       {/* STUDENT LOGIN / VERIFICATION MODAL */}
       {isLoginModalOpen && selectedExam && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn">
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-5 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn max-h-[92vh] overflow-y-auto my-auto">
             {/* School Logo & Title */}
             <div className="text-center pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
               {profile.logoUrl && (
@@ -3723,13 +3723,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsLoginModalOpen(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                  className="px-4 py-2.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors cursor-pointer"
                 >
                   Mulai Ujian Sekarang
                 </button>
@@ -3743,7 +3743,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           MODAL: STUDENT SELF SCORE LOOKUP (Cek Nilai Siswa)
          --------------------------------------------------------- */}
       {isScoreLookupOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full p-6 sm:p-7 shadow-2xl border border-slate-200 dark:border-slate-800 animate-fadeIn max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
@@ -4166,6 +4166,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         studentNo={studentNo}
         studentName={studentName}
         classGrade={studentClass}
+        hideFloatingTrigger={isLoginModalOpen || isScoreLookupOpen}
         onApplyToken={(token) => {
           setExamToken(token);
         }}

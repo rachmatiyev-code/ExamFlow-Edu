@@ -104,7 +104,7 @@ export const FloatingChatButton: React.FC<FloatingChatButtonProps> = ({
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2 no-print font-sans">
+    <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2 no-print font-sans">
       {/* Toast Notifikasi Pesan Masuk Melayang */}
       {showToast && lastIncomingMessage && (
         <div

@@ -13,6 +13,7 @@ interface StudentChatWidgetProps {
   studentNo?: string;
   studentName?: string;
   classGrade?: string;
+  hideFloatingTrigger?: boolean;
   onApplyToken?: (token: string) => void;
   onRetakeGranted?: () => void;
 }
@@ -22,6 +23,7 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
   studentNo: initialStudentNo = '',
   studentName: initialStudentName = '',
   classGrade: initialClassGrade = '',
+  hideFloatingTrigger = false,
   onApplyToken,
   onRetakeGranted,
 }) => {
@@ -321,8 +323,16 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
   const myIdentifier = nis || (typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') : '') || '';
   const myGuestIdentifier = typeof window !== 'undefined' ? localStorage.getItem('guest_student_nis') || '' : '';
 
+  if (!isOpen && hideFloatingTrigger) {
+    return null;
+  }
+
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-2 font-sans print:hidden">
+    <div
+      className={`fixed bottom-3.5 right-3.5 sm:bottom-5 sm:right-5 ${
+        isOpen ? 'z-[70]' : 'z-40'
+      } flex flex-col items-end gap-2 font-sans print:hidden`}
+    >
       {/* Toast Notifikasi Pesan Masuk dari Guru */}
       {!isOpen && incomingToast && (
         <div
@@ -358,23 +368,23 @@ export const StudentChatWidget: React.FC<StudentChatWidgetProps> = ({
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="relative flex items-center gap-2.5 px-4 py-3 bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-full shadow-2xl hover:from-emerald-700 hover:to-teal-800 transition-all transform hover:scale-105 active:scale-95 border-2 border-emerald-400/40 cursor-pointer"
+          className="relative flex items-center gap-2 sm:gap-2.5 px-3 py-2 sm:px-4 sm:py-3 bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-full shadow-2xl hover:from-emerald-700 hover:to-teal-800 transition-all transform hover:scale-105 active:scale-95 border-2 border-emerald-400/40 cursor-pointer"
           title="Bantuan & Chat Pengawas Ujian"
         >
           <div className="relative">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
             <span
-              className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${
+              className={`absolute -top-1 -right-1 w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full border-2 border-white ${
                 unreadCount > 0 ? 'bg-red-500 animate-ping' : isConnected ? (presence.teachers > 0 ? 'bg-emerald-400' : 'bg-amber-400') : 'bg-red-400'
               }`}
             />
           </div>
 
           <div className="text-left">
-            <div className="text-xs font-bold leading-tight">Bantuan Pengawas</div>
-            <div className="text-[10px] text-emerald-100 flex items-center gap-1">
+            <div className="text-[11px] sm:text-xs font-bold leading-tight">Bantuan Pengawas</div>
+            <div className="hidden sm:flex text-[10px] text-emerald-100 items-center gap-1">
               <span>
                 {unreadCount > 0
                   ? `${unreadCount} pesan baru`

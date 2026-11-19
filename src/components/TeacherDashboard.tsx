@@ -30,6 +30,7 @@ import { OptionRichTextEditor } from './OptionRichTextEditor';
 import { TeacherChatPanel } from './TeacherChatPanel';
 import { ClassroomSyncModal } from './ClassroomSyncModal';
 import { TpMasteryAnalysis } from './TpMasteryAnalysis';
+import { SubjectTpGradesView } from './SubjectTpGradesView';
 import { AksaraJawaModal } from './AksaraJawaModal';
 import { chatService } from '../services/chatService';
 import { MathRenderer } from '../services/mathRenderer';
@@ -119,8 +120,8 @@ interface TeacherDashboardProps {
   onRefreshData: () => void;
   onSelectTab: (tab: any, examId?: string, extra?: { reportMode?: 'klasikal' | 'individu'; studentNis?: string }) => void;
   onOpenSettings?: () => void;
-  initialSubTab?: 'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'students' | 'users' | 'profile' | 'gas' | 'chat';
-  onSubTabChange?: (subTab: 'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'students' | 'users' | 'profile' | 'gas' | 'chat') => void;
+  initialSubTab?: 'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'tp_grades' | 'students' | 'users' | 'profile' | 'gas' | 'chat';
+  onSubTabChange?: (subTab: 'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'tp_grades' | 'students' | 'users' | 'profile' | 'gas' | 'chat') => void;
 }
 
 export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
@@ -143,7 +144,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
 
   // Sub-tabs
-  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>(initialSubTab || 'exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'questions' | 'curriculum' | 'analytics' | 'rekap' | 'tp_mastery' | 'tp_grades' | 'students' | 'users' | 'profile' | 'gas' | 'chat'>(initialSubTab || 'exams');
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
   // Sync activeTab when initialSubTab changes from sidebar/floating chat
@@ -3135,6 +3136,18 @@ const rekapDistinctGrades = useMemo(() => {
         </button>
 
         <button
+          onClick={() => setActiveTab('tp_grades')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
+            activeTab === 'tp_grades'
+              ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-semibold'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+          }`}
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+          <span>Daftar Nilai Mapel & TP</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('students')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap cursor-pointer ${
             activeTab === 'students'
@@ -5993,6 +6006,23 @@ const rekapDistinctGrades = useMemo(() => {
           submissions={safeSubmissions}
           students={students}
           initialExamId={rekapExamFilter !== 'all' ? rekapExamFilter : (selectedExamId || exams[0]?.id)}
+          initialStudentNis={rekapSelectedStudentNis}
+          onNavigateToRekap={() => setActiveTab('rekap')}
+        />
+      )}
+
+      {/* ---------------------------------------------------------
+          SUB-TAB: DAFTAR NILAI PER MATA PELAJARAN & TUJUAN PEMBELAJARAN
+         --------------------------------------------------------- */}
+      {activeTab === 'tp_grades' && (
+        <SubjectTpGradesView
+          profile={profile}
+          exams={exams}
+          submissions={safeSubmissions}
+          students={students}
+          curriculumItems={curriculumList}
+          initialSubject={rekapSubjectFilter !== 'all' ? rekapSubjectFilter : undefined}
+          initialGrade={rekapGradeFilter !== 'all' ? rekapGradeFilter : undefined}
           initialStudentNis={rekapSelectedStudentNis}
           onNavigateToRekap={() => setActiveTab('rekap')}
         />

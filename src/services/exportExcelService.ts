@@ -475,3 +475,203 @@ export function exportClassicalAllSubjectsToExcel(
   const safeSubj = (options.subjectFilterLabel || 'Semua_Mapel').replace(/[^a-zA-Z0-9_-]/g, '_');
   XLSX.writeFile(wb, `Leger_Klasikal_${safeClass}_${safeSubj}.xlsx`);
 }
+
+export interface SubjectTpGradeExportRow {
+  no: number;
+  nis: string;
+  studentName: string;
+  classGrade: string;
+  subject: string;
+  kkm: number;
+  tpScores: Array<number | null>;
+  average: number | null;
+  tpAtKkm: number;
+  tpAboveKkm: number;
+  tpBelowKkm: number;
+}
+
+export interface SubjectTpReferenceExport {
+  subject: string;
+  kkm: number;
+  objectives: Array<{
+    code: string;
+    description: string;
+    questionCount: number;
+    questionOrders: string;
+  }>;
+}
+
+/**
+ * 6. Export Daftar Nilai per Mata Pelajaran & per Tujuan Pembelajaran (TP) ke .xlsx
+ * Kolom: Nomor, NIS, Nama Siswa, Mata Pelajaran, Tujuan Pembelajaran 1..N, Rerata, TP pada KKM, TP di atas KKM, TP di bawah KKM
+ */
+export function exportSubjectTpGradesToExcel(
+  rowsData: SubjectTpGradeExportRow[],
+  maxTpCount: number,
+  references: SubjectTpReferenceExport[],
+  profile: SchoolProfile,
+  options: {
+    mode: 'klasikal' | 'individu';
+    subjectFilterLabel: string;
+    classFilterLabel: string;
+    studentName?: string;
+    studentNis?: string;
+  }
+) {
+  const wb = XLSX.utils.book_new();
+  const safeTpCols = Math.max(1, maxTpCount);
+
+  const tpHeaders = Array.from({ length: safeTpCols }, (_, idx) => `Tujuan Pembelajaran ${idx + 1}`);
+  const tableHeaders = [
+    'Nomor',
+    'NIS',
+    'Nama Siswa',
+    'Mata Pelajaran',
+    ...tpHeaders,
+    'Rerata',
+    'TP pada KKM',
+    'TP di atas KKM',
+    'TP di bawah KKM'
+  ];
+
+  const modeLabel = options.mode === 'klasikal' ? 'KLASIKAL (SELURUH SISWA)' : 'INDIVIDU SISWA';
+
+  const sheetRows: any[][] = [
+    [profile.regionalGovName || 'PEMERINTAH KOTA MALANG'],
+    [profile.regionalGovDepartment || 'DINAS PENDIDIKAN DAN KEBUDAYAAN'],
+    [profile.name || 'SD NEGERI PISANGCANDI 1 MALANG'],
+    [`DAFTAR NILAI PER MATA PELAJARAN DAN TUJUAN PEMBELAJARAN (${modeLabel})`],
+    [
+      `Mata Pelajaran: ${options.subjectFilterLabel}`,
+      `Kelas: ${options.classFilterLabel}`,
+      `Tahun Ajaran: ${profile.academicYear || '-'}`,
+      `Semester: ${profile.semester || '-'}`
+    ]
+  ];
+
+  if (options.mode === 'individu' && (options.studentName || options.studentNis)) {
+    sheetRows.push([
+      `Nama Siswa: ${options.studentName || '-'}`,
+      `NIS: ${options.studentNis || '-'}`,
+      `Tanggal Ekspor: ${new Date().toLocaleDateString('id-ID')}`
+    ]);
+  } else {
+    sheetRows.push([`Tanggal Ekspor: ${new Date().toLocaleDateString('id-ID')}`]);
+  }
+
+  sheetRows.push(['']);
+  sheetRows.push(tableHeaders);
+
+  rowsData.forEach((row) => {
+    const paddedTpCells = Array.from({ length: safeTpCols }, (_, idx) => {
+      const val = row.tpScores[idx];
+      return val === null || val === undefined ? '-' : val;
+    });
+
+    sheetRows.push([
+      row.no,
+      row.nis,
+      row.studentName,
+      row.subject,
+      ...paddedTpCells,
+      row.average === null ? '-' : row.average,
+      row.tpAtKkm,
+      row.tpAboveKkm,
+      row.tpBelowKkm
+    ]);
+  });
+
+  // Tambahkan baris rata-rata klasikal jika mode klasikal & ada nilai numerik
+  if (options.mode === 'klasikal' && rowsData.length > 0) {
+    const tpAverages = Array.from({ length: safeTpCols }, (_, idx) => {
+      const vals = rowsData
+        .map(r => r.tpScores[idx])
+        .filter((v): v is number => typeof v === 'number');
+      return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : '-';
+    });
+    const avgVals = rowsData
+      .map(r => r.average)
+      .filter((v): v is number => typeof v === 'number');
+    const overallAvg = avgVals.length > 0
+      ? Math.round(avgVals.reduce((a, b) => a + b, 0) / avgVals.length)
+      : '-';
+
+    const totalAtKkm = rowsData.reduce((acc, r) => acc + r.tpAtKkm, 0);
+    const totalAboveKkm = rowsData.reduce((acc, r) => acc + r.tpAboveKkm, 0);
+    const totalBelowKkm = rowsData.reduce((acc, r) => acc + r.tpBelowKkm, 0);
+
+    sheetRows.push([
+      '',
+      '',
+      'RATA-RATA / TOTAL KLASIKAL',
+      options.subjectFilterLabel,
+      ...tpAverages,
+      overallAvg,
+      totalAtKkm,
+      totalAboveKkm,
+      totalBelowKkm
+    ]);
+  }
+
+  const wsMain = XLSX.utils.aoa_to_sheet(sheetRows);
+  wsMain['!cols'] = [
+    { wch: 8 },  // Nomor
+    { wch: 14 }, // NIS
+    { wch: 28 }, // Nama Siswa
+    { wch: 24 }, // Mata Pelajaran
+    ...Array.from({ length: safeTpCols }, () => ({ wch: 22 })),
+    { wch: 12 }, // Rerata
+    { wch: 14 }, // TP pada KKM
+    { wch: 16 }, // TP di atas KKM
+    { wch: 16 }  // TP di bawah KKM
+  ];
+  XLSX.utils.book_append_sheet(wb, wsMain, 'Daftar_Nilai_Mapel_TP');
+
+  // Sheet 2: Referensi Deskripsi Tujuan Pembelajaran per Mata Pelajaran
+  const refRows: any[][] = [
+    ['REFERENSI KODE & DESKRIPSI TUJUAN PEMBELAJARAN (TP)'],
+    [profile.name || 'SD NEGERI PISANGCANDI 1 MALANG'],
+    [''],
+    ['NO', 'MATA PELAJARAN', 'KKM', 'KODE KOLOM', 'DESKRIPSI TUJUAN PEMBELAJARAN', 'JUMLAH SOAL', 'NOMOR SOAL']
+  ];
+  let refNo = 1;
+  references.forEach(ref => {
+    ref.objectives.forEach(obj => {
+      refRows.push([
+        refNo++,
+        ref.subject,
+        ref.kkm,
+        obj.code,
+        obj.description,
+        obj.questionCount,
+        obj.questionOrders || '-'
+      ]);
+    });
+  });
+
+  if (refRows.length > 4) {
+    const wsRef = XLSX.utils.aoa_to_sheet(refRows);
+    wsRef['!cols'] = [
+      { wch: 6 },
+      { wch: 24 },
+      { wch: 8 },
+      { wch: 24 },
+      { wch: 56 },
+      { wch: 14 },
+      { wch: 18 }
+    ];
+    XLSX.utils.book_append_sheet(wb, wsRef, 'Referensi_TP');
+  }
+
+  const cleanSubj = (options.subjectFilterLabel || 'Semua_Mapel').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanClass = (options.classFilterLabel || 'Semua_Kelas').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanStudent = (options.studentName || 'Siswa').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const dateStr = new Date().toISOString().split('T')[0];
+
+  const fileName = options.mode === 'individu'
+    ? `Daftar_Nilai_TP_Individu_${cleanStudent}_${cleanSubj}_${dateStr}.xlsx`
+    : `Daftar_Nilai_TP_Klasikal_${cleanSubj}_${cleanClass}_${dateStr}.xlsx`;
+
+  XLSX.writeFile(wb, fileName);
+}
+

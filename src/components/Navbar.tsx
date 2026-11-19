@@ -47,6 +47,7 @@ export type TeacherSubTabType =
   | 'analytics'
   | 'rekap'
   | 'tp_mastery'
+  | 'tp_grades'
   | 'students'
   | 'users'
   | 'profile'
@@ -100,6 +101,7 @@ export const TEACHER_SUB_NAV_ITEMS: Array<{
   { id: 'analytics', label: 'Dasbor Nilai Siswa', group: 'nilai', icon: BarChart3 },
   { id: 'rekap', label: 'Rekap Nilai (Mapel & Kelas)', group: 'nilai', icon: FileSpreadsheet },
   { id: 'tp_mastery', label: 'Analisis Capaian TP', group: 'nilai', icon: Target },
+  { id: 'tp_grades', label: 'Daftar Nilai Mapel & TP', group: 'nilai', icon: FileSpreadsheet },
   { id: 'students', label: 'Data Siswa', group: 'kelola', icon: Users },
   { id: 'users', label: 'Kelola Pengguna', group: 'kelola', icon: UserCog },
   { id: 'profile', label: 'Profil Sekolah & Logo', group: 'kelola', icon: Building2 },

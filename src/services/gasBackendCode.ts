@@ -69,7 +69,7 @@ const CANONICAL_EX_HEADERS = [
 ];
 
 const CANONICAL_SUBMISSION_HEADERS = [
-  'id', 'examId', 'examTitle', 'studentNo', 'studentName', 'classGrade', 'answersJson', 
+  'id', 'examId', 'subject', 'examTitle', 'studentNo', 'studentName', 'classGrade', 'answersJson', 
   'score', 'maxScore', 'percentage', 'passed', 'submittedAt', 'tabSwitchCount', 
   'timeSpentSeconds', 'feedback', 'statusNote', 'allowRepeat'
 ];
@@ -201,25 +201,14 @@ function initDatabase() {
     formatHeaderRow(shStudents);
   }
 
-  // 5. Submissions (Kolom ke-3: examTitle "Nama Paket Ujian", statusNote & allowRepeat)
+  // 5. Submissions (Kolom: id, examId, subject, examTitle, studentNo, ...)
   let shSubmissions = ss.getSheetByName(SHEETS.SUBMISSIONS);
   if (!shSubmissions) {
     shSubmissions = ss.insertSheet(SHEETS.SUBMISSIONS);
     shSubmissions.appendRow(CANONICAL_SUBMISSION_HEADERS);
     formatHeaderRow(shSubmissions);
   } else {
-    ensureMinColumns(shSubmissions, CANONICAL_SUBMISSION_HEADERS.length);
-    const subData = shSubmissions.getDataRange().getValues();
-    if (subData.length > 0) {
-      const headers = subData[0].map(String);
-      const exTitleIdx = headers.indexOf('examTitle');
-      if (exTitleIdx === -1) {
-        // Auto-healing: sisipkan kolom 'examTitle' di posisi ke-3 (setelah examId)
-        shSubmissions.insertColumnAfter(2);
-        shSubmissions.getRange(1, 3).setValue('examTitle');
-      }
-    }
-    formatHeaderRow(shSubmissions);
+    ensureSubmissionSheetColumns(ss, shSubmissions);
   }
 
   // 5A. Tab 1: Data_Mentah (Sumber Data Sinkronisasi & Rumus Rekapitulasi)
@@ -447,33 +436,11 @@ function doPost(e) {
         sh = ss.getSheetByName(SHEETS.SUBMISSIONS);
       }
       
-      ensureMinColumns(sh, CANONICAL_SUBMISSION_HEADERS.length);
-      const subHeaderVals = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0].map(String);
-      if (subHeaderVals.indexOf('examTitle') === -1) {
-        sh.insertColumnAfter(2);
-        sh.getRange(1, 3).setValue('examTitle');
-        formatHeaderRow(sh);
-      }
-      
-      sh.appendRow([
-        String(sub.id || ('SUB-' + Utilities.getUuid().slice(0, 8))),
-        String(sub.examId || ''),
-        String(sub.examTitle || ''),
-        String(sub.studentNo || ''),
-        String(sub.studentName || ''),
-        String(sub.classGrade || ''),
-        typeof sub.answers === 'string' ? sub.answers : JSON.stringify(sub.answers || {}),
-        Math.round(Number(sub.score || 0)),
-        Math.max(1, Math.round(Number(sub.maxScore || 100))),
-        Math.round(Number(sub.percentage || 0)),
-        Boolean(sub.passed),
-        String(sub.submittedAt || formatLocalIso()),
-        Number(sub.tabSwitchCount || 0),
-        Number(sub.timeSpentSeconds || 0),
-        String(sub.feedback || ''),
-        String(sub.statusNote || 'Selesai'),
-        sub.allowRepeat ? true : false
-      ]);
+      const activeHeaders = ensureSubmissionSheetColumns(ss, sh);
+      const examMetaMap = getExamMetaLookup(ss);
+      const meta = examMetaMap[String(sub.examId || '').trim().toLowerCase()] || {};
+      const rowValues = buildSubmissionRowByHeaders(activeHeaders, sub, meta);
+      sh.appendRow(rowValues);
 
       // Mirror ke Tab 1: Data_Mentah (Sumber Data Sinkronisasi & Rumus Rekapitulasi)
       let shDataMentah = ss.getSheetByName(SHEETS.DATA_MENTAH);
@@ -505,25 +472,23 @@ function doPost(e) {
       }
       
       ensureMinColumns(shSub, CANONICAL_SUBMISSION_HEADERS.length);
-      const subHeaderVals = shSub.getRange(1, 1, 1, Math.max(1, shSub.getLastColumn())).getValues()[0].map(String);
-      if (subHeaderVals.indexOf('examTitle') === -1) {
-        shSub.insertColumnAfter(2);
-        shSub.getRange(1, 3).setValue('examTitle');
-        formatHeaderRow(shSub);
-      }
-
       const lastRow = shSub.getLastRow();
       const lastCol = Math.max(CANONICAL_SUBMISSION_HEADERS.length, shSub.getLastColumn());
       if (lastRow > 1) {
         shSub.getRange(2, 1, lastRow - 1, lastCol).clearContent();
       }
+      shSub.getRange(1, 1, 1, CANONICAL_SUBMISSION_HEADERS.length).setValues([CANONICAL_SUBMISSION_HEADERS]);
+      formatHeaderRow(shSub);
       
       if (subs.length > 0) {
+        const examMetaMap = getExamMetaLookup(ss);
         const rows = subs.map(function(s) {
+          const meta = examMetaMap[String(s.examId || '').trim().toLowerCase()] || {};
           return [
             String(s.id || ('SUB-' + Utilities.getUuid().slice(0, 8))),
             String(s.examId || ''),
-            String(s.examTitle || ''),
+            String(s.subject || meta.subject || ''),
+            String(s.examTitle || meta.title || ''),
             String(s.studentNo || ''),
             String(s.studentName || ''),
             String(s.classGrade || ''),
@@ -996,7 +961,8 @@ function doPost(e) {
           initDatabase();
           shSub = ss.getSheetByName(SHEETS.SUBMISSIONS);
         }
-        ensureMinColumns(shSub, CANONICAL_SUBMISSION_HEADERS.length);
+        const activeSubHeaders = ensureSubmissionSheetColumns(ss, shSub);
+        const examMetaMap = getExamMetaLookup(ss);
         const subVals = shSub.getDataRange().getValues();
         const subHdrs = subVals.length > 0 ? subVals[0].map(function(h) { return String(h || '').trim().toLowerCase(); }) : [];
         const cId = subHdrs.indexOf('id');
@@ -1039,25 +1005,28 @@ function doPost(e) {
           }
           if (alreadyExists) continue;
 
-          newSubRows.push([
-            zId,
-            String(item.examId || examId),
-            String(item.examTitle || ''),
-            String(item.studentNo || ''),
-            String(item.studentName || ''),
-            String(item.classGrade || ''),
-            '{}',
-            0,
-            Number(item.maxScore || 100),
-            0,
-            false,
-            String(item.submittedAt || formatLocalIso()),
-            0,
-            0,
-            String(item.feedback || 'Nilai 0 otomatis karena sesi ujian dihentikan secara permanen sebelum siswa mengerjakan.'),
-            String(item.statusNote || 'Nilai 0 (Ujian Dihentikan Permanen)'),
-            false
-          ]);
+          const meta = examMetaMap[examId.toLowerCase()] || {};
+          const zeroSubObj = {
+            id: zId,
+            examId: String(item.examId || examId),
+            subject: String(item.subject || meta.subject || ''),
+            examTitle: String(item.examTitle || meta.title || ''),
+            studentNo: String(item.studentNo || ''),
+            studentName: String(item.studentName || ''),
+            classGrade: String(item.classGrade || ''),
+            answers: '{}',
+            score: 0,
+            maxScore: Number(item.maxScore || 100),
+            percentage: 0,
+            passed: false,
+            submittedAt: String(item.submittedAt || formatLocalIso()),
+            tabSwitchCount: 0,
+            timeSpentSeconds: 0,
+            feedback: String(item.feedback || 'Nilai 0 otomatis karena sesi ujian dihentikan secara permanen sebelum siswa mengerjakan.'),
+            statusNote: String(item.statusNote || 'Nilai 0 (Ujian Dihentikan Permanen)'),
+            allowRepeat: false
+          };
+          newSubRows.push(buildSubmissionRowByHeaders(activeSubHeaders, zeroSubObj, meta));
 
           newDmRows.push([
             String(item.studentNo || ''),
@@ -1603,6 +1572,104 @@ function doPost(e) {
   } catch (err) {
     return jsonResponse({ status: 'error', message: err.toString() });
   }
+}
+
+function getExamMetaLookup(ss) {
+  const map = {};
+  if (!ss) return map;
+  const shEx = ss.getSheetByName(SHEETS.EXAMS);
+  if (!shEx || shEx.getLastRow() <= 1) return map;
+  const vals = shEx.getDataRange().getValues();
+  const hdrs = vals[0].map(function(h) { return normalizeGasHeader(h); });
+  const idCol = hdrs.indexOf('id');
+  const titleCol = hdrs.indexOf('examTitle') !== -1 ? hdrs.indexOf('examTitle') : hdrs.indexOf('title');
+  const subjCol = hdrs.indexOf('subject');
+  for (let i = 1; i < vals.length; i++) {
+    const id = idCol !== -1 ? String(vals[i][idCol] || '').trim().toLowerCase() : '';
+    if (!id) continue;
+    map[id] = {
+      title: titleCol !== -1 ? String(vals[i][titleCol] || '') : '',
+      subject: subjCol !== -1 ? String(vals[i][subjCol] || '') : ''
+    };
+  }
+  return map;
+}
+
+function ensureSubmissionSheetColumns(ss, shSubmissions) {
+  if (!shSubmissions) return CANONICAL_SUBMISSION_HEADERS.slice();
+  ensureMinColumns(shSubmissions, CANONICAL_SUBMISSION_HEADERS.length);
+  const lastCol = Math.max(1, shSubmissions.getLastColumn());
+  let headers = shSubmissions.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) {
+    return String(h || '').trim();
+  });
+  let lowerHeaders = headers.map(function(h) { return normalizeGasHeader(h).toLowerCase(); });
+
+  const examIdIdx = lowerHeaders.indexOf('examid');
+  const subjectIdx = lowerHeaders.indexOf('subject');
+  if (subjectIdx === -1) {
+    const insertAfterCol = examIdIdx !== -1 ? (examIdIdx + 1) : 2;
+    shSubmissions.insertColumnAfter(insertAfterCol);
+    shSubmissions.getRange(1, insertAfterCol + 1).setValue('subject');
+
+    // Backfill kolom subject dari sheet Exams untuk baris yang sudah ada
+    const lastRow = shSubmissions.getLastRow();
+    if (lastRow > 1 && examIdIdx !== -1) {
+      const examMetaMap = getExamMetaLookup(ss);
+      const exIdColNum = examIdIdx + 1;
+      const exIdVals = shSubmissions.getRange(2, exIdColNum, lastRow - 1, 1).getValues();
+      const subjFill = exIdVals.map(function(r) {
+        const key = String(r[0] || '').trim().toLowerCase();
+        return [(examMetaMap[key] && examMetaMap[key].subject) ? examMetaMap[key].subject : ''];
+      });
+      shSubmissions.getRange(2, insertAfterCol + 1, lastRow - 1, 1).setValues(subjFill);
+    }
+
+    headers = shSubmissions.getRange(1, 1, 1, shSubmissions.getLastColumn()).getValues()[0].map(function(h) {
+      return String(h || '').trim();
+    });
+    lowerHeaders = headers.map(function(h) { return normalizeGasHeader(h).toLowerCase(); });
+  }
+
+  if (lowerHeaders.indexOf('examtitle') === -1) {
+    const curSubjIdx = lowerHeaders.indexOf('subject');
+    const curExamIdIdx = lowerHeaders.indexOf('examid');
+    const insertAfterTitle = curSubjIdx !== -1 ? (curSubjIdx + 1) : (curExamIdIdx !== -1 ? (curExamIdIdx + 1) : 2);
+    shSubmissions.insertColumnAfter(insertAfterTitle);
+    shSubmissions.getRange(1, insertAfterTitle + 1).setValue('examTitle');
+    headers = shSubmissions.getRange(1, 1, 1, shSubmissions.getLastColumn()).getValues()[0].map(function(h) {
+      return String(h || '').trim();
+    });
+  }
+
+  formatHeaderRow(shSubmissions);
+  return headers.filter(Boolean);
+}
+
+function buildSubmissionRowByHeaders(headers, sub, examMeta) {
+  const cols = (Array.isArray(headers) && headers.length > 0) ? headers : CANONICAL_SUBMISSION_HEADERS;
+  const meta = examMeta || {};
+  return cols.map(function(h) {
+    const norm = normalizeGasHeader(h).toLowerCase();
+    if (norm === 'id') return String(sub.id || ('SUB-' + Utilities.getUuid().slice(0, 8)));
+    if (norm === 'examid') return String(sub.examId || '');
+    if (norm === 'subject') return String(sub.subject || meta.subject || '');
+    if (norm === 'examtitle') return String(sub.examTitle || meta.title || '');
+    if (norm === 'studentno') return String(sub.studentNo || '');
+    if (norm === 'studentname') return String(sub.studentName || '');
+    if (norm === 'grade' || norm === 'classgrade') return String(sub.classGrade || '');
+    if (norm === 'answersjson' || norm === 'answers') return typeof sub.answers === 'string' ? sub.answers : JSON.stringify(sub.answers || {});
+    if (norm === 'score') return Math.round(Number(sub.score || 0));
+    if (norm === 'maxscore') return Math.max(1, Math.round(Number(sub.maxScore || 100)));
+    if (norm === 'percentage') return Math.round(Number(sub.percentage || 0));
+    if (norm === 'passed') return Boolean(sub.passed);
+    if (norm === 'submittedat') return String(sub.submittedAt || formatLocalIso());
+    if (norm === 'tabswitchcount') return Number(sub.tabSwitchCount || 0);
+    if (norm === 'timespentseconds') return Number(sub.timeSpentSeconds || 0);
+    if (norm === 'feedback') return String(sub.feedback || '');
+    if (norm === 'statusnote') return String(sub.statusNote || 'Selesai');
+    if (norm === 'allowrepeat') return Boolean(sub.allowRepeat || sub.statusNote === 'Mengulang Ujian');
+    return '';
+  });
 }
 
 /**

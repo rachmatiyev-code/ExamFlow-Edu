@@ -1444,6 +1444,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     const submission: Submission = {
       id: `SUB-${Date.now()}`,
       examId: selectedExam.id,
+      subject: selectedExam.subject || '',
       examTitle: selectedExam.title,
       studentNo: studentNo.trim(),
       studentName: studentName.trim(),

@@ -1021,6 +1021,7 @@ interface ServerExamControl {
 
 interface ServerExamAttempt {
   examId: string;
+  subject?: string;
   examTitle?: string;
   studentNo: string;
   studentName: string;
@@ -1297,6 +1298,7 @@ apiRouter.post('/exam-attempts/record', (req, res) => {
 
     examAttemptsList.push({
       examId,
+      subject: b.subject ? String(b.subject).trim() : '',
       examTitle: b.examTitle ? String(b.examTitle).trim() : '',
       studentNo,
       studentName,
@@ -1379,6 +1381,7 @@ apiRouter.post('/exam-attempts/record-zero-unsubmitted', (req, res) => {
 
       examAttemptsList.push({
         examId,
+        subject: item.subject ? String(item.subject).trim() : '',
         examTitle: item.examTitle ? String(item.examTitle).trim() : '',
         studentNo: sNo,
         studentName: sName,

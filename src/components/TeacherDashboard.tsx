@@ -31,6 +31,7 @@ import { TeacherChatPanel } from './TeacherChatPanel';
 import { ClassroomSyncModal } from './ClassroomSyncModal';
 import { TpMasteryAnalysis } from './TpMasteryAnalysis';
 import { SubjectTpGradesView } from './SubjectTpGradesView';
+import { TodayExamParticipationCard } from './TodayExamParticipationCard';
 import { AksaraJawaModal } from './AksaraJawaModal';
 import { chatService } from '../services/chatService';
 import { MathRenderer } from '../services/mathRenderer';
@@ -3253,6 +3254,30 @@ const rekapDistinctGrades = useMemo(() => {
               </button>
             </div>
           )}
+
+          <TodayExamParticipationCard
+            exams={exams}
+            students={students}
+            submissions={safeSubmissions}
+            uiPreset={uiPreset}
+            onSelectSubjectFilter={(subject) => setExamSubjectFilter(subject)}
+            onCreateExam={() => {
+              setEditingExam({
+                title: '',
+                subject: '',
+                grade: 'X MIPA',
+                durationMinutes: 45,
+                passingScore: 75,
+                isStrict: true,
+                allowReview: true,
+                token: '',
+                status: 'active',
+                sessionStatus: 'scheduled',
+                attemptMode: 'single'
+              });
+              setIsExamModalOpen(true);
+            }}
+          />
 
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>

@@ -51,9 +51,12 @@ interface SubjectTpGradesViewProps {
 interface TpDefinition {
   key: string;
   description: string;
+  curriculumOutcome?: string;
+  curriculumElement?: string;
   orderIndex: number;
   fromCurriculum: boolean;
   questionOrders: number[];
+  questionTpLabels: string[];
   questionsByExam: Map<string, Question[]>;
   fallbackExamIds: Set<string>;
   totalQuestions: number;
@@ -225,6 +228,201 @@ const doesCurriculumMatchGrade = (currGrade: string | undefined, targetGrade: st
   return false;
 };
 
+const INDONESIAN_STOPWORDS = new Set([
+  'yang', 'dan', 'atau', 'dalam', 'pada', 'untuk', 'dari', 'dengan', 'secara', 'serta',
+  'para', 'oleh', 'hingga', 'sampai', 'seperti', 'adalah', 'yaitu', 'agar', 'supaya',
+  'peserta', 'didik', 'siswa', 'murid', 'mampu', 'dapat', 'bisa', 'soal', 'berikut',
+  'tentang', 'terhadap', 'antara', 'melalui', 'menjadi', 'memiliki', 'lain', 'nya', 'saat',
+  'ketika', 'bahwa', 'tersebut', 'ini', 'itu', 'lebih', 'kurang', 'baik', 'benar'
+]);
+
+const stripHtmlTags = (value: unknown): string =>
+  safeString(value).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+const stemIndoToken = (rawToken: string): string => {
+  let t = rawToken.toLowerCase().trim();
+  if (t.length <= 3) return t;
+  t = t.replace(/(kannya|annya|kan|an|nya|lah|kah|tah)$/, '');
+  const strippedPrefix = t.replace(
+    /^(meng|meny|mem|men|me|peng|peny|pem|pen|pe|ber|bel|ter|per|ke|di|se)/,
+    ''
+  );
+  if (strippedPrefix.length >= 3) {
+    t = strippedPrefix;
+  }
+  return t;
+};
+
+const extractStemTokens = (text: string): string[] => {
+  const cleaned = stripHtmlTags(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ');
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  tokens.forEach(tok => {
+    if (tok.length < 3 || INDONESIAN_STOPWORDS.has(tok)) return;
+    const stemmed = stemIndoToken(tok);
+    if (stemmed.length >= 3 && !INDONESIAN_STOPWORDS.has(stemmed) && !seen.has(stemmed)) {
+      seen.add(stemmed);
+      out.push(stemmed);
+    }
+  });
+  return out;
+};
+
+const tokensLooselyMatch = (a: string, b: string): boolean => {
+  if (a === b) return true;
+  if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))) {
+    return true;
+  }
+  return false;
+};
+
+const extractExplicitTpIndex = (text: string): number | null => {
+  const clean = safeString(text);
+  if (!clean) return null;
+  const tpPrefix = clean.match(/^(?:tp|tujuan\s*pembelajaran)\s*0*(\d+)(?:[.\-:)\s]|$)/i);
+  if (tpPrefix) return Number(tpPrefix[1]);
+  const numSubPrefix = clean.match(/^0*(\d+)\s*(?:\.\d+|[.)\-:])\s+/);
+  if (numSubPrefix) return Number(numSubPrefix[1]);
+  return null;
+};
+
+const matchQuestionToCurriculumTp = (
+  q: Question,
+  exam: Exam,
+  curriculumEntries: TpDefinition[]
+): TpDefinition | null => {
+  if (curriculumEntries.length === 0) return null;
+
+  const qTp = safeString(q.learningObjective);
+  const qInd = safeString(q.indicator);
+  const qCp = safeString(q.learningOutcome) || safeString(q.basicCompetency);
+  const examTps = normalizeLearningObjectives(exam.learningObjectives);
+  const tpFromExam =
+    examTps.length > 0 ? examTps[(Math.max(1, q.order || 1) - 1) % examTps.length] : '';
+
+  const priorityCandidates = [qTp, qInd, tpFromExam].filter(Boolean);
+
+  // 1. Exact atau stripped-prefix match terhadap teks TP dari Capaian & TP
+  for (const cand of priorityCandidates) {
+    const exactKey = normalizeTextKey(cand);
+    const exactHit = curriculumEntries.find(tp => tp.key === exactKey);
+    if (exactHit) return exactHit;
+
+    const matchKey = normalizeTpMatchKey(cand);
+    if (matchKey.length >= 5) {
+      const strippedHit = curriculumEntries.find(
+        tp => normalizeTpMatchKey(tp.description) === matchKey
+      );
+      if (strippedHit) return strippedHit;
+    }
+  }
+
+  // Filter kandidat CP jika soal mencantumkan CP/Elemen spesifik dan mapel punya >1 CP
+  const normQCp = normalizeTextKey(qCp);
+  const cpMatchedEntries =
+    normQCp.length >= 6
+      ? curriculumEntries.filter(tp => {
+          const normOut = normalizeTextKey(tp.curriculumOutcome);
+          const normEl = normalizeTextKey(tp.curriculumElement);
+          return (
+            (normOut && (normOut.includes(normQCp) || normQCp.includes(normOut))) ||
+            (normEl && (normQCp.includes(normEl) || normEl.includes(normQCp)))
+          );
+        })
+      : [];
+  const candidatePool = cpMatchedEntries.length > 0 ? cpMatchedEntries : curriculumEntries;
+
+  if (candidatePool.length === 1) {
+    return candidatePool[0];
+  }
+
+  // 2. Kode nomor eksplisit misal "TP 1", "TP 1.2", "1.1 ..." pada TP soal / indikator
+  for (const cand of [qTp, qInd].filter(Boolean)) {
+    const idx = extractExplicitTpIndex(cand);
+    if (idx !== null && idx >= 1) {
+      if (idx <= candidatePool.length) return candidatePool[idx - 1];
+      if (idx <= curriculumEntries.length) return curriculumEntries[idx - 1];
+    }
+  }
+
+  // 3. Substring containment (cukup panjang >= 12 karakter)
+  for (const cand of priorityCandidates) {
+    const nc = normalizeTpMatchKey(cand);
+    if (nc.length < 12) continue;
+    let bestSubHit: TpDefinition | null = null;
+    let bestLen = 0;
+    candidatePool.forEach(tp => {
+      const ntp = normalizeTpMatchKey(tp.description);
+      if (ntp.length >= 12 && (ntp.includes(nc) || nc.includes(ntp))) {
+        const overlapLen = Math.min(ntp.length, nc.length);
+        if (overlapLen > bestLen) {
+          bestLen = overlapLen;
+          bestSubHit = tp;
+        }
+      }
+    });
+    if (bestSubHit) return bestSubHit;
+  }
+
+  // 4. Kecocokan kata kunci (IDF-weighted Indonesian stem overlap) dari TP soal, indikator, dan teks soal
+  const dfMap = new Map<string, number>();
+  const tpTokensList = candidatePool.map(tp => {
+    const toks = extractStemTokens(tp.description);
+    toks.forEach(tok => dfMap.set(tok, (dfMap.get(tok) || 0) + 1));
+    return toks;
+  });
+
+  const weightedQueryTokens = new Map<string, number>();
+  const addWeighted = (text: string, weight: number) => {
+    extractStemTokens(text).forEach(tok => {
+      const prev = weightedQueryTokens.get(tok) || 0;
+      if (weight > prev) weightedQueryTokens.set(tok, weight);
+    });
+  };
+  if (qTp) addWeighted(qTp, 4);
+  if (qInd) addWeighted(qInd, 3);
+  if (tpFromExam) addWeighted(tpFromExam, 2);
+  if (q.prompt) addWeighted(q.prompt, 1);
+
+  if (weightedQueryTokens.size > 0) {
+    let bestTp: TpDefinition | null = null;
+    let bestScore = 0;
+    const totalDocs = Math.max(1, candidatePool.length);
+
+    candidatePool.forEach((tp, tpIdx) => {
+      const tpTokens = tpTokensList[tpIdx];
+      let score = 0;
+      tpTokens.forEach(tpTok => {
+        const df = dfMap.get(tpTok) || 1;
+        const idf = Math.log(1 + totalDocs / df);
+        let maxMatchWeight = 0;
+        weightedQueryTokens.forEach((w, qTok) => {
+          if (tokensLooselyMatch(tpTok, qTok) && w > maxMatchWeight) {
+            maxMatchWeight = w;
+          }
+        });
+        if (maxMatchWeight > 0) {
+          score += idf * maxMatchWeight;
+        }
+      });
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTp = tp;
+      }
+    });
+
+    if (bestTp && bestScore >= 0.8) {
+      return bestTp;
+    }
+  }
+
+  return null;
+};
+
 const isStaleAutoZero = (sub: Submission, exam?: Exam): boolean => {
   if (!exam || !StorageService.isExamSessionOpen(exam)) return false;
   return StorageService.isAutoZeroSubmission(sub);
@@ -358,7 +556,11 @@ export const SubjectTpGradesView: React.FC<SubjectTpGradesViewProps> = ({
       const tpMap = new Map<string, TpDefinition>();
       const tpMatchLookup = new Map<string, string>();
 
-      const ensureTpEntry = (desc: string, fromCurriculum: boolean): TpDefinition => {
+      const ensureTpEntry = (
+        desc: string,
+        fromCurriculum: boolean,
+        curriculumMeta?: { learningOutcome?: string; element?: string }
+      ): TpDefinition => {
         const tpKey = normalizeTextKey(desc);
         const matchKey = normalizeTpMatchKey(desc);
         const mappedKey = tpMap.has(tpKey) ? tpKey : (tpMatchLookup.get(matchKey) || tpKey);
@@ -368,9 +570,12 @@ export const SubjectTpGradesView: React.FC<SubjectTpGradesViewProps> = ({
           entry = {
             key: mappedKey,
             description: desc,
+            curriculumOutcome: curriculumMeta?.learningOutcome,
+            curriculumElement: curriculumMeta?.element,
             orderIndex: tpMap.size + 1,
             fromCurriculum,
             questionOrders: [],
+            questionTpLabels: [],
             questionsByExam: new Map<string, Question[]>(),
             fallbackExamIds: new Set<string>(),
             totalQuestions: 0
@@ -383,7 +588,7 @@ export const SubjectTpGradesView: React.FC<SubjectTpGradesViewProps> = ({
         return entry;
       };
 
-      // 1. PRIORITAS UTAMA: Inisialisasi TP terlebih dahulu dari menu Capaian & TP sesuai urutan input
+      // 1. PRIORITAS UTAMA: Gunakan daftar TP dari menu Capaian & TP sesuai urutan input
       const subjectCurriculumItems = effectiveCurriculum.filter(
         c => normalizeTextKey(c.subject) === subjectKey
       );
@@ -406,11 +611,17 @@ export const SubjectTpGradesView: React.FC<SubjectTpGradesViewProps> = ({
         normalizeLearningObjectives(c.learningObjectives).forEach(tpText => {
           const desc = safeString(tpText);
           if (!desc) return;
-          ensureTpEntry(desc, true);
+          ensureTpEntry(desc, true, {
+            learningOutcome: safeString(c.learningOutcome),
+            element: safeString(c.element)
+          });
         });
       });
 
-      // 2. Petakan soal-soal & paket ujian ke TP yang sesuai (TP non-kurikulum ditambahkan setelahnya)
+      const curriculumEntries = Array.from(tpMap.values());
+      const hasCurriculumTps = curriculumEntries.length > 0;
+
+      // 2. Petakan soal-soal (TP soal) ke TP Capaian & TP agar nilainya dirata-rata per TP mapel
       const sortedExams = [...group.exams].sort((a, b) =>
         safeString(a.createdAt || a.title).localeCompare(safeString(b.createdAt || b.title), 'id')
       );
@@ -422,34 +633,74 @@ export const SubjectTpGradesView: React.FC<SubjectTpGradesViewProps> = ({
         const examTps = normalizeLearningObjectives(exam.learningObjectives);
 
         examQuestions.forEach(q => {
-          const tpFromExam =
-            examTps.length > 0 ? examTps[(Math.max(1, q.order || 1) - 1) % examTps.length] : '';
-          const desc =
-            safeString(q.learningObjective) ||
-            safeString(q.indicator) ||
-            tpFromExam ||
-            `Tujuan Pembelajaran Soal #${q.order || 1}`;
+          let tpEntry: TpDefinition | null = null;
 
-          const tpEntry = ensureTpEntry(desc, false);
+          if (hasCurriculumTps) {
+            // Jika mapel sudah punya TP di Capaian & TP, JANGAN buat kolom TP baru dari TP soal;
+            // petakan soal ini ke salah satu TP Capaian & TP yang sesuai.
+            tpEntry = matchQuestionToCurriculumTp(q, exam, curriculumEntries);
+          } else {
+            // Fallback bila mapel belum memiliki data sama sekali di menu Capaian & TP
+            const tpFromExam =
+              examTps.length > 0 ? examTps[(Math.max(1, q.order || 1) - 1) % examTps.length] : '';
+            const desc =
+              safeString(q.learningObjective) ||
+              safeString(q.indicator) ||
+              tpFromExam ||
+              `Tujuan Pembelajaran Soal #${q.order || 1}`;
+            tpEntry = ensureTpEntry(desc, false);
+          }
+
+          if (!tpEntry) return;
 
           if (q.order && !tpEntry.questionOrders.includes(q.order)) {
             tpEntry.questionOrders.push(q.order);
           }
+          const qTpLabel = safeString(q.learningObjective) || safeString(q.indicator);
+          if (
+            qTpLabel &&
+            normalizeTextKey(qTpLabel) !== tpEntry.key &&
+            !tpEntry.questionTpLabels.some(lbl => normalizeTextKey(lbl) === normalizeTextKey(qTpLabel))
+          ) {
+            tpEntry.questionTpLabels.push(qTpLabel);
+          }
+
           const listForExam = tpEntry.questionsByExam.get(exam.id) || [];
           listForExam.push(q);
           tpEntry.questionsByExam.set(exam.id, listForExam);
           tpEntry.totalQuestions += 1;
         });
 
-        // Tambahkan TP dari konfigurasi paket ujian jika belum muncul di daftar soal
-        examTps.forEach(tpText => {
-          const desc = safeString(tpText);
-          if (!desc) return;
-          const tpEntry = ensureTpEntry(desc, false);
-          if (examQuestions.length === 0) {
-            tpEntry.fallbackExamIds.add(exam.id);
+        // Fallback untuk paket ujian tanpa daftar butir soal (hanya saat TP belum diuji lewat soal)
+        if (examQuestions.length === 0 && examTps.length > 0) {
+          if (hasCurriculumTps) {
+            examTps.forEach(tpText => {
+              const syntheticQ: Question = {
+                id: `synthetic-${exam.id}`,
+                examId: exam.id,
+                order: 1,
+                prompt: '',
+                type: 'multiple_choice',
+                mediaType: 'none',
+                options: [],
+                correctKey: '',
+                points: 1,
+                learningObjective: tpText
+              };
+              const matched = matchQuestionToCurriculumTp(syntheticQ, exam, curriculumEntries);
+              if (matched) {
+                matched.fallbackExamIds.add(exam.id);
+              }
+            });
+          } else {
+            examTps.forEach(tpText => {
+              const desc = safeString(tpText);
+              if (!desc) return;
+              const tpEntry = ensureTpEntry(desc, false);
+              tpEntry.fallbackExamIds.add(exam.id);
+            });
           }
-        });
+        }
       });
 
       const tps = Array.from(tpMap.values()).map((tp, idx) => ({
@@ -627,12 +878,11 @@ export const SubjectTpGradesView: React.FC<SubjectTpGradesViewProps> = ({
 
     group.tps.forEach((tp, idx) => {
       const code = `Tujuan Pembelajaran ${idx + 1}`;
-      let totalMaxPoints = 0;
-      let totalEarnedPoints = 0;
+      const tpSoalScores: number[] = [];
       let hasTestedQuestionSubmission = false;
       const fallbackPercentages: number[] = [];
 
-      // Cek setiap paket ujian yang memiliki butir soal pada TP ini
+      // Cek setiap paket ujian yang memiliki butir soal pada TP ini, lalu hitung rerata TP soal
       tp.questionsByExam.forEach((qs, exId) => {
         const sub = examSubMap.get(exId);
         if (!sub) return;
@@ -642,12 +892,27 @@ export const SubjectTpGradesView: React.FC<SubjectTpGradesViewProps> = ({
         const hasDetailedAnswers = Object.keys(safeAns).length > 0;
 
         if (hasDetailedAnswers && qs.length > 0) {
+          // Kelompokkan soal berdasarkan TP soal-nya; jika tiap soal punya TP soal masing-masing,
+          // tiap TP soal dihitung nilainya (0-100) lalu dirata-rata menjadi nilai TP mata pelajaran.
+          const subTpBuckets = new Map<string, { earned: number; max: number }>();
           qs.forEach(q => {
+            const subTpRaw = safeString(q.learningObjective) || safeString(q.indicator);
+            const bucketKey = subTpRaw
+              ? `${exId}::${normalizeTextKey(subTpRaw)}`
+              : `${exId}::q::${q.id}`;
             const pts = Math.max(1, Number(q.points) || 1);
-            totalMaxPoints += pts;
             const ans = safeAns[q.id];
-            if (AnalysisService.isAnswerCorrect(q, ans)) {
-              totalEarnedPoints += pts;
+            const isCorrect = AnalysisService.isAnswerCorrect(q, ans);
+
+            const cur = subTpBuckets.get(bucketKey) || { earned: 0, max: 0 };
+            cur.max += pts;
+            if (isCorrect) cur.earned += pts;
+            subTpBuckets.set(bucketKey, cur);
+          });
+
+          subTpBuckets.forEach(bucket => {
+            if (bucket.max > 0) {
+              tpSoalScores.push((bucket.earned / bucket.max) * 100);
             }
           });
         } else {
@@ -668,8 +933,10 @@ export const SubjectTpGradesView: React.FC<SubjectTpGradesViewProps> = ({
 
       let score: number | null = null;
       if (hasTestedQuestionSubmission) {
-        if (totalMaxPoints > 0) {
-          score = Math.round((totalEarnedPoints / totalMaxPoints) * 100);
+        if (tpSoalScores.length > 0) {
+          score = Math.round(
+            tpSoalScores.reduce((sum, val) => sum + val, 0) / tpSoalScores.length
+          );
         } else if (fallbackPercentages.length > 0) {
           score = Math.round(
             fallbackPercentages.reduce((a, b) => a + b, 0) / fallbackPercentages.length
@@ -915,7 +1182,7 @@ export const SubjectTpGradesView: React.FC<SubjectTpGradesViewProps> = ({
               Daftar Nilai per Mata Pelajaran & Tujuan Pembelajaran
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Menampilkan capaian nilai setiap Tujuan Pembelajaran (TP 1, TP 2, ...) sesuai data dan urutan input pada menu Capaian & TP, rerata, serta jumlah TP pada KKM, di atas KKM, dan di bawah KKM dalam mode klasikal atau individu siswa.
+              Daftar TP menggunakan urutan input pada menu Capaian & TP, dan nilai tiap TP dihitung dari rerata TP soal yang terpetakan padanya, lengkap dengan rerata serta jumlah TP pada KKM, di atas KKM, dan di bawah KKM.
             </p>
           </div>
         </div>
@@ -1637,7 +1904,7 @@ export const SubjectTpGradesView: React.FC<SubjectTpGradesViewProps> = ({
                           {tp.description}
                           {tp.questionOrders.length > 0 && (
                             <span className="text-[11px] text-slate-400 dark:text-slate-500 ml-1.5 font-mono">
-                              (Soal #{tp.questionOrders.join(', ')})
+                              ({tp.totalQuestions} Soal: #{tp.questionOrders.join(', ')})
                             </span>
                           )}
                         </span>

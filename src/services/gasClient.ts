@@ -332,6 +332,7 @@ export class GasClient {
           return {
             id: String(s.id || `SUB-${Date.now()}`),
             examId: String(s.examId || ''),
+            subject: String(s.subject || s['Mata Pelajaran'] || s['Mapel'] || matchedExam?.subject || ''),
             examTitle: String(s.examTitle || s['Nama Paket Ujian'] || s['Paket Ujian'] || matchedExam?.title || ''),
             studentNo: String(s.studentNo || ''),
             studentName: String(s.studentName || ''),
@@ -771,6 +772,7 @@ export class GasClient {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           examId: submission.examId,
+          subject: submission.subject || examObj?.subject || '',
           examTitle: submission.examTitle || examObj?.title || '',
           studentNo: submission.studentNo,
           studentName: submission.studentName,
@@ -809,6 +811,7 @@ export class GasClient {
       return json.attempts.map((a: any): Submission => ({
         id: String(a.submissionId || `SUB-${a.examId}-${a.studentNo}`),
         examId: String(a.examId || ''),
+        subject: String(a.subject || ''),
         examTitle: String(a.examTitle || ''),
         studentNo: String(a.studentNo || ''),
         studentName: String(a.studentName || ''),
@@ -871,6 +874,7 @@ export class GasClient {
     const examObj = StorageService.getExamById(submission.examId);
     const enrichedSubmission: Submission = StorageService.normalizeSubmissionScores({
       ...submission,
+      subject: submission.subject || examObj?.subject || '',
       examTitle: submission.examTitle || examObj?.title || ''
     });
     
@@ -1201,6 +1205,7 @@ export class GasClient {
       return {
         id: `SUB-STOP0-${cleanExamPart}-${cleanNoPart}`,
         examId,
+        subject: exam?.subject || '',
         examTitle: exam?.title || '',
         studentNo: st.studentNo,
         studentName: st.fullName,
@@ -1453,6 +1458,7 @@ export class GasClient {
           const ex = allExams.find(e => String(e.id).trim().toLowerCase() === String(s.examId || '').trim().toLowerCase());
           return {
             ...s,
+            subject: s.subject || ex?.subject || '',
             examTitle: s.examTitle || ex?.title || '',
             syncStatus: 'synced'
           };
